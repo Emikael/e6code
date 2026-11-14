@@ -1,4 +1,4 @@
-import { StockAccent } from "@e6tools/contracts/settings";
+import { DEFAULT_STOCK_ACCENT, StockAccent } from "@e6tools/contracts/settings";
 import { STOCK_ACCENT_PALETTES } from "@e6tools/shared/themePalettes";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -23,40 +23,50 @@ function contrastRatio(first: string, second: string): number {
 const APPEARANCES = ["light", "dark"] as const;
 
 describe("getStockAccentVariableOverrides", () => {
-  it("leaves Iris and every other theme exactly as generated", () => {
+  it("leaves the default accent and every other theme exactly as generated", () => {
     for (const appearance of APPEARANCES) {
-      expect(getStockAccentVariableOverrides(DEFAULT_MOBILE_THEME_ID, "iris", appearance)).toEqual(
-        {},
-      );
+      expect(
+        getStockAccentVariableOverrides(DEFAULT_MOBILE_THEME_ID, DEFAULT_STOCK_ACCENT, appearance),
+      ).toEqual({});
       expect(getStockAccentVariableOverrides("ocean", "rose", appearance)).toEqual({});
       // Material You brings the system accent.
       expect(getStockAccentVariableOverrides("material-you", "rose", appearance)).toEqual({});
     }
   });
 
-  it.each(APPEARANCES)(
-    "generates the stock palette with Iris's shared values in %s",
-    (appearance) => {
-      // Text and links must not shift when another accent is picked and back, and must match web.
-      const iris = STOCK_ACCENT_PALETTES.iris[appearance];
-      for (const platform of ["ios", "android"]) {
-        const variables = getMobileThemeRuntimeVariables(
-          DEFAULT_MOBILE_THEME_ID,
-          appearance,
-          platform,
-        );
-        expect(variables).toMatchObject({
-          "--color-primary": iris.primary,
-          "--color-primary-foreground": iris.primaryForeground,
-          "--color-primary-text": iris.primaryText,
-          "--color-primary-edge": iris.primaryEdge,
-          "--color-md-link": iris.primaryText,
-          "--color-user-bubble-skill-foreground": iris.primaryText,
-          "--color-merged-foreground": iris.mergedForeground,
-        });
-      }
-    },
-  );
+  it.each(APPEARANCES)("draws Iris over the Graphite palette in %s", (appearance) => {
+    const iris = STOCK_ACCENT_PALETTES.iris[appearance];
+    expect(
+      getStockAccentVariableOverrides(DEFAULT_MOBILE_THEME_ID, "iris", appearance),
+    ).toMatchObject({
+      "--color-primary": iris.primary,
+      "--color-primary-text": iris.primaryText,
+      "--color-merged-foreground": iris.mergedForeground,
+    });
+  });
+
+  it.each(APPEARANCES)("generates the stock palette in the default accent in %s", (appearance) => {
+    // Before the stored accent loads the app shows the generated palette,
+    // so it must already wear the default (Graphite), as on web.
+    expect(DEFAULT_STOCK_ACCENT).toBe("graphite");
+    const graphite = STOCK_ACCENT_PALETTES.graphite[appearance];
+    for (const platform of ["ios", "android"]) {
+      const variables = getMobileThemeRuntimeVariables(
+        DEFAULT_MOBILE_THEME_ID,
+        appearance,
+        platform,
+      );
+      expect(variables).toMatchObject({
+        "--color-primary": graphite.primary,
+        "--color-primary-foreground": graphite.primaryForeground,
+        "--color-primary-text": graphite.primaryText,
+        "--color-primary-edge": graphite.primaryEdge,
+        "--color-md-link": graphite.primaryText,
+        "--color-user-bubble-skill-foreground": graphite.primaryText,
+        "--color-merged-foreground": graphite.mergedForeground,
+      });
+    }
+  });
 
   it("replaces only the primary and merged families on the stock palette", () => {
     const overrides = getStockAccentVariableOverrides(DEFAULT_MOBILE_THEME_ID, "cobalt", "light");
@@ -135,6 +145,9 @@ describe("getStockAccentTerminalCursor", () => {
     );
     expect(getStockAccentTerminalCursor(DEFAULT_MOBILE_THEME_ID, "rose", "light")).toBeNull();
     expect(getStockAccentTerminalCursor(DEFAULT_MOBILE_THEME_ID, "iris", "dark")).toBeNull();
+    expect(
+      getStockAccentTerminalCursor(DEFAULT_MOBILE_THEME_ID, DEFAULT_STOCK_ACCENT, "dark"),
+    ).toBe(STOCK_ACCENT_PALETTES.graphite.dark.primary);
     expect(getStockAccentTerminalCursor("ocean", "rose", "dark")).toBeNull();
   });
 });

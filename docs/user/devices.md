@@ -18,7 +18,7 @@ device to boot it. The panel shows when you or an agent starts a device.
 Each device opens in its own tab. Use **+ → Device** to open another, and
 double-click a tab name or choose **Rename** from its context menu to rename it.
 Only the visible tab streams video; switching tabs keeps both devices running.
-Choose **Float device over chat** in the toolbar to keep watching and tapping the
+Choose **Float over chat** from the panel's **More** menu to keep watching and tapping the
 device in a small window while the right panel shows something else; drag the
 window by its handle, resize it from any edge, and use **Open in right panel**
 to bring it back.
@@ -33,15 +33,15 @@ Studio's Device Manager. E6 Code detects standard SDK locations; set
 `ANDROID_HOME` for a custom location. The panel explains missing dependencies.
 After installing them, restart the environment server and refresh devices.
 
-The screen is interactive: click and drag to touch, type while the screen is
-focused, and use the toolbar for Home, Back, and Recents on Android, rotate on
-iOS, and power off. Close the tab to stop watching; the device keeps running
+The screen is interactive: click and drag to touch, and type while the screen is
+focused. **Rotate** on iOS is in the panel's header. Home, Back and Recents on Android, and
+**Power off**, are in its **More** menu. Close the tab to stop watching; the device keeps running
 unless you power it off. Closed tabs stay closed after a reload. To watch the
 device again, choose it from **+ → Device**.
 
-## Tools
+## Device settings
 
-The toolbar's **Tools** button opens a drawer for the open device. It shows the
+**Device settings** in the panel's header opens a drawer for the open device. It shows the
 foreground app, and lets you switch light and dark mode, change text size,
 flip accessibility settings, overlay the accessibility element frames on the
 screen, set a fake location, and grant or revoke app permissions. iOS also

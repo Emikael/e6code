@@ -90,6 +90,7 @@ import type {
 import type { SubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { approvalFeedbackAgentName } from "@e6tools/client-runtime/approval-feedback";
+import type { ApprovalAnswerState } from "@e6tools/client-runtime/approval-answers";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -117,6 +118,9 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed } from "./ThreadFeed";
+import { ThreadRecapHost } from "./ThreadRecapCard";
+import { BriefNotice } from "../../components/BriefNotice";
+import { threadAgentName } from "./threadListV2";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 import { SubagentRequestsContext } from "./thread-work-log";
@@ -154,7 +158,8 @@ export interface ThreadDetailScreenProps {
   readonly subagentRequests?: ReadonlyMap<string, SubagentUserRequest>;
   /** Title of the subagent behind activePendingUserInput, when one asked. */
   readonly activePendingUserInputAgentTitle?: string | null;
-  readonly respondingApprovalId: ApprovalRequestId | null;
+  /** The shown approval's answer: in flight, acknowledged, or not yet given. */
+  readonly activeApprovalAnswerState: ApprovalAnswerState | null;
   readonly activePendingUserInput: PendingUserInput | null;
   readonly activePendingUserInputDrafts: Record<string, PendingUserInputDraftAnswer>;
   readonly activePendingUserInputAnswers: Record<string, string | ReadonlyArray<string>> | null;
@@ -302,6 +307,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       threadId: props.selectedThread.id,
     });
   }, [navigation, props.environmentId, props.selectedThread.id]);
+  // The now bar's chevron: Run details leads with the plan's steps.
+  const openRunDetails = useCallback(() => {
+    Keyboard.dismiss();
+    navigation.navigate("ThreadInspector", {
+      environmentId: String(props.environmentId),
+      threadId: String(props.selectedThread.id),
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
+  const openChanges = useCallback(() => {
+    Keyboard.dismiss();
+    navigation.navigate("ThreadReview", {
+      environmentId: props.environmentId,
+      threadId: props.selectedThread.id,
+    });
+  }, [navigation, props.environmentId, props.selectedThread.id]);
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
@@ -345,6 +365,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   draftMessageRef.current = props.draftMessage;
   const composerOverlayRef = useRef<View>(null);
   const listRef = useRef<LegendListRef>(null);
+  // The recap's "You asked" scrolls the feed to that message (F4).
+  const [revealMessage, setRevealMessage] = useState<{
+    readonly messageId: string;
+    readonly nonce: number;
+  } | null>(null);
+  const revealRecapAsk = useCallback(
+    (messageId: string) =>
+      setRevealMessage((current) => ({
+        messageId,
+        nonce: (current?.nonce ?? 0) + 1,
+      })),
+    [],
+  );
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const selectedThreadKeyRef = useRef(selectedThreadKey);
   const lastScrolledSubmittedMessageIdRef = useRef<MessageId | null>(null);
@@ -427,6 +460,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       isCompacting: props.isCompacting,
       agentState: props.selectedThread.agentState,
       activeWorkStartedAt: props.activeWorkStartedAt,
+      planProgress: props.selectedThread.planProgress,
+      onOpenRunDetails: openRunDetails,
     });
   })();
   const showWorkingControl = floatingStatus !== null;
@@ -945,6 +980,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               listRef={listRef}
               freeze={freeze}
               anchorMessageId={anchorMessageId}
+              revealMessage={revealMessage}
               submittedMessageId={submittedMessageId}
               contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
               contentTopInset={0}
@@ -1031,6 +1067,28 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     {props.handoffCard}
                   </Animated.View>
                 ) : null}
+                {/* "Parked", after a thought is parked from the Thread options menu. */}
+                <BriefNotice />
+                <ThreadRecapHost
+                  environmentId={props.environmentId}
+                  threadId={props.selectedThread.id}
+                  provider={threadAgentName(props.selectedThread)}
+                  // A request or a failed creation owns this space; the recap waits.
+                  visible={
+                    activeUserInputRequestId === null &&
+                    props.activePendingApproval === null &&
+                    props.activePendingUserInput === null &&
+                    props.creationState === null
+                  }
+                  onOpenChanges={openChanges}
+                  onRevealAsk={revealRecapAsk}
+                  onEditNote={() =>
+                    navigation.navigate("ThreadNote", {
+                      environmentId: props.environmentId,
+                      threadId: props.selectedThread.id,
+                    })
+                  }
+                />
                 {props.creationState?.kind === "failed" ? (
                   <Animated.View
                     className="shrink-0 px-4"
@@ -1070,7 +1128,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                           ),
                         )}
                         agentTitle={props.activePendingApprovalAgentTitle ?? null}
-                        respondingApprovalId={props.respondingApprovalId}
+                        answerState={props.activeApprovalAnswerState}
+                        agentName={threadAgentName(props.selectedThread)}
                         onRespond={props.onRespondToApproval}
                       />
                     ) : null}
@@ -1113,7 +1172,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   editorRef={composerEditorRef}
                   draftMessage={props.draftMessage}
                   draftAttachments={props.draftAttachments}
-                  placeholder="Ask the repo agent, or run a command…"
+                  // Board 9: while the agent works, what you send waits its turn.
+                  placeholder={
+                    props.selectedThread.session?.status === "running" ||
+                    props.selectedThread.session?.status === "starting"
+                      ? "Queue a follow-up"
+                      : "Ask the repo agent, or run a command…"
+                  }
                   contentMaxWidth={contentMaxWidth}
                   connectionState={props.connectionStateLabel}
                   environmentLabel={props.environmentLabel}

@@ -71,6 +71,14 @@ returns to the remembered selection.
 
 Leaving reasoning level or service tier unset uses the provider's own configuration.
 
+## Effort, permissions, and mode
+
+On web and desktop, a thread's reasoning effort, [permission mode](./permission-modes.md), and
+Plan or Build share one control beside the model. It names their current values and any model
+option you set away from its default, such as Fast, so nothing that differs from the default is
+hidden. To show them as separate controls, set **Settings → Attention → Composer controls** to
+**Full**. See [keybindings](./keybindings.md#composer-controls) for their shortcuts.
+
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose
@@ -83,7 +91,7 @@ is unavailable or has changed, the saved quote remains readable.
 The chip shows your comment when it has one, or a short quote preview otherwise. Use the pencil
 button to add or change the comment. To remove the citation, place the caret beside its chip and
 delete it like other inline context. Copying, reloading, and restoring a
-[stashed prompt](#prompt-stash) keep each comment
+[parked draft](#park-a-draft) keep each comment
 with its quote, and sending tells the agent which words were quoted and which comment you wrote.
 The quoted text and comment count toward the message limit.
 
@@ -118,14 +126,16 @@ This removes the selected message and later conversation from the active thread
 and provider history. It does not undo external actions or separate provider
 memory. The action is available only when the provider supports rewind.
 
-## Prompt stash
+## Park a draft
 
-On web and desktop, press `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux to save
-the current prompt and its attachments for later. Wait for uploads to finish first.
-With an empty composer, the same shortcut restores a single stash or opens the
-stash menu when there are several.
+On web and desktop, choose **Park it** in the composer, or press `Cmd+S` on macOS or `Ctrl+S` on
+Windows and Linux, to set the current prompt and its attachments aside for later. Wait for uploads
+to finish first. With an empty composer, the same shortcut restores a single parked draft or opens
+the composer's **Parked** menu when there are several. Parked drafts stay in this browser or app.
+For a one-line thought you want to keep without a draft, see
+[Set a thought aside](./attention.md#set-a-thought-aside).
 
-Stashes containing uploaded files must be restored in their original environment.
+Parked drafts containing uploaded files must be restored in their original environment.
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
@@ -161,12 +171,16 @@ provider supports it. Web and desktop also offer compaction from the context met
 
 ## Context in your message
 
-Context you attach lands where your cursor is, as a chip inside your text: a terminal excerpt,
-a review comment from a diff or file, a preview annotation, or a file. You can type before and
-after a chip, move it by cutting and pasting, and delete it like a character. Hover a chip for
-its brief details. Select a terminal excerpt to open its captured output, or select a review
-comment, picked element, or preview annotation to open its full details. Chips read as "Terminal
-excerpt, Terminal 1 lines 3-4" and similar to screen readers.
+A file or a picked page element you attach lands where your cursor is, as a chip inside your
+text. You can type before and after a chip, move it by cutting and pasting, and delete it like a
+character. Hover a chip for its brief details, or select a picked element to open its full
+details. Screen readers announce each chip by its kind and name.
+
+On web and desktop, comments you leave on a diff or a file, notes from the Browser tab, and
+terminal output are listed under **Attached** in the composer instead, grouped by kind. They are
+sent with your next message; remove any you no longer want there. To add terminal output, select
+it and choose **Add to message**. In the Browser tab, **Annotate** keeps adding notes, each with a
+screenshot, until you finish annotating or press Escape.
 
 A pull request appears as its icon and number. Its color reflects whether it was open, draft,
 merged, or closed when it was attached. Select it to inspect the captured title and branches,
@@ -189,7 +203,7 @@ context is no longer available shows the same dashed outline; hover it for what 
 
 Copying a message with the copy button, or copying text out of it, gives other apps readable
 Markdown with a link in place of each chip. Older messages that were sent before chips still
-show their context. Stashing a prompt keeps its chips and what they point to; restoring brings
+show their context. Parking a draft keeps its chips and what they point to; restoring brings
 them back.
 
 On mobile, tap a chip to inspect its content. File references open the current file; attached

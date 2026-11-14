@@ -1,11 +1,13 @@
 import type {
+  OrchestrationAggregateKind,
   OrchestrationClientOrigin,
   OrchestrationEvent,
   OrchestrationReadModel,
+  ParkedListId,
   ProjectId,
   ThreadId,
 } from "@e6tools/contracts";
-import { OrchestrationCommand } from "@e6tools/contracts";
+import { OrchestrationCommand, PARKED_LIST_ID } from "@e6tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -62,10 +64,16 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+  readonly aggregateKind: OrchestrationAggregateKind;
+  readonly aggregateId: ProjectId | ThreadId | ParkedListId;
 } {
   switch (command.type) {
+    case "parked.thought.add":
+    case "parked.thought.update":
+    case "parked.entry.remove":
+    case "parked.note.set":
+    case "parked.import":
+      return { aggregateKind: "parked", aggregateId: PARKED_LIST_ID };
     case "project.create":
     case "project.meta.update":
     case "project.delete":
@@ -242,11 +250,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           envelope.command.type === "thread.user-input.dismiss"
             ? yield* projectionSnapshotQuery.getUserInputActivity(envelope.command)
             : Option.none();
+        // The command model does not track whether an approval was answered.
+        const approvalRequestStatus =
+          envelope.command.type === "thread.approval.respond"
+            ? yield* projectionSnapshotQuery.getApprovalRequestStatus(envelope.command)
+            : Option.none();
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
+            : {}),
+          ...(Option.isSome(approvalRequestStatus)
+            ? { approvalRequestStatus: approvalRequestStatus.value }
             : {}),
         }).pipe(
           Effect.provideService(Crypto.Crypto, crypto),

@@ -7,6 +7,7 @@ import {
   formatRelativeTime,
   formatRelativeTimeLabel,
   formatShortTimestamp,
+  formatWeekdayDayMonth,
   getRelativeTimeState,
   resolveTimestampLocale,
 } from "./timestampFormat";
@@ -226,5 +227,13 @@ describe("formatElapsedDurationLabel", () => {
     expect(formatElapsedDurationLabel("2026-04-07T11:45:00.000Z")).toBe("15m");
     expect(formatElapsedDurationLabel("2026-04-07T06:00:00.000Z")).toBe("6h");
     expect(formatElapsedDurationLabel("2026-04-03T12:00:00.000Z")).toBe("4d");
+  });
+});
+
+describe("formatWeekdayDayMonth", () => {
+  it("reads weekday, day, month whatever order the locale prefers", () => {
+    const day = new Date(2026, 10, 11, 15);
+    expect(formatWeekdayDayMonth(day, "en-US")).toBe("Wed 11 Nov");
+    expect(formatWeekdayDayMonth(day, "en-GB")).toBe("Wed 11 Nov");
   });
 });

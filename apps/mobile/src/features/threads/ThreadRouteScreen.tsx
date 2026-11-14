@@ -8,8 +8,20 @@ import { useWorktreeSetup } from "./use-worktree-setup";
 import { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenHeaderButton } from "../../components/ScreenHeaderButton";
-import type { ScreenHeaderAction } from "../../components/ScreenHeader.types";
+import type { ScreenHeaderAction, ScreenHeaderMenu } from "../../components/ScreenHeader.types";
+import { requestThreadRecap } from "./ThreadRecapCard";
+import { useAtomValue } from "@effect/atom-react";
+import { resolveSnoozePresets } from "@e6tools/client-runtime/state/thread-settled";
+import {
+  selectSnoozedThreads,
+  selectThreadsToSnoozeExcept,
+} from "@e6tools/client-runtime/state/thread-attention";
+import { useThreadShells } from "../../state/entities";
+import { environmentServerConfigsAtom } from "../../state/server";
+import { useThreadListActions } from "../home/useThreadListActions";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
+import { useParkedNavigation } from "../parked/useParkedNavigation";
+import { useThreadNote } from "../parked/useThreadNote";
 import {
   StackActions,
   useFocusEffect,
@@ -101,7 +113,22 @@ import { useThreadSubagentPanelModel } from "./ThreadInspectorSheet";
 import { inspectorButtonAccessibilityLabel } from "./thread-inspector-lineage";
 
 function ThreadHeader(
-  props: Parameters<typeof useThreadHeaderOptions>[0] & {
+  props: Omit<Parameters<typeof useThreadHeaderOptions>[0], "threadOptions"> & {
+    /** "branch · project · machine · connected": a phone's options menu leads with it. */
+    readonly contextLine: string;
+    readonly onWhereWasI: () => void;
+    /** F7: park a thought filed under this thread's project. */
+    readonly onParkThought: () => void;
+    /** F4: "Add note to self", or "Edit note" when the thread has one. */
+    readonly noteActionLabel: string;
+    readonly onEditNote: () => void;
+    /** F1's "Snooze everything except this thread", one entry per snooze preset. */
+    readonly snoozeOthers: ReadonlyArray<{
+      readonly label: string;
+      readonly whenLabel: string;
+      readonly onPress: () => void;
+    }>;
+    readonly onWakeAllSnoozed: () => void;
     readonly hasThreadCwd: boolean;
     readonly hasWorkspaceRoot: boolean;
     readonly fileInspectorSupported: boolean;
@@ -114,7 +141,101 @@ function ThreadHeader(
   const navigation = useNavigation();
   const { layout, panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { inspectorControl, onOpenTerminal } = props.gitControls;
-  const native = useThreadHeaderOptions(props);
+  const { contextLine, onWhereWasI, onParkThought, noteActionLabel, onEditNote } = props;
+  const { snoozeOthers, onWakeAllSnoozed } = props;
+  const threadOptions = useMemo(
+    () => ({
+      leading: contextLine
+        ? [{ label: contextLine, disabled: true, onPress: () => undefined }]
+        : [],
+      trailing: [
+        { label: "Where was I?", icon: "clock.arrow.circlepath", onPress: onWhereWasI },
+        { label: noteActionLabel, icon: "pencil", onPress: onEditNote },
+        { label: "Park a thought", icon: "lightbulb", onPress: onParkThought },
+        {
+          label: "Snooze everything except this thread",
+          icon: "moon.zzz",
+          items: snoozeOthers.map((preset) => ({
+            label: preset.label,
+            description: preset.whenLabel,
+            onPress: preset.onPress,
+          })),
+        },
+        { label: "Wake all snoozed threads", icon: "sun.max", onPress: onWakeAllSnoozed },
+      ],
+    }),
+    [
+      contextLine,
+      noteActionLabel,
+      onEditNote,
+      onParkThought,
+      onWakeAllSnoozed,
+      onWhereWasI,
+      snoozeOthers,
+    ],
+  );
+  const native = useThreadHeaderOptions({ ...props, threadOptions });
+  // Board 9 on an Android phone: the title and one "Thread options" menu
+  // holding every action the header showed as an icon.
+  const androidThreadOptionsMenu = useMemo<ScreenHeaderMenu>(
+    () => ({
+      title: "Thread options",
+      icon: "ellipsis",
+      items: [
+        ...(contextLine
+          ? [{ id: "context", title: contextLine, disabled: true, onPress: () => undefined }]
+          : []),
+        ...(inspectorControl
+          ? [
+              {
+                id: "run-details",
+                title: "Run details",
+                ...(inspectorControl.badgeCount > 0
+                  ? { subtitle: `${inspectorControl.badgeCount} running` }
+                  : {}),
+                onPress: inspectorControl.onPress,
+              },
+            ]
+          : []),
+        ...(props.hasThreadCwd
+          ? [{ id: "files", title: "Files", onPress: props.onOpenFilesInspector }]
+          : []),
+        ...(props.hasWorkspaceRoot
+          ? [{ id: "terminal", title: "Terminal", onPress: () => onOpenTerminal(null) }]
+          : []),
+        { id: "git", title: "Git", onPress: props.onOpenGitInspector },
+        { id: "where-was-i", title: "Where was I?", onPress: onWhereWasI },
+        { id: "note", title: noteActionLabel, onPress: onEditNote },
+        { id: "park-thought", title: "Park a thought", onPress: onParkThought },
+        {
+          id: "snooze-others",
+          title: "Snooze everything except this thread",
+          items: snoozeOthers.map((preset) => ({
+            id: `snooze-others:${preset.label}`,
+            title: preset.label,
+            subtitle: preset.whenLabel,
+            onPress: preset.onPress,
+          })),
+        },
+        { id: "wake-all", title: "Wake all snoozed threads", onPress: onWakeAllSnoozed },
+      ],
+    }),
+    [
+      contextLine,
+      snoozeOthers,
+      noteActionLabel,
+      onEditNote,
+      onParkThought,
+      onWakeAllSnoozed,
+      inspectorControl,
+      onOpenTerminal,
+      onWhereWasI,
+      props.hasThreadCwd,
+      props.hasWorkspaceRoot,
+      props.onOpenFilesInspector,
+      props.onOpenGitInspector,
+    ],
+  );
   const androidHeaderActions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const actions: ScreenHeaderAction[] = [];
     if (props.onReturnToThread) {
@@ -174,7 +295,7 @@ function ThreadHeader(
     <>
       <ScreenHeader
         title={props.title}
-        subtitle={props.subtitle}
+        subtitle={layout.usesSplitView ? props.subtitle : undefined}
         sidebar={native.sidebar}
         options={native.options}
         // Native header factories are stabilized, so changing item content
@@ -183,6 +304,7 @@ function ThreadHeader(
           props.gitControls.projectScripts,
           inspectorControl?.accessibilityLabel,
           inspectorControl?.badgeColors,
+          props.noteActionLabel,
         ]}
         trailing={
           props.fileInspectorSupported && props.hasThreadCwd ? (
@@ -208,7 +330,14 @@ function ThreadHeader(
                 else navigation.dispatch(StackActions.replace("Home"));
               }
         }
-        actions={androidHeaderActions}
+        actions={
+          layout.usesSplitView
+            ? androidHeaderActions
+            : props.onReturnToThread
+              ? androidHeaderActions.slice(0, 1)
+              : undefined
+        }
+        menus={layout.usesSplitView ? undefined : [androidThreadOptionsMenu]}
         hideBottomBorder
       />
       {native.fallback}
@@ -513,8 +642,7 @@ function ThreadRouteContent(
   // The status leads in words, as in web's header pill, then the branch; the
   // native subtitle is one line and truncates from the end.
   const headerEnvironmentLabel = selectedEnvironmentConnection?.environmentLabel ?? null;
-  const headerSubtitle = [
-    selectedThread ? resolveThreadHeaderStatusText(selectedThread) : null,
+  const headerContextLine = [
     selectedThread?.branch ?? null,
     selectedThreadProject?.title ?? null,
     headerEnvironmentLabel,
@@ -522,6 +650,82 @@ function ThreadRouteContent(
   ]
     .filter(Boolean)
     .join(" · ");
+  const headerSubtitle = [
+    selectedThread ? resolveThreadHeaderStatusText(selectedThread) : null,
+    headerContextLine,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const recapThreadKey = selectedThread
+    ? `${selectedThread.environmentId}:${selectedThread.id}`
+    : null;
+  const showRecapAgain = useCallback(() => {
+    if (recapThreadKey !== null) requestThreadRecap(recapThreadKey);
+  }, [recapThreadKey]);
+  const { parkThought } = useParkedNavigation();
+  const parkThoughtEnvironmentId = selectedThread?.environmentId ?? null;
+  const parkThoughtProjectId = selectedThread?.projectId ?? null;
+  const parkThoughtHere = useCallback(
+    () =>
+      parkThought(
+        parkThoughtEnvironmentId !== null && parkThoughtProjectId !== null
+          ? { environmentId: parkThoughtEnvironmentId, projectId: parkThoughtProjectId }
+          : undefined,
+      ),
+    [parkThought, parkThoughtEnvironmentId, parkThoughtProjectId],
+  );
+  // F4: the menu says "Edit note" once the thread has one, as on web.
+  const noteThreadId = selectedThread?.id ?? null;
+  const hasNote = useThreadNote(parkThoughtEnvironmentId, noteThreadId) !== null;
+  const noteActionLabel = hasNote ? "Edit note" : "Add note to self";
+  const editNote = useCallback(() => {
+    if (parkThoughtEnvironmentId === null || noteThreadId === null) return;
+    navigation.navigate("ThreadNote", {
+      environmentId: parkThoughtEnvironmentId,
+      threadId: noteThreadId,
+    });
+  }, [navigation, noteThreadId, parkThoughtEnvironmentId]);
+  // F1's "Snooze everything except this thread" and its way back, from the
+  // shared selectors: threads blocked on you cannot be snoozed and stay put.
+  const allThreadShells = useThreadShells();
+  const snoozeServerConfigs = useAtomValue(environmentServerConfigsAtom);
+  const { snoozeThread, unsnoozeThread } = useThreadListActions();
+  const snoozableShells = useCallback(
+    () =>
+      allThreadShells.filter(
+        (thread) =>
+          snoozeServerConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze ===
+          true,
+      ),
+    [allThreadShells, snoozeServerConfigs],
+  );
+  const snoozeOthersPresets = useMemo(
+    () =>
+      resolveSnoozePresets(new Date()).map((preset) => ({
+        label: preset.label,
+        whenLabel: preset.whenLabel,
+        // The time is read again on press, so a menu opened long ago snoozes until the preset's time now.
+        onPress: () => {
+          const now = new Date();
+          const current = resolveSnoozePresets(now).find((entry) => entry.id === preset.id);
+          if (!current) return;
+          for (const thread of selectThreadsToSnoozeExcept(snoozableShells(), {
+            exceptKey: recapThreadKey,
+            now: now.toISOString(),
+          })) {
+            void snoozeThread(thread, current.snoozedUntil);
+          }
+        },
+      })),
+    [recapThreadKey, snoozableShells, snoozeThread],
+  );
+  const wakeAllSnoozed = useCallback(() => {
+    for (const thread of selectSnoozedThreads(snoozableShells(), {
+      now: new Date().toISOString(),
+    })) {
+      void unsnoozeThread(thread);
+    }
+  }, [snoozableShells, unsnoozeThread]);
   /* ─── Git status for native header trigger ───────────────────────── */
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
@@ -1149,7 +1353,7 @@ function ThreadRouteContent(
           activePendingApprovalAgentTitle={activePendingApprovalAgentTitle}
           subagentRequests={requests.subagentRequests}
           activePendingUserInputAgentTitle={activePendingUserInputAgentTitle}
-          respondingApprovalId={requests.respondingApprovalId}
+          activeApprovalAnswerState={requests.activeApprovalAnswerState}
           activePendingUserInput={requests.activePendingUserInput}
           activePendingUserInputDrafts={requests.activePendingUserInputDrafts}
           activePendingUserInputAnswers={requests.activePendingUserInputAnswers}
@@ -1198,6 +1402,13 @@ function ThreadRouteContent(
       <ThreadHeader
         title={selectedThread.title}
         subtitle={headerSubtitle}
+        contextLine={headerContextLine}
+        onWhereWasI={showRecapAgain}
+        onParkThought={parkThoughtHere}
+        noteActionLabel={noteActionLabel}
+        onEditNote={editNote}
+        snoozeOthers={snoozeOthersPresets}
+        onWakeAllSnoozed={wakeAllSnoozed}
         headerColor={headerColor}
         usesNativeHeaderGlass={usesNativeHeaderGlass}
         gitControls={threadGitControlProps}

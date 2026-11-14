@@ -1677,10 +1677,21 @@ function workflowAgentStatus(entry: ClaudeWorkflowAgentEntry): RuntimeTaskStatus
   }
 }
 
+/** Claude's own file tools, which name one file in `file_path` (`notebook_path` for notebooks). */
+const CLAUDE_FILE_TOOLS = new Set(["read", "edit", "multiedit", "write", "notebookedit"]);
+
 function summarizeToolRequest(toolName: string, input: Record<string, unknown>): string {
   const imagePath = readToolImagePath(toolName, input);
   if (imagePath) {
     return imagePath;
+  }
+
+  // A file tool's request is its file: the timeline says "Editing <path>", not the input JSON.
+  if (CLAUDE_FILE_TOOLS.has(toolName.trim().toLowerCase())) {
+    const pathValue = input.file_path ?? input.notebook_path ?? input.path;
+    if (typeof pathValue === "string" && pathValue.trim().length > 0) {
+      return pathValue.trim();
+    }
   }
 
   const commandValue = input.command ?? input.cmd;
@@ -1710,7 +1721,12 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
   return `${toolName}: ${serialized.slice(0, 397)}...`;
 }
 
-function titleForTool(itemType: CanonicalItemType): string {
+function titleForTool(itemType: CanonicalItemType, toolName = ""): string {
+  // Clients group "Read file" calls as reads ("Read 3 files"); a generic title would count
+  // them as tools.
+  if (itemType === "dynamic_tool_call" && toolName.trim().toLowerCase() === "read") {
+    return "Read file";
+  }
   switch (itemType) {
     case "command_execution":
       return "Command run";
@@ -3219,7 +3235,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         let nextTool: ToolInFlight = {
           ...tool,
           itemType,
-          title: titleForTool(itemType),
+          title: titleForTool(itemType, tool.toolName),
           partialInputJson,
           ...(parsedInput ? { input: parsedInput } : {}),
           ...(detail ? { detail } : {}),
@@ -3346,7 +3362,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         itemId,
         itemType,
         toolName,
-        title: titleForTool(itemType),
+        title: titleForTool(itemType, toolName),
         detail,
         input: toolInput,
         partialInputJson: "",

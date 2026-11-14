@@ -13,16 +13,9 @@ import type {
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  ChevronsDownUpIcon,
-  ChevronsUpDownIcon,
-  Columns2Icon,
-  FolderTreeIcon,
   InfoIcon,
   MessageSquareIcon,
   MessageSquareOffIcon,
-  PilcrowIcon,
-  Rows3Icon,
-  TextWrapIcon,
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
@@ -30,7 +23,12 @@ import { useAtomRefresh } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { useAtomValue } from "@effect/atom-react";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { reviewedCountLabel, type DiffReviewStatus } from "~/diffReviewStore";
+import { shortcutLabelForCommand } from "~/keybindings";
+import { observeResize } from "~/lib/observeResize";
+import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { areAllDiffFilesCollapsed } from "~/lib/diffCollapse";
@@ -61,18 +59,32 @@ import { useAtomCommand } from "~/state/use-atom-command";
 
 import { DiffPanelLoadingState } from "../DiffPanelShell";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
-import { DiffFileTree } from "../diffs/DiffFileTree";
+import { DiffFileRail } from "../diffs/DiffFileRail";
+import {
+  diffRailRows,
+  FILE_RAIL_OPEN_MIN_WIDTH,
+  foldGeneratedFiles,
+  isFileRailOpen,
+  railFolderHints,
+} from "../diffs/diffFileRail.logic";
+import { changeCaption, pagingPositionLabel, pagingStepLabel } from "../diffs/diffPaging.logic";
+import { DiffRailKeyHint, DiffReviewFooter } from "../diffs/DiffReviewFooter";
+import { DiffReviewToggle } from "../diffs/DiffReviewTick";
+import { DiffViewMenu } from "../diffs/DiffViewMenu";
+import { PanelSurfaceHeader } from "../panel/PanelSurfaceHeader";
 import { useCodeViewFileReveal } from "../diffs/useCodeViewFileReveal";
-import { diffFileTreeEntries } from "../diffs/diffFileTree.logic";
+import { useDiffPaging } from "../diffs/useDiffPaging";
+import { panelFillHolder } from "../panel/panelFill";
 import { StyledDiffCodeView } from "../diffs/StyledDiffCodeView";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  MenuCheckboxItem,
+  MenuSeparator,
 } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -107,7 +119,9 @@ type ReviewAnnotation = DiffLineAnnotation<ReviewAnnotationGroup>;
 /** Commits per press of "Show more" in the scope menu. */
 const COMMIT_PAGE_SIZE = 10;
 
-const PULL_REQUEST_FILE_TREE_STORAGE_KEY = "e6code.pullRequestFileTreeOpen";
+// A new key: the file tree this rail replaced stored false by default, which would hide it.
+const PULL_REQUEST_FILE_RAIL_STORAGE_KEY = "e6code.pullRequestFileRailOpen:v2";
+const PULL_REQUEST_FILE_RAIL_STORAGE_SCHEMA = Schema.NullOr(Schema.Boolean);
 
 /** One answer from the host: a whole number of files, and where the next one carries on. */
 interface DiffSlice {
@@ -204,6 +218,8 @@ function PullRequestCodeTab({
   onAddToAgentSelection,
   onRefresh,
   refreshToken = 0,
+  composerHasText = false,
+  onFillInputsChange,
 }: {
   environmentId: EnvironmentId;
   reference: PullRequestRef;
@@ -220,6 +236,10 @@ function PullRequestCodeTab({
   onRefresh: () => void;
   /** Bumped by the panel's refresh button: drop the accumulated pages and re-read the diff. */
   refreshToken?: number;
+  /** The thread's composer holds text: Send owns the one fill, so the footer's turns outline. */
+  composerHasText?: boolean;
+  /** Told what decides the screen's fill here, so the merge footer outside can yield it. */
+  onFillInputsChange?: (inputs: PullRequestCodeFillInputs) => void;
 }) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -233,13 +253,26 @@ function PullRequestCodeTab({
     foldOverride ?? (settings.diffFilesCollapsed ? "folded" : "expanded");
   const diffLayout = settings.diffLayout;
   const updateClientSettings = useUpdateClientSettings();
-  const [wordWrap, setWordWrap] = useState(settings.wordWrap);
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
-  const [fileTreeOpen, setFileTreeOpen] = useLocalStorage(
-    PULL_REQUEST_FILE_TREE_STORAGE_KEY,
-    false,
-    Schema.Boolean,
+  // Saved settings, shared with the Diff panel and file previews.
+  const wordWrap = settings.wordWrap;
+  const ignoreWhitespace = settings.diffIgnoreWhitespace;
+  const [storedRailOpen, setFileTreeOpen] = useLocalStorage(
+    PULL_REQUEST_FILE_RAIL_STORAGE_KEY,
+    null,
+    PULL_REQUEST_FILE_RAIL_STORAGE_SCHEMA,
   );
+  // Only crossing the open-by-default width matters, so a resize re-renders at most once.
+  const [bodyWidth, setBodyWidth] = useState(0);
+  const fileTreeOpen = isFileRailOpen(storedRailOpen, bodyWidth);
+  const attachBody = useCallback((element: HTMLDivElement | null) => {
+    if (!element) return;
+    return observeResize(element, (entries) => {
+      const width = entries.at(-1)?.contentRect.width ?? 0;
+      setBodyWidth((current) =>
+        current >= FILE_RAIL_OPEN_MIN_WIDTH === width >= FILE_RAIL_OPEN_MIN_WIDTH ? current : width,
+      );
+    });
+  }, []);
   const [selectedLines, setSelectedLines] = useState<{
     id: string;
     range: SelectedLineRange;
@@ -605,7 +638,36 @@ function PullRequestCodeTab({
     [items],
   );
   const allFilesCollapsed = areAllDiffFilesCollapsed(fileKeys, collapsedFileKeys);
-  const fileTreeEntries = useMemo(() => diffFileTreeEntries(files), [files]);
+  // The rail lists files in the order the body shows them, with the Diff tab's rows.
+  const railPathsKey = filePaths.join("\u0000");
+  const railHints = useMemo(
+    () => railFolderHints(railPathsKey === "" ? [] : railPathsKey.split("\u0000")),
+    [railPathsKey],
+  );
+  // The rail folds generated files away until the reader opens them.
+  const [showGeneratedFiles, setShowGeneratedFiles] = useState(false);
+  const railRows = useMemo(
+    () =>
+      diffRailRows(
+        files.map((fileDiff) => {
+          const path = resolveFileDiffPath(fileDiff);
+          let additions = 0;
+          let deletions = 0;
+          for (const hunk of fileDiff.hunks) {
+            additions += hunk.additionLines;
+            deletions += hunk.deletionLines;
+          }
+          if (additions === 0 && deletions === 0) {
+            const withheld = omittedFileStats.get(path);
+            if (withheld) ({ additions, deletions } = withheld);
+          }
+          return { path, additions, deletions };
+        }),
+        railHints,
+      ),
+    [files, omittedFileStats, railHints],
+  );
+  const railFold = foldGeneratedFiles(railRows, (row) => row.path, showGeneratedFiles);
 
   // A failed slice must not be asked for again on its own. The files already loaded keep the
   // sentinel on screen, so re-arming it after a failure would request the same slice forever.
@@ -675,11 +737,105 @@ function PullRequestCodeTab({
     [items, requestTreeReveal, toggleFile],
   );
 
-  const toggleAllFiles = () => {
-    // Held as an override of the default rather than as the file keys on screen: a diff that is
-    // still paging would otherwise bring its next slice in folded, moments after the reader
-    // asked for everything to be open.
-    setFoldOverride(areAllDiffFilesCollapsed(fileKeys, collapsedFileKeys) ? "expanded" : "folded");
+  // Paging, shared with the Diff tab: V through changes, J and K through files, and the footer.
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const pagingItems = useMemo(
+    () =>
+      items.map((item) => {
+        const path = resolveFileDiffPath(item.fileDiff);
+        return {
+          id: item.id,
+          path,
+          fileDiff: item.fileDiff,
+          collapsed: item.collapsed === true,
+          // A patch the host withheld cannot be paged through, so the key never marks it.
+          pending: item.fileDiff.hunks.length === 0 && omittedFileStats.has(path),
+        };
+      }),
+    [items, omittedFileStats],
+  );
+  const reviewStatusOf = useCallback(
+    (path: string): DiffReviewStatus =>
+      isFileViewed(path) ? "reviewed" : isFileViewedStale(path) ? "changed" : "unreviewed",
+    [isFileViewed, isFileViewedStale],
+  );
+  const pagingSetReviewed = useCallback(
+    (path: string, viewed: boolean) => {
+      const item = items.find((candidate) => resolveFileDiffPath(candidate.fileDiff) === path);
+      if (item) setFileViewed(item.id, path, viewed);
+    },
+    [items, setFileViewed],
+  );
+  const pagingExpand = useCallback(
+    (id: string) => {
+      if (items.find((item) => item.id === id)?.collapsed === true) toggleFile(id);
+    },
+    [items, toggleFile],
+  );
+  const paging = useDiffPaging({
+    enabled: filesViewedEnabled,
+    viewer,
+    scopeKey,
+    items: pagingItems,
+    isReviewed: isFileViewed,
+    setReviewed: pagingSetReviewed,
+    expand: pagingExpand,
+    keybindings,
+    panelRef,
+    bodyRef,
+  });
+  const pagingCurrentFile = pagingItems[paging.currentIndex];
+  // Paging counts the whole change, not the slices loaded so far, and is never done while more
+  // files are still to come. A commit scope has no total of its own beyond what has loaded.
+  const pagingFileCount = Math.max(pagingItems.length, commit === null ? detail.changedFiles : 0);
+  const moreFilesToLoad = nextCursor !== null;
+  const nextChangeShortcut = shortcutLabelForCommand(keybindings, "diff.nextChange", {
+    context: { diffFocus: true },
+  });
+  const reviewPrimary =
+    filesViewedEnabled && pagingItems.length > 0
+      ? paging.step.kind === "done"
+        ? moreFilesToLoad
+          ? {
+              label: diffQuery.isPending ? "Loading more files..." : "Load more files",
+              onClick: loadNextSlice,
+            }
+          : null
+        : {
+            label: pagingStepLabel(paging.step) ?? "Next change",
+            onClick: paging.advance,
+            shortcut: nextChangeShortcut,
+          }
+      : null;
+  const reviewStepPending = reviewPrimary !== null;
+  const commentDraftOpen = draft !== null;
+  useEffect(() => {
+    onFillInputsChange?.({ reviewStepPending, commentDraftOpen });
+  }, [commentDraftOpen, onFillInputsChange, reviewStepPending]);
+  const reviewStepHoldsFill =
+    panelFillHolder({
+      // The merge button's readiness does not matter here: a pending step outranks it.
+      view: { kind: "pull-request", tab: "code", nextStepHasAction: false, mergeReady: false },
+      composerHasText,
+      commentDraftOpen,
+      reviewStepPending,
+    }) === "review-step";
+  const selectPagingFile = paging.select;
+  const selectRailFile = useCallback(
+    (path: string) => {
+      selectPagingFile(path);
+      revealFile(path);
+    },
+    [revealFile, selectPagingFile],
+  );
+
+  // Held as an override of the default rather than as the file keys on screen: a diff that is
+  // still paging would otherwise bring its next slice in folded, moments after the reader asked
+  // for everything to be open.
+  const foldAllFiles = (fold: "expanded" | "folded") => {
+    setFoldOverride(fold);
     setToggledFiles(new Set());
   };
 
@@ -790,7 +946,8 @@ function PullRequestCodeTab({
           variant="ghost-muted"
           aria-expanded={!collapsed}
           aria-label={collapsed ? "Expand diff" : "Collapse diff"}
-          className="mr-1 rounded hover:bg-transparent"
+          // A 24px hit area around the 20px button.
+          className="mr-1 rounded after:absolute after:-inset-0.5 hover:bg-transparent"
           onClick={(event) => {
             event.stopPropagation();
             toggleFile(item.id);
@@ -843,31 +1000,13 @@ function PullRequestCodeTab({
       return (
         <span className="flex items-center gap-3">
           {stat}
-          {/* The header itself folds the file, so the tick keeps its press to itself. The
-              attribute is what the header's capture listener looks for. */}
-          <label
-            data-viewed-toggle=""
-            className="flex cursor-pointer select-none items-center gap-1.5 text-[11px] text-muted-foreground"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <Checkbox
-              aria-label={stale ? "Changed" : "Viewed"}
-              checked={viewed}
-              onCheckedChange={(next) => setFileViewedRef.current(item.id, path, next === true)}
-            />
-            {stale ? (
-              <Tooltip>
-                <TooltipTrigger render={<span className="text-warning-foreground" />}>
-                  Changed
-                </TooltipTrigger>
-                <TooltipPopup side="bottom">
-                  This file has been pushed to since you marked it viewed.
-                </TooltipPopup>
-              </Tooltip>
-            ) : (
-              "Viewed"
-            )}
-          </label>
+          {/* The header folds its file on click; the toggle keeps its press to itself. */}
+          <DiffReviewToggle
+            path={path}
+            status={viewed ? "reviewed" : stale ? "changed" : "unreviewed"}
+            open={item.collapsed !== true}
+            onToggle={(togglePath, next) => setFileViewedRef.current(item.id, togglePath, next)}
+          />
         </span>
       );
     },
@@ -877,7 +1016,6 @@ function PullRequestCodeTab({
   const diffViewOptions = useMemo(
     () => ({
       diffStyle: diffLayout === "split" ? ("split" as const) : ("unified" as const),
-      lineDiffType: "none" as const,
       overflow: wordWrap ? ("wrap" as const) : ("scroll" as const),
       theme: resolveDiffThemeName(resolvedTheme),
       preferredHighlighter: PREFERRED_HIGHLIGHTER,
@@ -1013,6 +1151,7 @@ function PullRequestCodeTab({
             rangeLabel={`${draft.path}:${getReviewPositionAnchor(draft.position).line}`}
             text=""
             submitLabel="Add to review"
+            submitHint="add to review"
             {...(onAddToAgentSelection
               ? {
                   secondaryAction: {
@@ -1133,7 +1272,7 @@ function PullRequestCodeTab({
   }, [commit, onSelectedCommitChange, selectedCommit]);
   const scopeLabel = selectedCommit ? selectedCommit.messageHeadline : "All commits";
   const toolbar = (
-    <div className="flex h-10 min-h-10 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-background px-4 text-xs text-muted-foreground">
+    <PanelSurfaceHeader className="justify-between text-xs text-muted-foreground">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {/* A host that reports no commits has nothing to scope by, and a dropdown whose only
             entry is the scope already showing is a control that does nothing. */}
@@ -1279,55 +1418,7 @@ function PullRequestCodeTab({
           ) : null}
         </PullRequestMetaLine>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={
-                  ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"
-                }
-                variant="ghost"
-                size="sm"
-                pressed={ignoreWhitespace}
-                onPressedChange={(pressed) => {
-                  setIgnoreWhitespace(Boolean(pressed));
-                  setDraft(null);
-                  setSelectedLines(null);
-                }}
-              />
-            }
-          >
-            <PilcrowIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {ignoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
-          </TooltipPopup>
-        </Tooltip>
-        {fileKeys.length > 0 ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={allFilesCollapsed ? "Expand all files" : "Collapse all files"}
-                  onClick={toggleAllFiles}
-                />
-              }
-            >
-              {allFilesCollapsed ? (
-                <ChevronsUpDownIcon className="size-3.5" />
-              ) : (
-                <ChevronsDownUpIcon className="size-3.5" />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allFilesCollapsed ? "Expand all files" : "Collapse all files"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
+      <div className="flex shrink-0 items-center gap-2">
         <ToggleGroup
           aria-label="Diff layout"
           className="shrink-0"
@@ -1340,55 +1431,39 @@ function PullRequestCodeTab({
             }
           }}
         >
-          <Toggle aria-label="Stacked diff view" value="stacked">
-            <Rows3Icon className="size-3.5" />
-          </Toggle>
-          <Toggle aria-label="Split diff view" value="split">
-            <Columns2Icon className="size-3.5" />
-          </Toggle>
+          <Toggle value="stacked">Stacked</Toggle>
+          <Toggle value="split">Split</Toggle>
         </ToggleGroup>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                aria-label={wordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
-                variant="ghost"
-                size="sm"
-                pressed={wordWrap}
-                onPressedChange={(pressed) => {
-                  setWordWrap(Boolean(pressed));
-                }}
-              />
-            }
-          >
-            <TextWrapIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">
-            {wordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-          </TooltipPopup>
-        </Tooltip>
-        {fileKeys.length > 0 ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={fileTreeOpen ? "Hide file tree" : "Show file tree"}
-                  variant="ghost"
-                  size="sm"
-                  pressed={fileTreeOpen}
-                  onPressedChange={(pressed) => setFileTreeOpen(Boolean(pressed))}
-                />
-              }
-            >
-              <FolderTreeIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {fileTreeOpen ? "Hide file tree" : "Show file tree"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
+        {/* The same View menu as the Diff tab (phase 28): one Wrap and one whitespace choice. */}
+        <DiffViewMenu
+          wordWrap={wordWrap}
+          onWordWrapChange={(next) => updateClientSettings({ wordWrap: next })}
+          ignoreWhitespace={ignoreWhitespace}
+          onIgnoreWhitespaceChange={(next) => {
+            updateClientSettings({ diffIgnoreWhitespace: next });
+            setDraft(null);
+            setSelectedLines(null);
+          }}
+          fileCount={fileKeys.length}
+          allCollapsed={allFilesCollapsed}
+          noneCollapsed={!fileKeys.some((fileKey) => collapsedFileKeys.has(fileKey))}
+          onExpandAll={() => foldAllFiles("expanded")}
+          onCollapseAll={() => foldAllFiles("folded")}
+        >
+          {fileKeys.length > 0 ? (
+            <>
+              <MenuSeparator />
+              <MenuCheckboxItem
+                checked={fileTreeOpen}
+                onCheckedChange={(checked) => setFileTreeOpen(Boolean(checked))}
+              >
+                File list
+              </MenuCheckboxItem>
+            </>
+          ) : null}
+        </DiffViewMenu>
       </div>
-    </div>
+    </PanelSurfaceHeader>
   );
   // The toolbar rides above every branch below, not just the one with a patch in it: a commit
   // whose diff is empty or unreadable still needs the scope dropdown that got the reader there.
@@ -1476,7 +1551,7 @@ function PullRequestCodeTab({
     );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={panelRef} className="flex h-full min-h-0 flex-col">
       {toolbar}
       {/* Above the code, closed, and counted: these belong to the change rather than to any
             line of it, and in the stream they read as cards dropped into the patch. */}
@@ -1539,10 +1614,68 @@ function PullRequestCodeTab({
           </CollapsiblePanel>
         </Collapsible>
       ) : null}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div ref={attachBody} className="flex min-h-0 flex-1 overflow-hidden">
+        {fileTreeOpen ? (
+          <DiffFileRail
+            rows={railFold.items}
+            generated={{
+              count: railFold.generatedCount,
+              shown: showGeneratedFiles,
+              onToggle: () => setShowGeneratedFiles((shown) => !shown),
+            }}
+            reviewStatusOf={filesViewedEnabled ? reviewStatusOf : null}
+            reviewedCount={filesViewed.viewedCount}
+            currentPath={paging.currentPath}
+            currentCaption={
+              pagingCurrentFile
+                ? changeCaption(
+                    paging.seenOf(pagingCurrentFile.path),
+                    pagingCurrentFile.fileDiff.hunks.length,
+                  )
+                : null
+            }
+            onSelect={selectRailFile}
+            footer={
+              <>
+                {/* The rail lists only what has arrived; while the diff is still paging this
+                    says so, and pulls the rest in without scrolling for it. */}
+                {nextCursor === null ? null : (
+                  <div className="shrink-0 border-t border-border/60 p-2">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      className="w-full"
+                      disabled={diffQuery.isPending}
+                      onClick={diffQuery.error !== null ? () => diffQuery.refresh() : loadNextSlice}
+                    >
+                      {diffQuery.error !== null
+                        ? "Retry"
+                        : diffQuery.isPending
+                          ? "Loading more files..."
+                          : "Load more files"}
+                    </Button>
+                  </div>
+                )}
+                {filesViewedEnabled ? (
+                  <DiffRailKeyHint
+                    nextChange={nextChangeShortcut}
+                    nextFile={shortcutLabelForCommand(keybindings, "diff.nextFile", {
+                      context: { diffFocus: true },
+                    })}
+                    previousFile={shortcutLabelForCommand(keybindings, "diff.previousFile", {
+                      context: { diffFocus: true },
+                    })}
+                  />
+                ) : null}
+              </>
+            }
+          />
+        ) : null}
         {/* Relative wrapper so the review overlay floats over the diff rather than pushing it
             up; the viewer inside still owns its own scrolling. */}
         <div
+          ref={bodyRef}
           className="relative min-h-0 min-w-0 flex-1"
           // The chevron answers this too, but the whole header row is the target a reader
           // actually aims for. The header lives in the viewer's shadow tree, so the capture
@@ -1593,45 +1726,41 @@ function PullRequestCodeTab({
             renderHeaderPrefix={renderHeaderPrefix}
             renderHeaderMetadata={renderHeaderMetadata}
             renderAnnotation={renderAnnotation}
+            onScroll={paging.onScroll}
             unsafeCSSExtra={REPLACE_FILE_COUNTS_CSS}
           />
           {reviewOverlay}
         </div>
-        {fileTreeOpen ? (
-          <aside className="flex w-[min(20rem,40%)] min-w-48 shrink-0 border-l border-border/60">
-            <DiffFileTree
-              ariaLabel={`Pull request #${detail.number} files`}
-              entries={fileTreeEntries}
-              onSelectFile={revealFile}
-              // The tree lists only what has arrived; a footer says so while the diff is still
-              // paging, and lets the reader pull the rest in without scrolling for it.
-              footer={
-                nextCursor === null ? null : (
-                  <div className="shrink-0 border-t border-border/60 p-2">
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="outline"
-                      className="w-full"
-                      disabled={diffQuery.isPending}
-                      onClick={diffQuery.error !== null ? () => diffQuery.refresh() : loadNextSlice}
-                    >
-                      {diffQuery.error !== null
-                        ? "Retry"
-                        : diffQuery.isPending
-                          ? "Loading more files..."
-                          : "Load more files"}
-                    </Button>
-                  </div>
-                )
-              }
-            />
-          </aside>
-        ) : null}
       </div>
       {unstructured}
+      {filesViewedEnabled && pagingItems.length > 0 ? (
+        <DiffReviewFooter
+          position={
+            paging.step.kind === "done"
+              ? reviewedCountLabel(filesViewed.viewedCount, pagingFileCount)
+              : pagingCurrentFile
+                ? pagingPositionLabel({
+                    fileIndex: paging.currentIndex,
+                    fileCount: pagingFileCount,
+                    changeCount: pagingCurrentFile.fileDiff.hunks.length,
+                    seen: paging.seenOf(pagingCurrentFile.path),
+                    reviewed: isFileViewed(pagingCurrentFile.path),
+                  })
+                : ""
+          }
+          primaryOutline={!reviewStepHoldsFill}
+          // Comments here go into the pull request review, which the Review button sends.
+          reply={null}
+          primary={reviewPrimary}
+        />
+      ) : null}
     </div>
   );
+}
+
+export interface PullRequestCodeFillInputs {
+  readonly reviewStepPending: boolean;
+  readonly commentDraftOpen: boolean;
 }
 
 export default PullRequestCodeTab;

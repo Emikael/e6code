@@ -1,7 +1,8 @@
 /**
  * The environment a thread runs on and whether we can reach it, as words.
- * E6 runs local, over Tailscale and through tunnels, so the connection is part
- * of the UI: it lives in the thread header and never hides behind a menu.
+ * E6 runs local, over Tailscale and through tunnels, so a connection problem is
+ * part of the UI: it shows in the thread header, never behind a menu. A healthy
+ * connection says nothing (board 2).
  */
 import type { EnvironmentConnectionPhase } from "@e6tools/client-runtime/connection";
 import type { EnvironmentId } from "@e6tools/contracts";
@@ -32,7 +33,7 @@ export function connectionPhaseWord(phase: EnvironmentConnectionPhase): string {
 }
 
 /**
- * A quiet dot and word: "MacBook Pro · Connected". The word carries the state, the dot tints it.
+ * A quiet dot and word: "MacBook Pro · Reconnecting…". The word carries the state, the dot tints it.
  * Below the thread header's `@2xl/header-actions` width it compacts to the dot and the word; the
  * environment name stays for screen readers and in the tooltip.
  */
@@ -46,6 +47,7 @@ export function EnvironmentConnectionChip({
   const environment = useEnvironment(environmentId);
   if (!environment) return null;
   const phase = environment.connection.phase;
+  if (phase === "connected") return null;
   const word = connectionPhaseWord(phase);
   return (
     <Tooltip>

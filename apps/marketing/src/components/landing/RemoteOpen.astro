@@ -1,0 +1,58 @@
+---
+import { GITHUB_REPOSITORY_URL, IDEAS_DISCUSSIONS_URL } from "../../lib/site";
+
+const connections = [
+  { label: "Same network", command: "e6 serve --host <private-ip>" },
+  { label: "Tailscale", command: "e6 serve --tailscale-serve" },
+  { label: "E6 Connect, no port forwarding", command: "e6 connect" },
+];
+---
+
+<section class="band">
+  <div class="wrap grid2 remote-open">
+    <div id="remote" class="stack">
+      <p class="eyebrow">Remote ready</p>
+      <h2 class="h2">Your agents keep working. You don't have to sit there.</h2>
+      <p class="copy measure">
+        The server lives on the machine with your code. Phones, browsers and other desktops connect to it.
+      </p>
+      <ul class="stack connections">
+        {
+          connections.map((connection) => (
+            <li class="agent">
+              <b>{connection.label}</b>
+              <span>{connection.command}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+    <div id="open" class="stack">
+      <p class="eyebrow">Open at the core</p>
+      <h2 class="h2">Disagree with a decision? Start a discussion, or fork it.</h2>
+      <p class="copy measure">
+        MIT licensed and built in the open. A local Node server wraps the agents you already use. It doesn't resell
+        tokens or proxy your keys, so your plan, limits and credentials stay yours.
+      </p>
+      <div class="wrap-row">
+        <a href={`${GITHUB_REPOSITORY_URL}/fork`} class="lp-btn lp-btn--outline">Fork on GitHub</a>
+        <a href={GITHUB_REPOSITORY_URL}>Browse the source</a>
+        <a href={IDEAS_DISCUSSIONS_URL}>Start a discussion</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .remote-open {
+    align-items: start;
+  }
+
+  .measure {
+    max-width: 48ch;
+  }
+
+  .connections {
+    gap: 8px;
+  }
+</style>

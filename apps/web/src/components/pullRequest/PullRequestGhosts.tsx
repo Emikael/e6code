@@ -10,10 +10,8 @@
 import type { PullRequestListEntry, PullRequestSummary } from "@e6tools/contracts";
 import {
   ArrowLeftIcon,
-  ArrowRightIcon,
   ChevronRightIcon,
   EllipsisIcon,
-  ExternalLinkIcon,
   PanelRightIcon,
   TagIcon,
   UserPlusIcon,
@@ -25,18 +23,12 @@ import { readLocalApi } from "~/localApi";
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 
+import { Badge } from "../ui/badge";
 import { Button, InlineButton } from "../ui/button";
+import { pullRequestCodeTabLabel } from "./pullRequestDetail.logic";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { MiddleTruncate } from "../ui/middle-truncate";
-import { PullRequestCopyableCode } from "./PullRequestCopyableCode";
-import {
-  PullRequestActorLabel,
-  PullRequestDiffStat,
-  PullRequestLabelChip,
-  PullRequestMetaLine,
-  pullRequestChecksStatePresentation,
-  resolvePullRequestState,
-} from "./pullRequestPresentation";
+import { PullRequestLabelChip, resolvePullRequestState } from "./pullRequestPresentation";
 
 function GhostBar({ className }: { className?: string | undefined }) {
   return <div aria-hidden className={cn("h-3 rounded bg-muted-foreground/15", className)} />;
@@ -67,7 +59,7 @@ export function PullRequestListGhost({
       className="motion-safe:animate-skeleton space-y-1"
     >
       {caption ? (
-        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/70">{caption}</p>
+        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{caption}</p>
       ) : null}
       {Array.from({ length: rows }, (_, index) => (
         <div
@@ -95,25 +87,21 @@ export function PullRequestDetailGhost({
   seed: entry,
   summary,
   actions,
-  checkoutCommand,
   tabs = DEFAULT_DETAIL_TABS,
   activeTab,
   number,
   onBack,
   onClose,
-  onCheckoutError,
 }: {
   seed?: PullRequestListEntry | null;
   summary?: PullRequestSummary | null;
   actions?: ReactNode;
-  checkoutCommand?: string | null;
   tabs?: ReadonlyArray<{ value: string; label: string }>;
   /** The panel's current tab, so the highlight does not jump when the detail arrives. */
   activeTab?: string;
   number?: number;
   onBack?: (() => void) | undefined;
   onClose?: (() => void) | undefined;
-  onCheckoutError?: ((error: Error) => void) | undefined;
 }) {
   const seed = summary
     ? {
@@ -128,16 +116,11 @@ export function PullRequestDetailGhost({
         isDraft: seed.isDraft ?? false,
       })
     : null;
-  // Passing list rollups can omit workflows awaiting approval; wait for detail to claim success.
-  const checksPresentation =
-    seed?.checksState === "failing" || seed?.checksState === "pending"
-      ? pullRequestChecksStatePresentation(seed.checksState)
-      : null;
-  const checkout = checkoutCommand ?? null;
   const changedFiles = summary?.changedFiles ?? null;
   const selectedTab =
     tabs.find((item) => item.value === activeTab)?.value ?? tabs[0]?.value ?? "summary";
 
+  // The loaded panel's header, line for line, so nothing moves when the detail arrives.
   return (
     <div
       role="status"
@@ -147,188 +130,95 @@ export function PullRequestDetailGhost({
         !seed && "motion-safe:animate-skeleton",
       )}
     >
-      <div className="@container/pr-header grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 border-b border-border/60">
-        <div className="pl-4 grid h-7 min-w-0 items-center overflow-hidden">
-          <div className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground sm:text-xs">
-            {onBack ? (
-              <Button
-                size="icon-micro"
-                variant="ghost-muted"
-                className="-ml-1.5"
-                onClick={onBack}
-                aria-label="Back to this thread's pull requests"
-              >
-                <ArrowLeftIcon aria-hidden className="size-3.5" />
-              </Button>
-            ) : null}
-            {seed ? (
-              <PullRequestMetaLine className="min-w-0 font-mono text-[11px]">
+      <div className="min-w-0 shrink-0 border-b border-border">
+        <div className="flex min-w-0 items-start gap-2.5 pt-3 pr-3 pb-2.5 pl-4">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="flex min-h-6 min-w-0 items-center gap-1">
+              {onBack ? (
+                <Button
+                  size="icon-micro"
+                  variant="ghost-muted"
+                  className="-ml-1.5"
+                  onClick={onBack}
+                  aria-label="Back to this thread's pull requests"
+                >
+                  <ArrowLeftIcon aria-hidden className="size-3.5" />
+                </Button>
+              ) : null}
+              {seed ? (
+                <h2 className="min-w-0 flex-1 truncate text-lg leading-6 font-semibold tracking-[-0.015em]">
+                  {seed.title}
+                </h2>
+              ) : (
+                <GhostBar className="h-5 w-4/5 max-w-md" />
+              )}
+            </div>
+            <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-2">
+              {statePresentation ? (
+                <Badge variant="outline" className="shrink-0 text-muted-foreground">
+                  <statePresentation.Icon aria-hidden className="size-3" />
+                  {statePresentation.label}
+                </Badge>
+              ) : (
+                <GhostBar className="h-5 w-14 rounded" />
+              )}
+              {seed ? (
                 <InlineButton
-                  key="number"
                   onClick={() => void readLocalApi()?.shell.openExternal(seed.url)}
-                  className={cn(
-                    "underline-offset-2 hover:underline",
-                    statePresentation?.toneClassName,
-                  )}
+                  className="font-mono text-[11px] text-muted-foreground underline-offset-2 hover:underline"
                   aria-label={`Open pull request #${seed.number} on host`}
                 >
                   #{seed.number}
-                  <ExternalLinkIcon aria-hidden className="size-2.5" />
                 </InlineButton>
-                <span key="repository" className="min-w-0 truncate">
-                  {seed.repository}
-                </span>
-              </PullRequestMetaLine>
-            ) : (
-              <>
+              ) : (
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                   #{number ?? "…"}
                 </span>
-                <GhostBar className="w-24" />
-              </>
-            )}
+              )}
+              {seed ? (
+                <span className="flex min-w-0 max-w-full items-center gap-1 rounded bg-surface-well px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                  <span className="min-w-0 truncate">{seed.headBranch}</span>
+                  <span aria-label="merges into" className="shrink-0 text-muted-foreground">
+                    →
+                  </span>
+                  <code className="flex min-w-0">
+                    <MiddleTruncate value={seed.baseBranch} />
+                  </code>
+                </span>
+              ) : (
+                <GhostBar className="h-5 w-40 rounded" />
+              )}
+              {seed?.createdAt ? (
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                  opened {formatRelativeTimeLabel(seed.createdAt)}
+                </span>
+              ) : null}
+            </div>
           </div>
-        </div>
-        <div className="mr-4 flex h-7 shrink-0 items-center justify-end gap-1">
-          {actions ?? <GhostBar className="h-6 w-16 rounded-md" />}
-          <Button size="icon-xs" variant="ghost" disabled aria-label="Pull request actions loading">
-            <EllipsisIcon aria-hidden className="size-4" />
-          </Button>
-          {onClose ? (
+          <div className="flex shrink-0 items-center justify-end gap-1">
+            {actions}
             <Button
               size="icon-xs"
               variant="ghost"
-              aria-label="Collapse pull request panel"
-              onClick={onClose}
+              disabled
+              aria-label="Pull request actions loading"
             >
-              <PanelRightIcon aria-hidden className="size-3.5" />
+              <EllipsisIcon aria-hidden className="size-4" />
             </Button>
-          ) : null}
-        </div>
-
-        <div className="col-span-2 grid grid-rows-[1fr]">
-          <div className="min-h-0 overflow-hidden">
-            <div className="col-span-2 mt-1 min-w-0 px-4 pb-4">
-              {seed ? (
-                <div className="flex min-h-7 min-w-0 items-center sm:min-h-6">
-                  <h1 className="line-clamp-2 text-lg leading-6 font-semibold tracking-[-0.015em]">
-                    {seed.title}
-                  </h1>
-                </div>
-              ) : (
-                <div className="flex min-h-7 min-w-0 items-center sm:min-h-6">
-                  <GhostBar className="h-5 w-4/5 max-w-md" />
-                </div>
-              )}
-              <div className="mt-2 flex min-h-5 min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                {seed ? (
-                  <PullRequestMetaLine className="min-w-0 whitespace-nowrap">
-                    <PullRequestActorLabel
-                      actor={seed.author ?? null}
-                      className="font-medium"
-                      tooltip={false}
-                    />
-                    <span>updated {formatRelativeTimeLabel(seed.updatedAt)}</span>
-                  </PullRequestMetaLine>
-                ) : (
-                  <PullRequestMetaLine className="min-w-0 whitespace-nowrap">
-                    <span className="flex items-center gap-1.5">
-                      <GhostBar className="size-4 rounded-full" />
-                      <GhostBar className="h-3 w-14" />
-                    </span>
-                    <GhostBar className="h-3 w-16" />
-                  </PullRequestMetaLine>
-                )}
-                {checkout ? (
-                  <PullRequestCopyableCode
-                    key={checkout}
-                    value={checkout}
-                    target="pull request checkout command"
-                    copyLabel="Copy checkout command"
-                    copiedLabel="Checkout command copied"
-                    className="ml-auto font-mono"
-                    tooltipSide="bottom"
-                    {...(onCheckoutError ? { onError: onCheckoutError } : {})}
-                  />
-                ) : null}
-              </div>
-
-              {/* head → base chips, as the loaded panel draws them. */}
-              <div className="mt-2.5 flex min-h-5 min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-                {seed ? (
-                  <PullRequestCopyableCode
-                    key={seed.headBranch}
-                    value={seed.headBranch}
-                    target="branch name"
-                    copyLabel="Copy pull request branch"
-                    copiedLabel="Branch name copied"
-                    className="min-w-0 rounded-sm bg-surface-well px-1.5 py-px text-foreground"
-                  />
-                ) : (
-                  <GhostBar className="h-4 w-32" />
-                )}
-                <ArrowRightIcon aria-label="merges into" className="size-3 shrink-0 opacity-70" />
-                {seed ? (
-                  <span className="flex min-w-0 max-w-[45%] shrink-0 items-center rounded-sm bg-surface-well px-1.5 py-px text-foreground">
-                    <code className="flex min-w-0">
-                      <MiddleTruncate value={seed.baseBranch} />
-                    </code>
-                  </span>
-                ) : (
-                  <GhostBar className="h-4 w-16" />
-                )}
-              </div>
-
-              {/* The Merge readiness card: its heading, rows still being read, the merge slot. */}
-              <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card shadow-xs/5">
-                <div className="flex items-baseline border-b border-border/60 px-3.5 py-3">
-                  <span className="text-[13px] leading-[18px] font-semibold">Merge readiness</span>
-                  <GhostBar className="ml-auto w-6" />
-                </div>
-                {/* Pulses itself only once a seed has stopped the whole panel pulsing. */}
-                <div
-                  className={cn(
-                    "space-y-3.5 px-3.5 py-3.5",
-                    seed && "motion-safe:animate-skeleton",
-                  )}
-                >
-                  {["w-28", "w-20", "w-24", "w-32"].map((width) => (
-                    <div key={width} className="flex items-center gap-2.5">
-                      <GhostBar className="size-3.5 rounded-sm" />
-                      <GhostBar className={width} />
-                    </div>
-                  ))}
-                </div>
-                <div className="border-t border-border/60 px-3.5 py-3">
-                  <GhostBar className="h-9 w-full rounded-lg" />
-                </div>
-              </div>
-
-              <div className="mt-4 flex min-w-0 items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5">
-                <span className="shrink-0 text-[13px] leading-[18px] font-semibold">
-                  {changedFiles === null ? (
-                    <GhostBar className="h-3.5 w-28" />
-                  ) : (
-                    `${changedFiles.toLocaleString()} changed ${changedFiles === 1 ? "file" : "files"}`
-                  )}
-                </span>
-                {seed ? (
-                  <PullRequestDiffStat
-                    additions={seed.additions ?? 0}
-                    deletions={seed.deletions ?? 0}
-                    className="min-w-0 font-mono text-[11px]"
-                  />
-                ) : (
-                  <GhostBar className="h-3 w-16" />
-                )}
-                <GhostBar className="ml-auto h-6 w-24 rounded-md" />
-              </div>
-            </div>
+            {onClose ? (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Collapse pull request panel"
+                onClick={onClose}
+              >
+                <PanelRightIcon aria-hidden className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
         </div>
-
         <nav
-          className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2"
+          className="flex min-w-0 flex-wrap items-center gap-2 px-4 pb-2.5"
           aria-label="Pull request tabs"
           inert
         >
@@ -340,24 +230,32 @@ export function PullRequestDetailGhost({
           >
             {tabs.map((tab) => (
               <Toggle key={tab.value} value={tab.value} tabIndex={-1}>
-                {tab.label}
+                {tab.value === "code" && changedFiles !== null
+                  ? pullRequestCodeTabLabel(changedFiles)
+                  : tab.label}
               </Toggle>
             ))}
           </ToggleGroup>
-          {checksPresentation ? (
-            <span
-              className={cn(
-                "ml-auto inline-flex items-center gap-1.5 text-xs",
-                checksPresentation.toneClassName,
-              )}
-            >
-              <checksPresentation.Icon aria-hidden className="size-3.5" />
-              {checksPresentation.label}
-            </span>
-          ) : (
-            <GhostBar className="ml-auto h-3 w-32" />
-          )}
         </nav>
+      </div>
+
+      <div className={cn("space-y-[18px] px-4 pt-4", seed && "motion-safe:animate-skeleton")}>
+        {/* The next step card and the merge readiness list, still being read. */}
+        <div className="space-y-2.5 rounded-xl border border-border bg-card px-4 py-3.5">
+          <GhostBar className="h-4 w-48" />
+          <GhostBar className="w-4/5" />
+        </div>
+        <div className="space-y-2">
+          <span className="text-sm font-semibold">Merge readiness</span>
+          <div className="space-y-3.5 rounded-xl border border-border bg-surface-raised px-3 py-3.5">
+            {["w-28", "w-20", "w-24", "w-32"].map((width) => (
+              <div key={width} className="flex items-center gap-2.5">
+                <GhostBar className="size-3.5 rounded-sm" />
+                <GhostBar className={width} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -429,6 +327,19 @@ export function PullRequestDetailGhost({
           </div>
         </section>
       </div>
+
+      {/* The merge footer's space, so it does not pop in under an open pull request. */}
+      {!seed || seed.state === "open" ? (
+        <div
+          aria-hidden
+          className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3 py-2.5"
+        >
+          <GhostBar className="h-4 w-16" />
+          <span className="flex-1 basis-36" />
+          <GhostBar className="h-9 w-32 rounded-lg sm:h-8" />
+          <GhostBar className="h-9 w-36 rounded-lg sm:h-8" />
+        </div>
+      ) : null}
     </div>
   );
 }

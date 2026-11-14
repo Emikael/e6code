@@ -158,6 +158,8 @@ const imageProps = {
   const changelogLink = document.getElementById("changelog-link") as HTMLAnchorElement;
   const releasesPageLink = document.getElementById("releases-page-link") as HTMLAnchorElement;
   const tabs = page.querySelectorAll<HTMLButtonElement>(".channel-toggle button");
+  // Over the nightly sky the nav and the header take the dark tokens in either theme.
+  const overSky = [document.querySelector(".site-header"), page.querySelector(".download-head")];
   // Only release-asset links; mobile store cards have no data-asset and keep their href.
   const cards = page.querySelectorAll<HTMLAnchorElement>("a[data-asset]");
 
@@ -176,6 +178,10 @@ const imageProps = {
   async function load(channel: ReleaseChannel) {
     const fallback = channel === "nightly" ? NIGHTLY_RELEASES_URL : RELEASES_URL;
     page.dataset.channel = channel;
+    for (const element of overSky) {
+      if (channel === "nightly") element?.setAttribute("data-theme", "dark");
+      else element?.removeAttribute("data-theme");
+    }
     tabs.forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.channel === channel)));
     releasesPageLink.href = fallback;
     changelogLink.href = fallback;
@@ -227,6 +233,14 @@ const imageProps = {
     padding: 0 1.5rem 4rem;
   }
 
+  /* The nightly sky reaches up behind the site nav, which has no background,
+     and the sky is dark in both themes, so while it shows the script puts the
+     nav and this header on the dark tokens (data-theme="dark", Layout.astro).
+     An open menu pushes the sky down, so the open nav gets the dark page fill. */
+  :global(.site-header[data-theme="dark"]:has([data-open])) {
+    background: var(--bg);
+  }
+
   /* ── Header ── */
 
   .download-head {
@@ -243,15 +257,17 @@ const imageProps = {
   .sky {
     position: absolute;
     top: -80px;
-    bottom: 0;
     /* Break out of the page padding so the sky spans the full viewport width. */
     left: 50%;
     width: 100vw;
     margin-left: -50vw;
     z-index: -1;
     background: url("/nightly-sky.svg") center / cover no-repeat;
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 100%);
+    /* Opaque behind every line of the header, so its text reads on the sky in
+       both themes; it fades out across the header's bottom padding and margin. */
+    bottom: -2rem;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 4.5rem), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 4.5rem), transparent 100%);
     opacity: 0;
     transform: scale(1.04);
     transition: opacity 0.9s ease, transform 1.4s cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -317,7 +333,7 @@ const imageProps = {
     padding: 3px;
     border: 1px solid var(--border-strong);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.03);
+    background: color-mix(in srgb, var(--fg) 3%, transparent);
     transition: border-color 0.45s ease, background 0.45s ease;
   }
 
@@ -334,7 +350,7 @@ const imageProps = {
     left: 3px;
     width: calc(50% - 3px);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: color-mix(in srgb, var(--fg) 12%, transparent);
     transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1), background 0.45s ease;
   }
 
@@ -472,13 +488,13 @@ const imageProps = {
     padding: 0.85rem 1rem;
     border-radius: 10px;
     border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.02);
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
     transition: background 0.45s ease, border-color 0.45s ease, transform 0.2s ease;
   }
 
   .download-card:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
+    border-color: var(--border-strong);
     transform: translateY(-1px);
   }
 
@@ -532,7 +548,7 @@ const imageProps = {
   .releases-link a {
     color: var(--fg-muted);
     text-decoration: underline;
-    text-decoration-color: rgba(161, 161, 170, 0.4);
+    text-decoration-color: var(--border-strong);
     text-underline-offset: 3px;
     transition: color 0.3s ease, text-decoration-color 0.3s ease;
   }

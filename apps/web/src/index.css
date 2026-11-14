@@ -4,6 +4,56 @@
 @custom-variant light (&:not(.dark, .dark *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
+/* Motion setting: Reduced sets data-reduced-motion on the root (lib/motion.ts), and takes the
+   same path as the system preference. Rules written against the media query directly must
+   match the attribute too; a shadow root reads --reduced-motion-transition instead. */
+@custom-variant motion-reduce {
+  @media (prefers-reduced-motion: reduce) {
+    @slot;
+  }
+  &:where([data-reduced-motion], [data-reduced-motion] *) {
+    @slot;
+  }
+}
+@custom-variant motion-safe {
+  @media (prefers-reduced-motion: no-preference) {
+    &:not(:where([data-reduced-motion], [data-reduced-motion] *)) {
+      @slot;
+    }
+  }
+}
+:root[data-reduced-motion] {
+  --reduced-motion-transition: none;
+}
+/* One switch for CSS motion (board 10). Reduced motion, from the system or the Motion setting,
+   turns every transition and keyframe animation into an instant change, the dialog, popover,
+   toast and button primitives included; data-typing (lib/motion.ts installTypingQuiet) does the
+   same while the user types. Durations go near zero rather than to none, so code waiting on
+   transitionend or animationend still hears it, and a loop stops after one cycle. */
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  :root:is([data-reduced-motion], [data-typing]) *,
+  :root:is([data-reduced-motion], [data-typing]) ::before,
+  :root:is([data-reduced-motion], [data-typing]) ::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* On mobile, morph the expanded hero composer into the compact docked
    composer while it moves; the rest of the app remains visually stationary. */
@@ -79,8 +129,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
 :root {
   --app-scrollbar-width: 6px;
   --appearance-contrast-base: 100%;
-  --appearance-contrast-boost: 0%;
-  --appearance-contrast-border-boost: 0%;
+  /* Contrast 120, the default: text roles mix 20% toward black or white and
+     borders 5% toward the foreground. appearanceContrast.ts overwrites these. */
+  --appearance-contrast-boost: 20%;
+  --appearance-contrast-border-boost: 5%;
   --appearance-contrast-target: black;
   --app-scrollbar-thumb: rgb(217 217 217);
   --app-scrollbar-thumb-hover: rgb(191 191 191);
@@ -508,20 +560,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --stage-night-glow-secondary: oklch(0.345571 0.117466 273.568);
     --stage-night-sparkle: oklch(0.880867 0.057747 269.011);
 
-    /* E6 brand: cyan + orange, complementary on the wheel, over charcoal
-       and off-white. Fills and lines use the brand values; the *-ink
-       shades are for small text on light surfaces, where the brand hues
-       fall under AA. */
-    --brand-cyan: #06b6d4;
-    --brand-orange: #f97316;
-    --brand-off-white: #f8fafc;
-    --brand-charcoal: #18181b;
-    --brand-cyan-ink: #0e7490;
-    --brand-orange-ink: #c2410c;
+    /* E6 brand tile, as drawn by the app icon (assets/prod/app-icon.icon):
+       a graphite ground, off-white glyph and a grey step meter. Fixed in
+       every theme, like the icon itself. */
+    --brand-tile-top: #262a32;
+    --brand-tile-bottom: #16181d;
+    --brand-ink: #eceef3;
+    --brand-meter-on: #c0c4cc;
+    --brand-meter-off: #6b7079;
 
     @variant dark {
-      --brand-cyan-ink: var(--brand-cyan);
-      --brand-orange-ink: var(--brand-orange);
       --stage-art-top: oklch(0.581473 0.149124 256.9);
       --stage-art-mid: oklch(0.456509 0.159377 261.945);
       --stage-art-bottom: oklch(0.291327 0.136578 267.649);
@@ -945,16 +993,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --card-foreground: var(--foreground);
   --popover: #ffffff;
   --popover-foreground: var(--foreground);
-  /* Iris is the one accent: the next action and a working agent. It carries
-     white ink on Porcelain, a darker edge and text variant, and a translucent
-     wash for selections and the Working pill. The Accent setting swaps the
-     family through the --stock-primary* variables (stockAccent.ts); the
-     literals are Iris. */
-  --primary: var(--stock-primary, #5b4ae0);
+  /* The accent marks the next action and a working agent. It carries its own
+     ink, an edge and text variant, and a translucent wash for selections and
+     the Working pill. The Accent setting swaps the family through the
+     --stock-primary* variables (stockAccent.ts); the literals are Graphite,
+     the default, so a neutral accent leaves hue to status alone. */
+  --primary: var(--stock-primary, #2a2d35);
   --primary-foreground: var(--stock-primary-foreground, #ffffff);
-  --primary-hover: var(--stock-primary-hover, #4c3bd1);
-  --primary-edge: var(--stock-primary-edge, #4a3ad0);
-  --primary-text: var(--stock-primary-text, #4a3ad0);
+  --primary-hover: var(--stock-primary-hover, #14161b);
+  --primary-edge: var(--stock-primary-edge, #2a2d35);
+  --primary-text: var(--stock-primary-text, #2a2d35);
   --primary-surface: color-mix(in srgb, var(--primary) 8%, transparent);
   --secondary: #eceef2;
   --secondary-foreground: #2a2d35;
@@ -991,9 +1039,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --update-surface: color-mix(in srgb, var(--update) 12%, transparent);
   /* Merged pull requests pair with the accent (STOCK_ACCENT_PALETTES in
      themePalettes.ts) so they never share the primary's hue; the literals
-     are Iris's fuchsia. */
-  --merged: var(--stock-merged, #c026d3);
-  --merged-foreground: var(--stock-merged-foreground, #a21caf);
+     are Graphite's violet, the default accent's pairing. */
+  --merged: var(--stock-merged, #7c3aed);
+  --merged-foreground: var(--stock-merged-foreground, #6d28d9);
   --merged-surface: color-mix(in srgb, var(--merged) 8%, transparent);
   /* Keep every sidebar primitive on the same light surface hierarchy, including
      portaled mobile sheets and settings navigation outside the app sidebar. */
@@ -1011,7 +1059,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
   --terminal-background: var(--background);
   --terminal-foreground: var(--foreground);
   --terminal-cursor: #14161b;
-  --terminal-selection-background: var(--stock-terminal-selection, rgb(91 74 224 / 18%));
+  --terminal-selection-background: var(--stock-terminal-selection, rgb(42 45 53 / 18%));
 
   @variant dark {
     color-scheme: dark;
@@ -1031,11 +1079,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --card-foreground: var(--foreground);
     --popover: #22252c;
     --popover-foreground: var(--foreground);
-    --primary: var(--stock-primary-dark, #9b8cff);
-    --primary-foreground: var(--stock-primary-foreground-dark, #14102e);
-    --primary-hover: var(--stock-primary-hover-dark, #ada0ff);
-    --primary-edge: var(--stock-primary-edge-dark, #9b8cff);
-    --primary-text: var(--stock-primary-text-dark, #b9afff);
+    --primary: var(--stock-primary-dark, #d4d7de);
+    --primary-foreground: var(--stock-primary-foreground-dark, #14161b);
+    --primary-hover: var(--stock-primary-hover-dark, #e6e8ec);
+    --primary-edge: var(--stock-primary-edge-dark, #c0c4cc);
+    --primary-text: var(--stock-primary-text-dark, #e6e8ec);
     --primary-surface: color-mix(in srgb, var(--primary) 12%, transparent);
     --ring: var(--primary);
     --placeholder: #8c92a0;
@@ -1062,8 +1110,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
     --update-foreground: #93c5fd;
     --update-surface: color-mix(in srgb, var(--update) 18%, transparent);
-    --merged: var(--stock-merged-dark, #e879f9);
-    --merged-foreground: var(--stock-merged-foreground-dark, #f39be6);
+    --merged: var(--stock-merged-dark, #a78bfa);
+    --merged-foreground: var(--stock-merged-foreground-dark, #c4b5fd);
     --merged-surface: color-mix(in srgb, var(--merged) 16%, transparent);
     --sidebar: #13151a;
     --sidebar-control-surface: var(--muted);
@@ -1071,8 +1119,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(e6-mobil
     --sidebar-row-active: var(--accent);
     --sidebar-row-selected: var(--muted);
     --sidebar-stage-fade: var(--sidebar);
-    --terminal-cursor: var(--stock-terminal-cursor-dark, #9b8cff);
-    --terminal-selection-background: var(--stock-terminal-selection-dark, rgb(155 140 255 / 22%));
+    --terminal-cursor: var(--stock-terminal-cursor-dark, #d4d7de);
+    --terminal-selection-background: var(--stock-terminal-selection-dark, rgb(212 215 222 / 22%));
   }
 }
 
@@ -1930,8 +1978,8 @@ code {
    so opening a finished thread never replays the fade. Opacity only, one
    shot, no layout change. */
 @media (prefers-reduced-motion: no-preference) {
-  .chat-markdown[data-streaming] > *,
-  .chat-markdown[data-streaming] .chat-markdown-shiki {
+  :root:not([data-reduced-motion]) .chat-markdown[data-streaming] > *,
+  :root:not([data-reduced-motion]) .chat-markdown[data-streaming] .chat-markdown-shiki {
     transition: opacity 600ms ease-out;
 
     @starting-style {
@@ -2153,6 +2201,14 @@ code {
   .preview-loading-progress[data-loading="true"] {
     transform: scaleX(0.9);
   }
+}
+:root[data-reduced-motion] .preview-loading-progress,
+:root[data-reduced-motion] .preview-loading-progress[data-loading="true"] {
+  transition: none;
+  animation: none;
+}
+:root[data-reduced-motion] .preview-loading-progress[data-loading="true"] {
+  transform: scaleX(0.9);
 }
 
 /* Let the sortable rows open label clearance before painting the dividers.

@@ -37,6 +37,7 @@ import {
   ProjectionThreadProposedPlanRepository,
 } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import * as ProjectionThreadPullRequests from "../../persistence/ProjectionThreadPullRequests.ts";
+import * as ProjectionParkedEntries from "../../persistence/ProjectionParkedEntries.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import {
   type ProjectionTurn,
@@ -53,6 +54,10 @@ import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
+import {
+  summarizePendingRequests,
+  type OpenUserInputRequest,
+} from "../ThreadPendingRequestSummary.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
@@ -74,6 +79,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
+  parked: "projection.parked",
 } as const;
 
 type ProjectorName =
@@ -158,10 +164,20 @@ function shouldRefreshThreadShellSummary(event: OrchestrationEvent): boolean {
   }
 }
 
-function derivePendingUserInputCountFromActivities(
+/**
+ * Open user-input requests replayed from the thread's lifecycle activities:
+ * how many are unresolved, when the oldest of them was asked, and the
+ * question texts of each open request, oldest first.
+ */
+function derivePendingUserInputFromActivities(
   activities: ReadonlyArray<ProjectionThreadActivity>,
-): number {
-  const openRequestIds = new Set<string>();
+): {
+  readonly count: number;
+  readonly earliestRequestedAt: string | null;
+  readonly openRequests: ReadonlyArray<OpenUserInputRequest>;
+} {
+  // Request id -> when it was first asked, and what.
+  const openRequests = new Map<string, { requestedAt: string; questions: string[] }>();
   const ordered = [...activities].toSorted(
     (left, right) =>
       left.createdAt.localeCompare(right.createdAt) ||
@@ -180,12 +196,17 @@ function derivePendingUserInputCountFromActivities(
     const detail = typeof payload?.detail === "string" ? payload.detail.toLowerCase() : null;
 
     if (activity.kind === "user-input.requested") {
-      openRequestIds.add(requestId);
+      if (!openRequests.has(requestId)) {
+        openRequests.set(requestId, {
+          requestedAt: activity.createdAt,
+          questions: extractQuestionTexts(payload?.questions),
+        });
+      }
       continue;
     }
 
     if (activity.kind === "user-input.resolved") {
-      openRequestIds.delete(requestId);
+      openRequests.delete(requestId);
       continue;
     }
 
@@ -197,11 +218,36 @@ function derivePendingUserInputCountFromActivities(
         detail.includes("unknown pending user input request") ||
         detail.includes("unknown pending codex user input request"))
     ) {
-      openRequestIds.delete(requestId);
+      openRequests.delete(requestId);
     }
   }
 
-  return openRequestIds.size;
+  const open = [...openRequests.values()].toSorted((left, right) =>
+    left.requestedAt.localeCompare(right.requestedAt),
+  );
+  return {
+    count: open.length,
+    earliestRequestedAt: open[0]?.requestedAt ?? null,
+    openRequests: open.map((request) => ({ questions: request.questions })),
+  };
+}
+
+/** The `question` texts of a `user-input.requested` payload, skipping malformed entries. */
+function extractQuestionTexts(questions: unknown): string[] {
+  if (!Array.isArray(questions)) return [];
+  const texts: string[] = [];
+  for (const question of questions) {
+    if (typeof question !== "object" || question === null) continue;
+    const text = (question as Record<string, unknown>).question;
+    if (typeof text === "string") texts.push(text);
+  }
+  return texts;
+}
+
+function earliestIsoTime(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left <= right ? left : right;
 }
 
 function retainProjectionMessagesAfterRevert(
@@ -491,6 +537,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
+    const projectionParkedEntryRepository =
+      yield* ProjectionParkedEntries.ProjectionParkedEntryRepository;
 
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -579,7 +627,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         return;
       }
 
-      const [latestUserMessageAt, hasActionableProposedPlan, activities, pendingApprovalCount] =
+      const [latestUserMessageAt, hasActionableProposedPlan, activities, pendingApprovals] =
         yield* Effect.all([
           projectionThreadMessageRepository.getLatestUserMessageAt({ threadId }),
           projectionThreadProposedPlanRepository.hasActionableByThreadId({
@@ -587,16 +635,29 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestTurnId: existingRow.value.latestTurnId,
           }),
           projectionThreadActivityRepository.listUserInputLifecycleByThreadId({ threadId }),
-          projectionPendingApprovalRepository.countPendingByThreadId({ threadId }),
+          projectionPendingApprovalRepository.summarizePendingByThreadId({ threadId }),
         ]);
 
-      const pendingUserInputCount = derivePendingUserInputCountFromActivities(activities);
+      const pendingUserInput = derivePendingUserInputFromActivities(activities);
+      // Only a blocked thread pays for the per-request kinds.
+      const pendingApprovalKinds =
+        pendingApprovals.count > 0
+          ? yield* projectionPendingApprovalRepository.listPendingKindsByThreadId({ threadId })
+          : [];
 
       yield* projectionThreadRepository.upsert({
         ...existingRow.value,
         latestUserMessageAt,
-        pendingApprovalCount,
-        pendingUserInputCount,
+        pendingApprovalCount: pendingApprovals.count,
+        pendingUserInputCount: pendingUserInput.count,
+        pendingRequestSince: earliestIsoTime(
+          pendingApprovals.earliestCreatedAt,
+          pendingUserInput.earliestRequestedAt,
+        ),
+        pendingRequestSummary: summarizePendingRequests({
+          approvals: pendingApprovalKinds,
+          userInputs: pendingUserInput.openRequests,
+        }),
         hasActionableProposedPlan: hasActionableProposedPlan ? 1 : 0,
       });
     });
@@ -638,6 +699,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             latestUserMessageAt: null,
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
+            pendingRequestSince: null,
+            pendingRequestSummary: null,
             hasActionableProposedPlan: 0,
             deletedAt: null,
           });
@@ -1942,6 +2005,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (Option.isSome(existingRow) && existingRow.value.status === "resolved") {
             return;
           }
+          const requestPayload =
+            typeof event.payload.activity.payload === "object" &&
+            event.payload.activity.payload !== null
+              ? (event.payload.activity.payload as Record<string, unknown>)
+              : {};
           yield* projectionPendingApprovalRepository.upsert({
             requestId,
             threadId: event.payload.threadId,
@@ -1952,6 +2020,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? existingRow.value.createdAt
               : event.payload.activity.createdAt,
             resolvedAt: null,
+            // Stored so the shell summary never scans activities for it.
+            requestKind:
+              typeof requestPayload.requestKind === "string" ? requestPayload.requestKind : null,
+            requestType:
+              typeof requestPayload.requestType === "string" ? requestPayload.requestType : null,
           });
           return;
         }
@@ -1960,6 +2033,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           const existingRow = yield* projectionPendingApprovalRepository.getByRequestId({
             requestId: event.payload.requestId,
           });
+          // The first answer stands: a later one never reaches the provider.
+          if (Option.isSome(existingRow) && existingRow.value.status === "resolved") {
+            return;
+          }
           yield* projectionPendingApprovalRepository.upsert({
             requestId: event.payload.requestId,
             threadId: Option.isSome(existingRow)
@@ -1980,6 +2057,32 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
       }
     });
+
+    // The environment's Parked list. A thread's deletion takes its note with it.
+    const applyParkedProjection: ProjectorDefinition["apply"] = Effect.fn("applyParkedProjection")(
+      function* (event, _attachmentSideEffects) {
+        switch (event.type) {
+          case "parked.thought-added":
+          case "parked.thought-updated":
+          case "parked.note-set":
+            yield* projectionParkedEntryRepository.upsert(event.payload.entry);
+            return;
+          case "parked.imported":
+            yield* Effect.forEach(event.payload.entries, projectionParkedEntryRepository.upsert, {
+              discard: true,
+            });
+            return;
+          case "parked.entry-removed":
+            yield* projectionParkedEntryRepository.remove(event.payload);
+            return;
+          case "thread.deleted":
+            yield* projectionParkedEntryRepository.removeNoteForThread(event.payload.threadId);
+            return;
+          default:
+            return;
+        }
+      },
+    );
 
     const projectors: ReadonlyArray<ProjectorDefinition> = [
       {
@@ -2017,6 +2120,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threads,
         apply: applyThreadsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.parked,
+        apply: applyParkedProjection,
       },
     ];
 
@@ -2246,6 +2353,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadPullRequests.layer),
+  Layer.provideMerge(ProjectionParkedEntries.layer),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),

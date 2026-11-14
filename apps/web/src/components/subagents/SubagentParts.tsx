@@ -8,6 +8,7 @@ import type { ProviderDriverKind } from "@e6tools/contracts";
 import { describeSubagentUserRequest } from "@e6tools/client-runtime/pending-requests";
 import {
   formatSubagentElapsed,
+  formatSubagentElapsedMinutes,
   type RuntimeSubagent,
   subagentActivityText,
   SUBAGENT_STATUS_LABEL,
@@ -17,8 +18,8 @@ import {
 } from "@e6tools/client-runtime/state/subagentRuntime";
 import {
   BotIcon,
+  CheckIcon,
   CircleCheckIcon,
-  CircleDashedIcon,
   CirclePauseIcon,
   CircleXIcon,
   MessageCircleQuestionIcon,
@@ -68,11 +69,16 @@ export function SubagentStatusGlyph({
     case "question":
       return <MessageCircleQuestionIcon {...props} />;
     case "working":
-      return <CircleDashedIcon {...props} />;
+      return (
+        <span {...props} className={cn("flex items-center justify-center", props.className)}>
+          <WorkingDot className="size-2" />
+        </span>
+      );
     case "idle":
       return <CirclePauseIcon {...props} />;
     case "done":
-      return <CircleCheckIcon {...props} />;
+      // Done is the plain tick the plan uses; failed keeps its circled mark.
+      return <CheckIcon {...props} />;
     case "failed":
       return <CircleXIcon {...props} />;
     case "stopped":
@@ -81,9 +87,20 @@ export function SubagentStatusGlyph({
 }
 
 /**
- * Status word with its shape-distinct glyph. The solid dot is reserved for the
- * turn's own accent live signal, so a working subagent uses the dashed circle.
+ * A working agent: the solid accent dot with its halo, the same mark the turn and the sidebar use
+ * for live work. The dashed circle means starting and is not used for a working agent. Always
+ * placed beside its word.
  */
+function WorkingDot({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn("shrink-0 rounded-full bg-primary ring-2 ring-primary-surface", className)}
+    />
+  );
+}
+
+/** Status word with its shape-distinct glyph. */
 export function SubagentStatusWord({
   tone,
   className,
@@ -104,7 +121,9 @@ export function SubagentStatusWord({
       ) : tone === "question" ? (
         <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "working" ? (
-        <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
+        <span aria-hidden className="flex size-3 shrink-0 items-center justify-center">
+          <WorkingDot className="size-1.5" />
+        </span>
       ) : tone === "done" ? (
         <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
       ) : tone === "failed" ? (
@@ -203,13 +222,17 @@ export function SubagentTile({
 export function SubagentElapsed({
   agent,
   className,
+  minutes = false,
 }: {
   agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt" | "updatedAt">;
   className?: string;
+  /** Whole minutes, updated once a minute, where one ticking element per screen is the rule. */
+  minutes?: boolean;
 }) {
   const textRef = useRef<HTMLSpanElement>(null);
-  // Live rows rewrite their own text each second; the render only seeds it.
+  // Live rows rewrite their own text each second (or minute); the render only seeds it.
   const [mountedAt] = useState(Date.now);
+  const format = minutes ? formatSubagentElapsedMinutes : formatSubagentElapsed;
   const live = subagentElapsedIsLive(agent.status);
   const { status, startedAt, completedAt, updatedAt } = agent;
 
@@ -218,18 +241,18 @@ export function SubagentElapsed({
     const update = () => {
       const ms = subagentElapsedMs({ status, startedAt, completedAt, updatedAt }, Date.now());
       if (textRef.current) {
-        textRef.current.textContent = ms === null ? "–" : formatSubagentElapsed(ms);
+        textRef.current.textContent = ms === null ? "–" : format(ms);
       }
     };
     update();
-    const id = setInterval(update, 1000);
+    const id = setInterval(update, minutes ? 60_000 : 1000);
     return () => clearInterval(id);
-  }, [live, status, startedAt, completedAt, updatedAt]);
+  }, [format, live, minutes, status, startedAt, completedAt, updatedAt]);
 
   const ms = subagentElapsedMs(agent, mountedAt);
   return (
     <span ref={textRef} className={cn("tabular-nums", className)}>
-      {ms === null ? "–" : formatSubagentElapsed(ms)}
+      {ms === null ? "–" : format(ms)}
     </span>
   );
 }

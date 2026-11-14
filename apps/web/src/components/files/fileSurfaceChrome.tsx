@@ -1,20 +1,12 @@
 import type { ReactNode } from "react";
 
+import { PanelErrorCard } from "~/components/panel/PanelErrorCard";
 import { Spinner } from "~/components/ui/spinner";
 import { Button } from "~/components/ui/button";
 import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
-
-/**
- * One header row for every file surface in the side panel, whether the file
- * comes from the workspace or was captured as an attachment: crumbs on the
- * left, icon-only actions on the right. Attachments and workspace files must
- * not grow separate chrome.
- */
-export const FILE_SURFACE_SUBHEADER_CLASS =
-  "flex h-10 min-h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent";
 
 export const FILE_LINK_REVEAL_ATTRIBUTE = "data-file-link-reveal";
 
@@ -27,6 +19,11 @@ export const FILE_LINK_REVEAL_UNSAFE_CSS = `
     --diffs-dark-bg: var(--code-background, var(--background)) !important;
     background-color: var(--code-background, var(--background)) !important;
     color: var(--code-foreground, var(--foreground)) !important;
+  }
+
+  /* Pierre's "modified" blue drives selection and the comment button; selection is neutral. */
+  :host {
+    --diffs-modified-color-override: var(--primary-edge);
   }
 
   [${FILE_LINK_REVEAL_ATTRIBUTE}][data-line] {
@@ -58,6 +55,15 @@ export const FILE_LINK_REVEAL_UNSAFE_CSS = `
       )
     ) !important;
     color: var(--diffs-selection-number-fg) !important;
+  }
+
+  /* Selected lines: the primary-surface wash laid over the line, with a primary-edge line, not a
+     wash alone (a wash measured 1.15:1). */
+  :is([data-line], [data-column-number])[data-selected-line] {
+    background-image: linear-gradient(var(--primary-surface), var(--primary-surface)) !important;
+  }
+  [data-column-number][data-selected-line] {
+    box-shadow: inset 2px 0 0 var(--primary-edge) !important;
   }
 `;
 
@@ -136,25 +142,22 @@ export function FileSurfaceLoading(props: { readonly className?: string }) {
   );
 }
 
+/** Board 14's error card, centred where the file would be: what failed, that the file is safe, Retry. */
 export function FileSurfaceFailure(props: {
   readonly message: string;
+  readonly title?: string;
   readonly onRetry?: () => void;
 }) {
   return (
-    <div
-      role="alert"
-      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-xs leading-relaxed"
-    >
-      <p className="text-destructive">{props.message}</p>
-      {props.onRetry ? (
-        <button
-          type="button"
-          onClick={props.onRetry}
-          className="rounded-md border border-input px-2.5 py-1 text-xs text-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Try again
-        </button>
-      ) : null}
+    <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <PanelErrorCard
+          title={props.title ?? "Could not show this file"}
+          reason={props.message}
+          reassurance="The file is not affected."
+          onRetry={props.onRetry}
+        />
+      </div>
     </div>
   );
 }

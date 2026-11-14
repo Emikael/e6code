@@ -24,7 +24,15 @@ import {
   useThreadRecentHistory,
 } from "~/browserHistoryStore";
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
+import { useComposerHasText } from "~/hooks/useComposerHasText";
 import { capturePreviewAnnotationScreenshot } from "~/lib/previewAnnotation";
+import {
+  ATTACHED_SENTENCE,
+  ATTACHED_WITH_SCREENSHOT_SENTENCE,
+  attachedCount,
+  browserNoteTitle,
+} from "~/lib/attachedForAgent";
+import { AttachedCountButton } from "../attached/AttachedCountButton";
 import { ensureLocalApi } from "~/localApi";
 import {
   rememberPreviewUrl,
@@ -60,6 +68,8 @@ import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Textarea } from "~/components/ui/textarea";
+import { Kbd } from "~/components/ui/kbd";
 import { BrowserSurfaceSlot } from "~/browser/BrowserSurfaceSlot";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { usePreviewSession } from "./usePreviewSession";
@@ -109,6 +119,10 @@ export function PreviewView({
 }: Props) {
   const [focusUrlNonce, setFocusUrlNonce] = useState<number | undefined>(undefined);
   const [pickActive, setPickActive] = useState(false);
+  // Annotate mode (board 17) outlasts one pick: after each note the picker is armed again, so
+  // the reader adds notes until Done annotating, Escape, or leaving the tab.
+  const [annotating, setAnnotating] = useState(false);
+  const annotatingRef = useRef(false);
   const activeRecordingTabIds = useActiveBrowserRecordingTabIds();
   const pickActiveRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -126,6 +140,15 @@ export function PreviewView({
   );
   const addPreviewAnnotation = useComposerDraftStore((store) => store.addPreviewAnnotation);
   const addImage = useComposerDraftStore((store) => store.addImage);
+  const removePreviewAnnotation = useComposerDraftStore((store) => store.removePreviewAnnotation);
+  // Notes wait in the thread's composer with everything else attached for the agent.
+  const attachedNotes = useComposerDraftStore(
+    (store) => store.getComposerDraft(threadRef)?.previewAnnotations ?? EMPTY_NOTES,
+  );
+  const attachedNoteCount = useComposerDraftStore((store) =>
+    attachedCount(store.getComposerDraft(threadRef), "note"),
+  );
+  const composerHasText = useComposerHasText(threadRef);
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(threadRef.environmentId);
   const environmentHostname = environmentHttpBaseUrl
     ? new URL(environmentHttpBaseUrl).hostname
@@ -584,88 +607,132 @@ export function PreviewView({
   const handlePickElement = useCallback(() => {
     if (!previewBridge || !runtimeTabId) return;
     if (pickActiveRef.current) {
+      annotatingRef.current = false;
+      setAnnotating(false);
       void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
       return;
     }
-    // Snapshot whatever the user was focused on (typically the chat
-    // composer textarea or the chrome-row pick button) BEFORE main steals
-    // focus into the guest webContents. We restore it when the pick
-    // resolves so the user's typing context isn't lost — otherwise after
-    // every pick they'd have to click back into the textarea.
-    const previouslyFocused =
-      typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
-    pickActiveRef.current = true;
-    setPickActive(true);
-    void (async () => {
-      try {
-        const result = await previewBridge.pickElement(runtimeTabId);
-        if (!result) return;
-        const { annotation: picked, submission, screenshotFailed = false } = result;
-        // The structured annotation is still sendable when its optional crop
-        // stalls or fails, so tell the user what they lost and keep going
-        // instead of holding the composer for an attachment that never lands.
-        // The stored copy drops the screenshot on failure, otherwise the prompt
-        // would tell the agent a crop is attached when none was sent.
-        const capture = capturePreviewAnnotationScreenshot(picked);
-        // Main reports a crop that failed or timed out on its side; the local
-        // conversion can fail too. Either way the user should hear about it.
-        const cropDropped = screenshotFailed || capture.status === "failed";
-        const annotation = capture.status === "failed" ? { ...picked, screenshot: null } : picked;
-        addPreviewAnnotation(threadRef, annotation);
-        if (cropDropped) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not capture the picked element",
-              // The send path reports its own outcome, so only say what this
-              // handler knows: the crop was dropped.
-              description: "The annotation was kept without the screenshot.",
-            }),
-          );
-        }
-        const screenshotFile = capture.status === "captured" ? capture.file : null;
-        const image =
-          screenshotFile && annotation.screenshot
-            ? ({
-                type: "image",
-                id: annotation.id,
-                name: screenshotFile.name,
-                mimeType: screenshotFile.type,
-                sizeBytes: screenshotFile.size,
-                previewUrl: annotation.screenshot.dataUrl,
-                file: screenshotFile,
-              } satisfies ComposerImageAttachment)
-            : null;
-        if (image) {
-          addImage(threadRef, image);
-        }
-        if (submission === "send") {
-          onSendAnnotation?.(annotation, image);
-        }
-      } catch {
-        // Picker failed (e.g. webview navigated). Treat as silent cancel.
-      } finally {
-        pickActiveRef.current = false;
-        // Avoid `setState on unmounted component` if the panel/thread closed
-        // while the pick was in flight.
-        if (isMountedRef.current) setPickActive(false);
-        // Best-effort: restore focus to whatever the user had before the
-        // pick stole it into the guest webContents. Skip if the previously-
-        // focused element was unmounted or is no longer focusable.
-        if (
-          previouslyFocused &&
-          previouslyFocused.isConnected &&
-          typeof previouslyFocused.focus === "function"
-        ) {
-          try {
-            previouslyFocused.focus({ preventScroll: true });
-          } catch {
-            // Some elements throw on .focus() (detached iframes, etc.).
+    annotatingRef.current = true;
+    setAnnotating(true);
+    const startPick = () => {
+      if (!previewBridge || !runtimeTabId) return;
+      let armAgain = false;
+      // Snapshot whatever the user was focused on (typically the chat
+      // composer textarea or the chrome-row pick button) BEFORE main steals
+      // focus into the guest webContents. We restore it when the pick
+      // resolves so the user's typing context isn't lost — otherwise after
+      // every pick they'd have to click back into the textarea.
+      const previouslyFocused =
+        typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+      pickActiveRef.current = true;
+      setPickActive(true);
+      void (async () => {
+        try {
+          const result = await previewBridge.pickElement(runtimeTabId);
+          if (!result) return;
+          const { annotation: picked, submission, screenshotFailed = false } = result;
+          // The structured annotation is still sendable when its optional crop
+          // stalls or fails, so tell the user what they lost and keep going
+          // instead of holding the composer for an attachment that never lands.
+          // The stored copy drops the screenshot on failure, otherwise the prompt
+          // would tell the agent a crop is attached when none was sent.
+          const capture = capturePreviewAnnotationScreenshot(picked);
+          // Main reports a crop that failed or timed out on its side; the local
+          // conversion can fail too. Either way the user should hear about it.
+          const cropDropped = screenshotFailed || capture.status === "failed";
+          const annotation = capture.status === "failed" ? { ...picked, screenshot: null } : picked;
+          addPreviewAnnotation(threadRef, annotation);
+          if (cropDropped) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Could not capture the picked element",
+                // The send path reports its own outcome, so only say what this
+                // handler knows: the crop was dropped.
+                description: "The annotation was kept without the screenshot.",
+              }),
+            );
+          }
+          const screenshotFile = capture.status === "captured" ? capture.file : null;
+          const image =
+            screenshotFile && annotation.screenshot
+              ? ({
+                  type: "image",
+                  id: annotation.id,
+                  name: screenshotFile.name,
+                  mimeType: screenshotFile.type,
+                  sizeBytes: screenshotFile.size,
+                  previewUrl: annotation.screenshot.dataUrl,
+                  file: screenshotFile,
+                } satisfies ComposerImageAttachment)
+              : null;
+          if (image) {
+            addImage(threadRef, image);
+          }
+          if (submission === "send") {
+            onSendAnnotation?.(annotation, image);
+          } else {
+            armAgain = true;
+          }
+        } catch {
+          // Picker failed (e.g. webview navigated). Treat as silent cancel.
+        } finally {
+          pickActiveRef.current = false;
+          // Avoid `setState on unmounted component` if the panel/thread closed
+          // while the pick was in flight.
+          if (isMountedRef.current) setPickActive(false);
+          // A note was added and the mode is still on: arm the picker for the next one.
+          if (armAgain && annotatingRef.current && isMountedRef.current) {
+            setTimeout(() => {
+              if (annotatingRef.current && isMountedRef.current && !pickActiveRef.current) {
+                startPick();
+              }
+            }, 0);
+          } else {
+            annotatingRef.current = false;
+            if (isMountedRef.current) setAnnotating(false);
+          }
+          // Best-effort: restore focus to whatever the user had before the
+          // pick stole it into the guest webContents. Skip if the previously-
+          // focused element was unmounted or is no longer focusable.
+          if (
+            previouslyFocused &&
+            previouslyFocused.isConnected &&
+            typeof previouslyFocused.focus === "function"
+          ) {
+            try {
+              previouslyFocused.focus({ preventScroll: true });
+            } catch {
+              // Some elements throw on .focus() (detached iframes, etc.).
+            }
           }
         }
-      }
-    })();
+      })();
+    };
+    startPick();
   }, [addImage, addPreviewAnnotation, onSendAnnotation, runtimeTabId, threadRef]);
+
+  // Annotating is a mode (F20), so it is easy to leave: Finish on its banner, Escape, closing the
+  // panel, or switching tabs (which unmounts this view; see the cleanup below).
+  const finishAnnotating = useCallback(() => {
+    annotatingRef.current = false;
+    setAnnotating(false);
+    if (!pickActiveRef.current || !previewBridge || !runtimeTabId) return;
+    void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
+  }, [runtimeTabId]);
+  useEffect(() => {
+    if (!visible) finishAnnotating();
+  }, [finishAnnotating, visible]);
+  useEffect(() => {
+    if (!annotating) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      finishAnnotating();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [annotating, finishAnnotating]);
 
   // If the active tab changes mid-pick (close, thread switch, hot restart),
   // tell main to tear down the in-flight session AND reset our local toggle
@@ -677,7 +744,11 @@ export function PreviewView({
       if (previewBridge && runtimeTabId) {
         void previewBridge.cancelPickElement(runtimeTabId).catch(() => undefined);
       }
-      if (isMountedRef.current) setPickActive(false);
+      annotatingRef.current = false;
+      if (isMountedRef.current) {
+        setPickActive(false);
+        setAnnotating(false);
+      }
     };
   }, [runtimeTabId]);
 
@@ -724,15 +795,8 @@ export function PreviewView({
         onForward={handleForward}
         onRefresh={handleRefresh}
         onSubmit={(next) => void handleSubmitUrl(next)}
-        onOpenInBrowser={tabId ? handleOpenInBrowser : undefined}
-        onCapture={previewBridge && tabId ? handleCapture : undefined}
-        captureDisabled={!desktopOverlay || isUnreachable}
-        recording={recordingRuntimeTabId !== null}
-        onPictureInPicture={previewBridge && tabId ? handlePictureInPicture : undefined}
-        pictureInPicture={miniPlayerTabId === tabId}
-        pictureInPictureDisabled={!desktopOverlay?.hasWebContents || isUnreachable}
         onPickElement={previewBridge && tabId ? handlePickElement : undefined}
-        pickActive={pickActive}
+        pickActive={annotating}
         // Disable when there's no tab (nothing to pick on) OR the page
         // failed to load (a React overlay covers the webview, so the
         // user wouldn't be able to actually click anything underneath).
@@ -761,21 +825,26 @@ export function PreviewView({
           ) : null
         }
         trailingActions={
-          previewBridge ? (
-            <PreviewMoreMenu
-              environmentId={threadRef.environmentId}
-              profileId={activeProfileId}
-              profileName={activeProfileName}
-              tabId={runtimeTabId}
-              hasWebContents={desktopOverlay?.hasWebContents ?? false}
-              zoomFactor={desktopOverlay?.zoomFactor ?? 1}
-              colorScheme={desktopOverlay?.colorScheme ?? "system"}
-              deviceToolbarVisible={viewport._tag !== "fill"}
-              onToggleDeviceToolbar={handleToggleDeviceToolbar}
-              nativePictureInPicture={desktopOverlay?.pictureInPicture ?? false}
-              onNativePictureInPicture={handleNativePictureInPicture}
-            />
-          ) : null
+          <PreviewMoreMenu
+            onOpenInBrowser={tabId ? handleOpenInBrowser : undefined}
+            onCapture={previewBridge && tabId ? handleCapture : undefined}
+            captureDisabled={!desktopOverlay || isUnreachable}
+            recording={recordingRuntimeTabId !== null}
+            onPictureInPicture={previewBridge && tabId ? handlePictureInPicture : undefined}
+            pictureInPicture={miniPlayerTabId === tabId}
+            pictureInPictureDisabled={!desktopOverlay?.hasWebContents || isUnreachable}
+            environmentId={threadRef.environmentId}
+            profileId={activeProfileId}
+            profileName={activeProfileName}
+            tabId={runtimeTabId}
+            hasWebContents={desktopOverlay?.hasWebContents ?? false}
+            zoomFactor={desktopOverlay?.zoomFactor ?? 1}
+            colorScheme={desktopOverlay?.colorScheme ?? "system"}
+            deviceToolbarVisible={viewport._tag !== "fill"}
+            onToggleDeviceToolbar={handleToggleDeviceToolbar}
+            nativePictureInPicture={desktopOverlay?.pictureInPicture ?? false}
+            onNativePictureInPicture={handleNativePictureInPicture}
+          />
         }
       />
 
@@ -823,6 +892,22 @@ export function PreviewView({
         {snapshot && desktopOverlay ? (
           <ZoomIndicator zoomFactor={desktopOverlay.zoomFactor} />
         ) : null}
+        {annotating ? (
+          // Board 17: a floating card inset over the page. The page is a <webview> composited
+          // with the DOM, so the card paints above it the way the agent's cursor does.
+          <div
+            role="status"
+            className="absolute inset-x-2.5 top-2.5 z-40 flex items-center gap-2.5 rounded-xl border border-border bg-surface-floating py-1.5 pe-1.5 ps-3 shadow-lg"
+          >
+            <span className="min-w-0 flex-1 font-medium text-[13px] text-foreground">
+              Annotating. Click an element or drag a region.
+            </span>
+            <Button size="compact" variant="ghost" onClick={finishAnnotating}>
+              Finish
+              <Kbd className="h-5 min-w-5 border border-border border-b-2 bg-card">Esc</Kbd>
+            </Button>
+          </div>
+        ) : null}
         {runtimeTabId &&
         desktopOverlay &&
         !showEmptyState &&
@@ -841,9 +926,132 @@ export function PreviewView({
               code={navStatus.code}
               description={navStatus.description}
               onReload={handleRefresh}
+              composerHasText={composerHasText}
             />
           </div>
         ) : null}
+      </div>
+      {annotating ? (
+        <PreviewAnnotateFooter
+          notes={attachedNotes}
+          count={attachedNoteCount}
+          onRemove={(id) => removePreviewAnnotation(threadRef, id)}
+          onEdit={(id, comment) =>
+            // In place, so the note keeps its number here and in the composer.
+            useComposerDraftStore.getState().setPreviewAnnotations(
+              threadRef,
+              attachedNotes.map((note) => (note.id === id ? { ...note, comment } : note)),
+            )
+          }
+          onDone={finishAnnotating}
+        />
+      ) : attachedNoteCount > 0 ? (
+        // After Done annotating the notes still wait in the composer; say so, as the Diff, Files
+        // and Terminal footers do.
+        <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-border bg-surface-raised px-3 py-2">
+          <AttachedCountButton count={attachedNoteCount} kind="note" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const EMPTY_NOTES: ReadonlyArray<PreviewAnnotationPayload> = [];
+
+/**
+ * Board 17's annotate row: the latest note as a numbered card, then "1 note attached" (which
+ * leads to the composer, where every note waits), and Done annotating. Drawn under the page,
+ * since nothing can paint over the page's native view.
+ */
+function PreviewAnnotateFooter(props: {
+  readonly notes: ReadonlyArray<PreviewAnnotationPayload>;
+  readonly count: number;
+  readonly onRemove: (id: string) => void;
+  readonly onEdit: (id: string, comment: string) => void;
+  readonly onDone: () => void;
+}) {
+  const latest = props.notes.at(-1);
+  // The id of the note whose text is being edited in place, and the text so far.
+  const [editing, setEditing] = useState<{ readonly id: string; readonly text: string } | null>(
+    null,
+  );
+  const editingLatest = latest !== undefined && editing?.id === latest.id ? editing : null;
+  const saveEdit = () => {
+    if (!editingLatest) return;
+    props.onEdit(editingLatest.id, editingLatest.text.trim());
+    setEditing(null);
+  };
+  return (
+    <div className="flex shrink-0 flex-col gap-3 border-t border-border p-3">
+      {latest ? (
+        <div className="flex max-w-[300px] flex-col gap-1.5 rounded-xl border border-border bg-surface-floating px-3 py-2.5 text-foreground shadow-(--command-deck-shadow)">
+          <div className="flex items-center gap-1">
+            <span className="min-w-0 flex-1 font-medium text-[13px]">
+              {browserNoteTitle(props.notes.length - 1)}
+            </span>
+            {editingLatest ? null : (
+              <Button
+                size="compact"
+                variant="ghost"
+                onClick={() => setEditing({ id: latest.id, text: latest.comment })}
+              >
+                Edit
+              </Button>
+            )}
+            <Button size="compact" variant="ghost" onClick={() => props.onRemove(latest.id)}>
+              Remove
+            </Button>
+          </div>
+          {editingLatest ? (
+            <form
+              className="flex flex-col gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveEdit();
+              }}
+            >
+              <Textarea
+                autoFocus
+                size="sm"
+                aria-label={`Edit ${browserNoteTitle(props.notes.length - 1)}`}
+                value={editingLatest.text}
+                onChange={(event) => setEditing({ id: latest.id, text: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setEditing(null);
+                  } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    saveEdit();
+                  }
+                }}
+              />
+              <div className="flex justify-end gap-1">
+                <Button size="compact" variant="ghost" onClick={() => setEditing(null)}>
+                  Cancel
+                </Button>
+                <Button size="compact" variant="outline" type="submit">
+                  Save
+                </Button>
+              </div>
+            </form>
+          ) : latest.comment.trim() ? (
+            <p className="whitespace-pre-wrap text-sm">{latest.comment.trim()}</p>
+          ) : null}
+          <p className="text-muted-foreground text-xs">
+            {latest.screenshot ? ATTACHED_WITH_SCREENSHOT_SENTENCE : ATTACHED_SENTENCE}
+          </p>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <AttachedCountButton count={props.count} kind="note" />
+        <span className="min-w-0 flex-1 basis-40 text-muted-foreground text-xs">
+          {props.notes.length > 0 ? "Click an element or drag a region to add another." : null}
+        </span>
+        <Button size="compact" variant="ghost" onClick={props.onDone}>
+          Done annotating
+        </Button>
       </div>
     </div>
   );

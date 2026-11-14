@@ -74,12 +74,14 @@ import {
   ComposerContextActionsContext,
   ComposerContextReferenceChip,
   ComposerContextRecordsContext,
+  isAttachedLedgerReference,
 } from "./composerContextPresentation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { formatProviderSkillDisplayName } from "@e6tools/client-runtime/providerSkills";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { importPastedComposerText } from "./composerInlineTokenPaste";
 import { didComposerSelectionChangeVisibly } from "./composerSelection";
+import { keepHiddenReferencesPlugin } from "./composerHiddenReferences";
 import type { ComposerDraftContextRecords } from "./composerContextPresentation";
 
 export interface ComposerPromptEditorHandle {
@@ -114,6 +116,11 @@ export interface ComposerPromptEditorProps {
   richTextEnabled?: boolean;
   /** Draft records behind the prompt's context references, keyed by context id. */
   contextRecords: ComposerDraftContextRecords;
+  /**
+   * The composer's attached row is showing attached items (F22), so their references stay in
+   * the prompt undrawn and cannot be deleted from it unseen.
+   */
+  attachedItemsShownElsewhere?: boolean | undefined;
   /** Structured clipboard payload for the given referenced ids, or null to skip. */
   buildContextClipboardFragment?:
     | ((contextIds: ReadonlyArray<string>) => string | null)
@@ -440,7 +447,18 @@ const ComposerContextReferenceExtension = Node.create({
   },
 });
 
+/** True while the composer's attached row lists attached items, so the prompt hides them. */
+const AttachedItemsShownElsewhereContext = createContext(false);
+
 function ComposerContextReferenceNodeView({ node }: NodeViewProps) {
+  const records = use(ComposerContextRecordsContext);
+  const shownElsewhere = use(AttachedItemsShownElsewhereContext);
+  const kind = (node.attrs.kind as string) ?? "";
+  const contextId = (node.attrs.contextId as string) ?? "";
+  if (shownElsewhere && isAttachedLedgerReference(kind, records.get(contextId))) {
+    // The reference stays in the prompt, which the send path reads; it is drawn once, above.
+    return <NodeViewWrapper as="span" className="hidden" />;
+  }
   return (
     <NodeViewWrapper as="span" className={COMPOSER_INLINE_CHIP_DECORATOR_CLASS_NAME}>
       <ComposerContextReferenceChip
@@ -571,6 +589,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     cursor,
     richTextEnabled,
     contextRecords,
+    attachedItemsShownElsewhere = false,
     buildContextClipboardFragment,
     importContextFragment,
     skills,
@@ -731,7 +750,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   const editorAttributes = useMemo(
     () => ({
       class: cn(
-        "composer-tiptap block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
+        "composer-tiptap block max-h-50 min-h-11 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
         className,
       ),
       "data-testid": "composer-editor",
@@ -741,6 +760,22 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     [className, placeholder, richText],
   );
 
+  // Read by the plugin below, which is built once with the editor.
+  const isHiddenReferenceRef = useRef<(kind: string, contextId: string) => boolean>(() => false);
+  useLayoutEffect(() => {
+    isHiddenReferenceRef.current = (kind, contextId) =>
+      attachedItemsShownElsewhere && isAttachedLedgerReference(kind, contextRecords.get(contextId));
+  }, [attachedItemsShownElsewhere, contextRecords]);
+  const [keepHiddenReferences] = useState(() =>
+    Extension.create({
+      name: "composer-keep-hidden-references",
+      addProseMirrorPlugins: () => [
+        keepHiddenReferencesPlugin((kind, contextId) =>
+          isHiddenReferenceRef.current(kind, contextId),
+        ),
+      ],
+    }),
+  );
   const editor = useEditor(
     {
       extensions: [
@@ -765,6 +800,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
         ComposerSkillExtension,
         ComposerCitationExtension,
         ComposerContextReferenceExtension,
+        keepHiddenReferences,
         ComposerMarkersExtension,
         ...(richText
           ? [
@@ -1262,68 +1298,70 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   return (
     <RichComposerSkillsContext value={skills}>
       <ComposerContextRecordsContext value={contextRecords}>
-        <ComposerCitationCommentContext value={citationCommentActions}>
-          <div
-            className={cn(
-              "relative [font-family:var(--font-composer,var(--font-sans))] [font-size:var(--font-size-prompt,0.875rem)] [@media(max-width:39.999rem)_and_(pointer:coarse)]:[font-size:max(var(--font-size-prompt,1rem),16px)]",
-              containerClassName,
-            )}
-          >
-            <EditorContent
-              editor={editor}
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Control" ||
-                  event.key === "Meta" ||
-                  event.key === "Alt" ||
-                  event.key === "Shift"
-                ) {
-                  onPageScrollRelease?.();
-                }
-                if (event.key !== "PageUp" && event.key !== "PageDown") return;
-                const target = event.currentTarget.querySelector(
-                  '[data-testid="composer-editor"]',
-                ) as HTMLElement | null;
-                if (!target) return;
-                const pageScrollKey = getTimelinePageScrollKey({
-                  altKey: event.altKey,
-                  clientHeight: target.clientHeight,
-                  ctrlKey: event.ctrlKey,
-                  defaultPrevented: event.defaultPrevented,
-                  isComposing: event.nativeEvent.isComposing,
-                  key: event.key,
-                  keyCode: event.keyCode,
-                  metaKey: event.metaKey,
-                  scrollHeight: target.scrollHeight,
-                  scrollTop: target.scrollTop,
-                  shiftKey: event.shiftKey,
-                });
-                if (!pageScrollKey) {
-                  onPageScrollRelease?.();
-                  return;
-                }
-                if (!onPageScrollKeyDown) return;
-                event.preventDefault();
-                onPageScrollKeyDown(pageScrollKey);
-              }}
-              onKeyUp={(event) => onPageScrollKeyUp?.(event.key)}
-              onBlur={onPageScrollRelease}
-              onPasteCapture={onPaste}
-              onCopyCapture={(event) => handleCopyCut(event, false)}
-              onCutCapture={(event) => handleCopyCut(event, true)}
-            />
-            {isEmpty && contextRecords.size === 0 && placeholder ? (
-              <div
-                className={cn(
-                  "pointer-events-none absolute inset-0 leading-relaxed text-placeholder/75",
-                  placeholderClassName,
-                )}
-              >
-                {placeholder}
-              </div>
-            ) : null}
-          </div>
-        </ComposerCitationCommentContext>
+        <AttachedItemsShownElsewhereContext value={attachedItemsShownElsewhere}>
+          <ComposerCitationCommentContext value={citationCommentActions}>
+            <div
+              className={cn(
+                "relative [font-family:var(--font-composer,var(--font-sans))] [font-size:var(--font-size-prompt,0.875rem)] [@media(max-width:39.999rem)_and_(pointer:coarse)]:[font-size:max(var(--font-size-prompt,1rem),16px)]",
+                containerClassName,
+              )}
+            >
+              <EditorContent
+                editor={editor}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Control" ||
+                    event.key === "Meta" ||
+                    event.key === "Alt" ||
+                    event.key === "Shift"
+                  ) {
+                    onPageScrollRelease?.();
+                  }
+                  if (event.key !== "PageUp" && event.key !== "PageDown") return;
+                  const target = event.currentTarget.querySelector(
+                    '[data-testid="composer-editor"]',
+                  ) as HTMLElement | null;
+                  if (!target) return;
+                  const pageScrollKey = getTimelinePageScrollKey({
+                    altKey: event.altKey,
+                    clientHeight: target.clientHeight,
+                    ctrlKey: event.ctrlKey,
+                    defaultPrevented: event.defaultPrevented,
+                    isComposing: event.nativeEvent.isComposing,
+                    key: event.key,
+                    keyCode: event.keyCode,
+                    metaKey: event.metaKey,
+                    scrollHeight: target.scrollHeight,
+                    scrollTop: target.scrollTop,
+                    shiftKey: event.shiftKey,
+                  });
+                  if (!pageScrollKey) {
+                    onPageScrollRelease?.();
+                    return;
+                  }
+                  if (!onPageScrollKeyDown) return;
+                  event.preventDefault();
+                  onPageScrollKeyDown(pageScrollKey);
+                }}
+                onKeyUp={(event) => onPageScrollKeyUp?.(event.key)}
+                onBlur={onPageScrollRelease}
+                onPasteCapture={onPaste}
+                onCopyCapture={(event) => handleCopyCut(event, false)}
+                onCutCapture={(event) => handleCopyCut(event, true)}
+              />
+              {isEmpty && contextRecords.size === 0 && placeholder ? (
+                <div
+                  className={cn(
+                    "pointer-events-none absolute inset-0 leading-relaxed text-placeholder/75",
+                    placeholderClassName,
+                  )}
+                >
+                  {placeholder}
+                </div>
+              ) : null}
+            </div>
+          </ComposerCitationCommentContext>
+        </AttachedItemsShownElsewhereContext>
       </ComposerContextRecordsContext>
     </RichComposerSkillsContext>
   );

@@ -12,7 +12,7 @@ import { LegendList } from "@legendapp/list/react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
 import { type EnvironmentId, resolveEnvironmentMachineKind } from "@e6tools/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LayoutChangeEvent } from "react-native";
 import { Platform, StyleSheet, TextInput, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -31,6 +31,12 @@ import { useProjects, useThreadShells } from "../../state/entities";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadListV2Enabled } from "./use-thread-list-v2-enabled";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
+import { useAttentionPreferences } from "./use-attention-preferences";
+import {
+  readThreadVisitSeenAt,
+  subscribeThreadVisits,
+  threadVisitsVersion,
+} from "../../persistence/thread-visits";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
@@ -78,8 +84,13 @@ import {
   ThreadListShowMoreRow,
 } from "./thread-list-items";
 import {
+  ThreadListV2NeedsYouEarlierRow,
+  ThreadListV2NeedsYouHeader,
+  ThreadListV2NeedsYouRow,
   ThreadListV2PendingRow,
+  ThreadListV2ReviewRow,
   ThreadListV2Row,
+  ThreadListV2SectionHeader,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
@@ -89,6 +100,12 @@ import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
   buildThreadListV2ListItems,
+  describeThreadListV2SnoozeEarlier,
+  NO_NEEDS_YOU,
+  reuseThreadListV2NeedsYou,
+  selectThreadListV2NeedsYou,
+  selectThreadListV2SnoozableEarlier,
+  type ThreadListV2NeedsYou,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
@@ -109,6 +126,8 @@ interface ThreadNavigationSidebarProps {
   readonly visible: boolean;
   readonly selectedThreadKey: string | null;
   readonly onOpenSettings: () => void;
+  readonly onParkThought: () => void;
+  readonly onOpenParked: () => void;
   readonly onOpenEnvironmentSettings: () => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
@@ -578,6 +597,56 @@ function ThreadNavigationSidebarPane(
     // unchanged: after a clamped fire (wake beyond the 32-bit setTimeout
     // range) the boundary string is identical and the chain would die.
   }, [nextSnoozeWakeAt, snoozeWakeTick]);
+  // Needs you leads the iPad sidebar as it leads Home (F1); the list below
+  // stays a stable map, as the web sidebar keeps it.
+  const { needsYouSectionEnabled } = useAttentionPreferences();
+  const threadVisitsVersionValue = useSyncExternalStore(subscribeThreadVisits, threadVisitsVersion);
+  const previousNeedsYou = useRef<ThreadListV2NeedsYou>(NO_NEEDS_YOU);
+  const needsYou = useMemo(() => {
+    const next =
+      threadListV2Enabled && needsYouSectionEnabled
+        ? selectThreadListV2NeedsYou({
+            threads,
+            environmentId: options.selectedEnvironmentId,
+            projectRefs: selectedProjectScope === null ? null : selectedProjectScope.projectRefs,
+            searchQuery: props.searchQuery,
+            now: new Date().toISOString(),
+            lastVisitedAt: readThreadVisitSeenAt,
+          })
+        : NO_NEEDS_YOU;
+    const kept = reuseThreadListV2NeedsYou(previousNeedsYou.current, next);
+    previousNeedsYou.current = kept;
+    return kept;
+  }, [
+    nowMinute,
+    needsYouSectionEnabled,
+    options.selectedEnvironmentId,
+    props.searchQuery,
+    selectedProjectScope,
+    threadListV2Enabled,
+    threadVisitsVersionValue,
+    threads,
+  ]);
+  const [needsYouEarlierExpanded, setNeedsYouEarlierExpanded] = useState(false);
+  const toggleNeedsYouEarlier = useCallback(
+    () => setNeedsYouEarlierExpanded((expanded) => !expanded),
+    [],
+  );
+  const snoozableEarlier = useMemo(
+    () =>
+      selectThreadListV2SnoozableEarlier(needsYou.earlier, {
+        now: new Date().toISOString(),
+        snoozeEnvironmentIds,
+      }),
+    [needsYou.earlier, nowMinute, snoozeEnvironmentIds],
+  );
+  const snoozeEarlierLabel = describeThreadListV2SnoozeEarlier(snoozableEarlier);
+  const snoozeEarlier = useCallback(
+    (snoozedUntil: string) => {
+      for (const thread of snoozableEarlier) void snoozeThread(thread, snoozedUntil);
+    },
+    [snoozableEarlier, snoozeThread],
+  );
   const listItems = useMemo<readonly SidebarListItem[]>(() => {
     if (!threadListV2Enabled) return listLayout.items;
     // Queued offline tasks are not thread shells, so the v2 item builder
@@ -598,6 +667,9 @@ function ThreadNavigationSidebarPane(
           pendingTask.title.toLocaleLowerCase().includes(v2SearchQuery)),
     );
     const items: SidebarListItem[] = buildThreadListV2ListItems({
+      needsYou,
+      needsYouEarlierExpanded,
+      expandFirstApproval: false,
       items: threadListV2Layout.items,
       pendingTasks: v2PendingTasks,
       snoozedCount: threadListV2Layout.snoozedCount,
@@ -618,6 +690,8 @@ function ThreadNavigationSidebarPane(
     return items;
   }, [
     listLayout.items,
+    needsYou,
+    needsYouEarlierExpanded,
     nowMinute,
     options.selectedEnvironmentId,
     pendingTasks,
@@ -840,7 +914,29 @@ function ThreadNavigationSidebarPane(
       if (previous.type === "v2-settled-shelf" && item.type === "v2-settled-shelf") {
         return previous.count === item.count && previous.expanded === item.expanded;
       }
+      if (previous.type === "v2-needs-you-header" && item.type === "v2-needs-you-header") {
+        return previous.count === item.count;
+      }
+      if (previous.type === "v2-needs-you" && item.type === "v2-needs-you") {
+        return previous.item === item.item;
+      }
+      if (previous.type === "v2-review" && item.type === "v2-review") {
+        return previous.item === item.item;
+      }
+      if (previous.type === "v2-section-header" && item.type === "v2-section-header") {
+        return previous.label === item.label;
+      }
       if (
+        previous.type === "v2-needs-you-header" ||
+        previous.type === "v2-review" ||
+        item.type === "v2-review" ||
+        previous.type === "v2-section-header" ||
+        item.type === "v2-section-header" ||
+        previous.type === "v2-needs-you" ||
+        item.type === "v2-needs-you-header" ||
+        item.type === "v2-needs-you" ||
+        previous.type === "v2-needs-you-earlier" ||
+        item.type === "v2-needs-you-earlier" ||
         previous.type === "v2-thread" ||
         previous.type === "v2-show-more" ||
         previous.type === "v2-pending" ||
@@ -879,6 +975,38 @@ function ThreadNavigationSidebarPane(
   const renderListItem = useCallback(
     ({ item }: { readonly item: SidebarListItem }) => {
       switch (item.type) {
+        case "v2-needs-you-header":
+          return <ThreadListV2NeedsYouHeader count={item.count} pane="sidebar" />;
+        case "v2-needs-you":
+          return (
+            <ThreadListV2NeedsYouRow
+              item={item.item}
+              onSelectThread={handleSelectThread}
+              pane="sidebar"
+            />
+          );
+        case "v2-needs-you-earlier":
+          return (
+            <ThreadListV2NeedsYouEarlierRow
+              count={item.count}
+              expanded={item.expanded}
+              onToggle={toggleNeedsYouEarlier}
+              snoozeLabel={snoozeEarlierLabel}
+              onSnooze={snoozeEarlier}
+              snoozePresetMinute={nowMinute}
+              pane="sidebar"
+            />
+          );
+        case "v2-section-header":
+          return <ThreadListV2SectionHeader label={item.label} pane="sidebar" />;
+        case "v2-review":
+          return (
+            <ThreadListV2ReviewRow
+              item={item.item}
+              onSelectThread={handleSelectThread}
+              pane="sidebar"
+            />
+          );
         case "v2-pending": {
           const pendingScopeKey = scopedProjectKey(
             item.pendingTask.environmentId,
@@ -1115,6 +1243,9 @@ function ThreadNavigationSidebarPane(
       snoozeEnvironmentIds,
       snoozeThread,
       nowMinute,
+      snoozeEarlier,
+      snoozeEarlierLabel,
+      toggleNeedsYouEarlier,
       toggleSettledShelf,
       toggleSnoozedShelf,
       unpinThread,
@@ -1163,8 +1294,10 @@ function ThreadNavigationSidebarPane(
         filterIcon,
         filterMenu,
         onOpenSettings: props.onOpenSettings,
+        onParkThought: props.onParkThought,
+        onOpenParked: props.onOpenParked,
       }),
-    [filterIcon, filterMenu, props.onOpenSettings],
+    [filterIcon, filterMenu, props.onOpenSettings, props.onParkThought, props.onOpenParked],
   );
   // Snoozed threads need no special case: the shelf header is a list row
   // even while collapsed.
@@ -1338,6 +1471,8 @@ function ThreadNavigationSidebarPane(
           filterCustomized={filterCustomized}
           onFilterAction={handleListMenuAction}
           onOpenSettings={props.onOpenSettings}
+          onParkThought={props.onParkThought}
+          onOpenParked={props.onOpenParked}
           onOpenEnvironments={props.onOpenEnvironmentSettings}
           onRequestVisibility={props.onRequestVisibility}
         />
@@ -1370,7 +1505,11 @@ function ThreadNavigationSidebarPane(
                   icon={filterIcon}
                 />
               </ControlPillMenu>
-              <SidebarHeaderActions onOpenSettings={props.onOpenSettings} />
+              <SidebarHeaderActions
+                onOpenSettings={props.onOpenSettings}
+                onParkThought={props.onParkThought}
+                onOpenParked={props.onOpenParked}
+              />
             </View>
           </View>
 

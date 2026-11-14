@@ -1,0 +1,47 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<!-- Built to dist/404.html; wrangler.jsonc serves it for unknown paths. -->
+<Layout title="Page not found — E6 Code" description="This page does not exist on e6code.com." noindex>
+  <section class="container not-found">
+    <p class="eyebrow">404</p>
+    <h1>Page not found</h1>
+    <p>The link may be old, or the address may have a typo.</p>
+    <p class="not-found-links">
+      <a class="btn btn-primary" href="/">Go to the home page</a>
+      <a class="btn btn-ghost" href="/download">Download E6 Code</a>
+    </p>
+  </section>
+</Layout>
+
+<style>
+  .not-found {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding-top: 120px;
+    padding-bottom: 120px;
+  }
+
+  h1 {
+    font-size: clamp(32px, 4.4vw, 50px);
+    line-height: 1.06;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+  }
+
+  p:not(.eyebrow):not(.not-found-links) {
+    font-size: 17px;
+    line-height: 26px;
+    color: var(--fg-muted);
+  }
+
+  .not-found-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 8px;
+  }
+</style>

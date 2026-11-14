@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/motion";
 import { scopeProjectRef, scopeThreadRef } from "@e6tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@e6tools/contracts";
 import {
@@ -417,7 +418,7 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
     }
     labelAnimationsRef.current.clear();
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (prefersReducedMotion()) return;
 
     for (const [label, previousRect] of previousRects) {
       if (!label.isConnected) continue;

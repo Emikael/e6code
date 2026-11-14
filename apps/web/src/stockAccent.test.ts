@@ -1,4 +1,7 @@
-import { StockAccent } from "@e6tools/contracts/settings";
+// @effect-diagnostics nodeBuiltinImport:off - reads index.css, which Vitest stubs on import.
+import * as NodeFS from "node:fs";
+
+import { DEFAULT_STOCK_ACCENT, StockAccent } from "@e6tools/contracts/settings";
 import {
   E6_CODE_DARK_MOBILE_PANE_COLORS,
   E6_CODE_DARK_THEME_COLORS,
@@ -122,9 +125,55 @@ describe("stock accent palettes", () => {
   });
 });
 
+const indexCss = NodeFS.readFileSync(new URL("./index.css", import.meta.url), "utf8");
+
+/** The fallback literal index.css gives a `var(--stock-…, literal)` token. */
+function stylesheetFallback(variable: string): string | undefined {
+  const escaped = variable.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  return new RegExp(`var\\(${escaped}, ([^;]+)\\);`).exec(indexCss)?.[1];
+}
+
 describe("stockAccentVariables", () => {
-  it("writes nothing for Iris so the stylesheet's literals apply", () => {
-    expect(stockAccentVariables("iris")).toEqual({});
+  it("writes nothing for the default accent so the stylesheet's literals apply", () => {
+    expect(DEFAULT_STOCK_ACCENT).toBe("graphite");
+    expect(stockAccentVariables(DEFAULT_STOCK_ACCENT)).toEqual({});
+  });
+
+  it("keeps the stylesheet's literals equal to the default accent", () => {
+    // Every variable another accent writes has a literal in index.css; with
+    // the default writing nothing, those literals are what a new profile sees.
+    const iris = stockAccentVariables("iris");
+    const graphite = STOCK_ACCENT_PALETTES[DEFAULT_STOCK_ACCENT];
+    const expected: Record<string, string> = {
+      "--stock-primary": graphite.light.primary,
+      "--stock-primary-foreground": graphite.light.primaryForeground,
+      "--stock-primary-hover": graphite.light.primaryHover,
+      "--stock-primary-edge": graphite.light.primaryEdge,
+      "--stock-primary-text": graphite.light.primaryText,
+      "--stock-merged": graphite.light.merged,
+      "--stock-merged-foreground": graphite.light.mergedForeground,
+      "--stock-primary-dark": graphite.dark.primary,
+      "--stock-primary-foreground-dark": graphite.dark.primaryForeground,
+      "--stock-primary-hover-dark": graphite.dark.primaryHover,
+      "--stock-primary-edge-dark": graphite.dark.primaryEdge,
+      "--stock-primary-text-dark": graphite.dark.primaryText,
+      "--stock-merged-dark": graphite.dark.merged,
+      "--stock-merged-foreground-dark": graphite.dark.mergedForeground,
+      "--stock-terminal-selection": "rgb(42 45 53 / 18%)",
+      "--stock-terminal-selection-dark": "rgb(212 215 222 / 22%)",
+      "--stock-terminal-cursor-dark": graphite.dark.primary,
+    };
+    expect(Object.keys(expected).toSorted()).toEqual(Object.keys(iris).toSorted());
+    for (const [variable, value] of Object.entries(expected)) {
+      expect(stylesheetFallback(variable), variable).toBe(value);
+    }
+  });
+
+  it("writes Iris as overrides now that it is not the default", () => {
+    const variables = stockAccentVariables("iris");
+    expect(variables["--stock-primary"]).toBe(STOCK_ACCENT_PALETTES.iris.light.primary);
+    expect(variables["--stock-primary-dark"]).toBe(STOCK_ACCENT_PALETTES.iris.dark.primary);
+    expect(variables["--stock-terminal-selection"]).toBe("rgb(91 74 224 / 18%)");
   });
 
   it("writes both appearances of the primary family for other accents", () => {

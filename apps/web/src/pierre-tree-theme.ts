@@ -9,6 +9,9 @@ export const PIERRE_TREE_UNSAFE_CSS = `
     --trees-border-color-override: color-mix(in srgb, currentColor 14%, transparent);
     --trees-font-family-override: var(--font-sans);
     --trees-font-size-override: 12px;
+    /* Focus and the selected row's edge use the app's roles, not Pierre's blue. */
+    --trees-focus-ring-color-override: var(--ring);
+    --trees-selected-focused-border-color-override: var(--primary-edge);
   }
   button[data-type='item'] { border-radius: 5px; }
 `;

@@ -30,33 +30,19 @@ import {
 } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { E6Monogram } from "../E6Monogram";
-import { cn } from "~/lib/utils";
 
-// Hard-stop cyan/orange bands under the project name: the brand stripe as the
-// picker's affordance, replacing a plain dotted underline.
-const BRAND_UNDERLINE =
-  "bg-[linear-gradient(90deg,var(--brand-cyan)_0_50%,var(--brand-orange)_50%)] bg-size-[100%_3px] bg-bottom bg-no-repeat pb-1";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 
 interface DraftHeroHeadlineProps {
   readonly draftId: DraftId | null;
   readonly activeProjectRef: ScopedProjectRef | null;
   readonly activeProjectTitle: string | null;
-  /** The model the composer sends to, such as "Claude Opus"; null before one resolves. */
-  readonly agentLabel: string | null;
-  /** Where the first message runs: the project's checkout or a new worktree. */
-  readonly envMode: "local" | "worktree";
-  /** The new worktree's base, or the checkout's branch; null when unknown. */
-  readonly branch: string | null;
 }
 
 export function DraftHeroHeadline({
   draftId,
   activeProjectRef,
   activeProjectTitle,
-  agentLabel,
-  envMode,
-  branch,
 }: DraftHeroHeadlineProps) {
   const projects = useProjects();
   const threads = useThreadShells();
@@ -157,10 +143,8 @@ export function DraftHeroHeadline({
             // aria-label here would replace the title with an action phrase
             // mid-sentence and baffle screen-reader users.
             <MenuTrigger
-              className={cn(
-                BRAND_UNDERLINE,
-                "pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground transition-[background-size] hover:bg-size-[100%_4px] focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-              )}
+              // Plain text at rest, as board 1 draws it; the underline appears only on hover.
+              className="pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground decoration-muted-foreground decoration-2 underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
         >
@@ -266,11 +250,12 @@ export function DraftHeroHeadline({
       : "Add a project to start";
 
   return (
-    <div className="relative flex flex-col items-center gap-3">
-      <E6Monogram assemble className="mb-1 size-10 shadow-xs" />
+    // Phones centre the hero; wider windows align it to the column's start (board 1).
+    <div className="relative flex flex-col items-center gap-3 sm:items-start">
+      <E6Monogram assemble meter className="mb-1 size-10 shadow-xs sm:hidden" />
       <h1
         aria-label={headingLabel}
-        className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.2] font-semibold tracking-[-0.02em] text-balance text-foreground sm:text-[2rem]"
+        className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.2] font-semibold tracking-[-0.02em] text-balance text-foreground sm:text-left sm:text-[2rem] sm:leading-9 sm:tracking-[-0.03em]"
       >
         {hasResolvedProject ? (
           <>What should we work on in {projectSelector}?</>
@@ -280,25 +265,6 @@ export function DraftHeroHeadline({
           <>Add a project to start</>
         )}
       </h1>
-      {hasResolvedProject ? (
-        <p className="max-w-xl text-center text-sm text-balance text-muted-foreground">
-          {agentLabel ? (
-            <>
-              <span className="text-foreground">{agentLabel}</span>
-              {envMode === "worktree" ? " works in a new worktree" : " works in the project folder"}
-              {branch ? (
-                <>
-                  {envMode === "worktree" ? " off " : " on "}
-                  <span className="font-mono text-[0.8125rem] text-foreground">{branch}</span>
-                </>
-              ) : null}
-              . You can steer, approve and stop it at any time.
-            </>
-          ) : (
-            "Describe a task to start. You can steer, approve and stop the agent at any time."
-          )}
-        </p>
-      ) : null}
     </div>
   );
 }

@@ -506,6 +506,10 @@ function limitWindowName(window: ServerProviderUsageWindow): string {
  */
 export interface LimitHeadline {
   readonly title: string;
+  /** The window alone, without its owner: `5-hour limit`, `Weekly limit`. */
+  readonly windowName: string;
+  /** When the window resets, in epoch milliseconds; null when it reports no reset. */
+  readonly resetsAt: number | null;
   readonly remainingPercent: number;
   readonly remainingLabel: string;
   /** Reset countdown and pace in words; empty when the window reports neither. */
@@ -585,6 +589,8 @@ export function mostConstrainedLimit(
     .join(" · ");
   return {
     title,
+    windowName: limitWindowName(chosen),
+    resetsAt: resetMillis(chosen),
     remainingPercent: remaining,
     remainingLabel,
     detail,

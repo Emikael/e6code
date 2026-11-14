@@ -20,7 +20,6 @@ vi.mock("./ReadOnlySourcePreview", () => ({
   default: ({ text }: { text: string }) => <pre>{text}</pre>,
 }));
 vi.mock("./fileSurfaceChrome", () => ({
-  FILE_SURFACE_SUBHEADER_CLASS: "",
   FileSurfaceAction: ({ label, onPress }: { label: string; onPress: () => void }) => (
     <button aria-label={label} onClick={onPress} />
   ),

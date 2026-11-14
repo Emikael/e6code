@@ -1,0 +1,264 @@
+---
+interface Props {
+  /** The "Approval needed" notification above the list. */
+  notification?: boolean;
+  /** "phone" is board 21's art: four short rows, no notification and no motion. */
+  variant?: "desktop" | "phone";
+  class?: string;
+}
+
+const { notification: wantsNotification = true, variant = "desktop", class: className } = Astro.props;
+const phone = variant === "phone";
+const notification = wantsNotification && !phone;
+
+type Row = {
+  who: string;
+  what: string;
+  state: "working" | "done" | "needs";
+  step?: string;
+};
+
+const rows: Row[] = [
+  { who: "Claude Code", what: "Remodel the theme tokens", state: "working", step: "step 3 of 5" },
+  { who: "Codex", what: "Fix tunnel reconnect loop", state: "needs" },
+  { who: "Cursor", what: "Mobile composer morph", state: "working", step: "step 1 of 4" },
+  { who: "OpenCode", what: "Relay heartbeat tests", state: "done" },
+  { who: "Claude Code", what: "Usage page totals", state: "working" },
+  { who: "Grok Build", what: "Sidebar drag reorder", state: "done" },
+];
+
+// The app's notification body: the thread title and one fact (threadNotificationBody).
+const toastBody = "Fix tunnel reconnect loop · Codex wants to run a command";
+
+const shownRows = phone ? rows.slice(0, 4) : rows;
+const label = phone
+  ? "Four agents in an ordered list. One, Fix tunnel reconnect loop, is marked Needs approval."
+  : "Six agents in an ordered list. Three are working and two are done. One, Fix tunnel reconnect loop on Codex, is marked Needs approval" +
+    (notification ? ", and a notification says Approval needed: Codex wants to run a command." : ".");
+---
+
+<!-- The page's one motion (board 20). The CSS base state is the final frame;
+     the keyframes only run from the start state, once, 300ms to 900ms after
+     first paint, with animation-fill-mode: backwards. Opacity and transform
+     only, no script. Reduced motion shows the final frame as a still. -->
+<div
+  class:list={["heroart", { "heroart--quiet": !notification, "heroart--phone": phone }, className]}
+  role="img"
+  aria-label={label}
+>
+  {
+    notification && (
+      <div class="toast floating" aria-hidden="true">
+        <div class="row">
+          <span class="dot dot--waiting" />
+          <span class="t-label grow">Approval needed</span>
+          <span class="t-meta muted">now</span>
+        </div>
+        <span class="t-caption muted">{toastBody}</span>
+      </div>
+    )
+  }
+  <div class="hlist" aria-hidden="true">
+    {
+      shownRows.map((row) => (
+        <div class:list={["hrow", { "hrow--needs": row.state === "needs" }]}>
+          <span class="who">{row.who}</span>
+          <span class="what">{row.what}</span>
+          <span class="state">
+            {row.state === "working" && (
+              <span class="status status--working">
+                <span class="dot dot--working" />
+                Working
+                {row.step && <span class="step"> · {row.step}</span>}
+              </span>
+            )}
+            {row.state === "done" && (
+              <span class="status status--done">
+                <svg class="i i14" viewBox="0 0 24 24">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+                Done
+              </span>
+            )}
+            {row.state === "needs" && (
+              <>
+                <span class="status status--working was">
+                  <span class="dot dot--working" />
+                  Working
+                </span>
+                <span class="status status--waiting now">
+                  <span class="dot dot--waiting" />
+                  Needs approval
+                </span>
+              </>
+            )}
+          </span>
+        </div>
+      ))
+    }
+  </div>
+</div>
+
+<style>
+  .heroart {
+    position: relative;
+    padding-top: 84px;
+  }
+
+  .heroart--quiet {
+    padding-top: 0;
+  }
+
+  .hlist {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow-shot);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .hrow {
+    position: relative;
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 10px;
+    background: var(--bg-card);
+  }
+
+  .who {
+    font: 400 12px/16px var(--font-mono);
+    color: var(--fg-muted);
+  }
+
+  .what {
+    font: 500 14px/20px var(--font-sans);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .state {
+    display: grid;
+    justify-items: end;
+  }
+
+  .state > * {
+    grid-area: 1 / 1;
+  }
+
+  /* The final frame: the row has lifted, its amber outline and status word are
+     in, and "Working" is gone. */
+  .hrow--needs {
+    transform: translateY(-3px) scale(1.012);
+    z-index: 1;
+  }
+
+  .hrow--needs::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    border: 2px solid var(--warn);
+    box-shadow: var(--shadow-shot);
+    pointer-events: none;
+  }
+
+  .hrow--needs .was {
+    opacity: 0;
+  }
+
+  .toast {
+    position: absolute;
+    right: -8px;
+    top: 0;
+    width: min(340px, 92%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    z-index: 2;
+  }
+
+  @keyframes lp-lift {
+    from {
+      transform: none;
+    }
+  }
+
+  @keyframes lp-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes lp-out {
+    from {
+      opacity: 1;
+    }
+  }
+
+  @keyframes lp-toast {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  /* Board 21: a still at phone size, shown in its final frame. */
+  .heroart--phone .hrow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .heroart--phone .who,
+  .heroart--phone .step {
+    display: none;
+  }
+
+  .heroart--phone .what {
+    font-size: 13px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .heroart:not(.heroart--phone) .hrow--needs {
+      animation: lp-lift 400ms cubic-bezier(0.16, 1, 0.3, 1) 300ms backwards;
+    }
+
+    .heroart:not(.heroart--phone) .hrow--needs::after,
+    .heroart:not(.heroart--phone) .hrow--needs .now {
+      animation: lp-in 400ms ease-out 300ms backwards;
+    }
+
+    .heroart:not(.heroart--phone) .hrow--needs .was {
+      animation: lp-out 400ms ease-out 300ms backwards;
+    }
+
+    .toast {
+      animation: lp-toast 300ms cubic-bezier(0.16, 1, 0.3, 1) 600ms backwards;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .toast {
+      right: 0;
+    }
+
+    .hrow {
+      grid-template-columns: minmax(0, 1fr) auto;
+      padding: 0 10px;
+    }
+
+    .who,
+    .step {
+      display: none;
+    }
+  }
+</style>

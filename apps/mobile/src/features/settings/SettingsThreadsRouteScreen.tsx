@@ -13,6 +13,9 @@ import { updateMobilePreferencesAtom } from "../../state/preferences";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
+import { useAttentionPreferences } from "../threads/use-attention-preferences";
+import type { RecapTrigger } from "@e6tools/contracts/settings";
+import { SymbolView } from "../../components/AppSymbol";
 import { useLegacyPlanModeState } from "../threads/use-legacy-plan-mode-enabled";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
@@ -46,6 +49,7 @@ export function SettingsThreadsRouteScreen() {
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
           <AutoSettleSettingsRows />
+          <AttentionSettingsSection />
           <LegacySettingsSection />
         </ScrollView>
       </SettingsScreen>
@@ -225,6 +229,88 @@ function AutoSettleSettingsRows() {
           </View>
         </SettingsSection>
       ) : null}
+    </View>
+  );
+}
+
+const RECAP_TRIGGER_OPTIONS: ReadonlyArray<{
+  readonly trigger: RecapTrigger;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    trigger: "after-break",
+    label: "After a break",
+    description: "When something changed and you were away 5 minutes or more.",
+  },
+  { trigger: "always", label: "Always", description: "Whenever something changed." },
+  { trigger: "never", label: "Never", description: "Never show the recap." },
+];
+
+/**
+ * Device-local counterparts of web's Settings → Attention: the Needs you
+ * section on Home and when "Where you left off" shows in a thread. Mobile has
+ * no client-settings sync, so each device chooses.
+ */
+function AttentionSettingsSection() {
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const attention = useAttentionPreferences();
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Attention">
+        <SettingsSwitchRow
+          icon="exclamationmark.circle"
+          label="Needs you section"
+          value={attention.needsYouSectionEnabled}
+          disabled={!attention.loaded}
+          onValueChange={(value) => savePreferences({ needsYouSectionEnabled: value })}
+        />
+        <SettingsSwitchRow
+          icon="clock"
+          label="Elapsed time"
+          value={attention.elapsedTimeEnabled}
+          disabled={!attention.loaded}
+          onValueChange={(value) => savePreferences({ sidebarElapsedTimeEnabled: value })}
+        />
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        Blocked agents and work to review lead the Home list, each thread listed once. Elapsed time
+        shows whole minutes only, so nothing ticks at the edge of your eye.
+      </Text>
+      <SettingsSection title="Show where you left off">
+        {RECAP_TRIGGER_OPTIONS.map((option, index) => {
+          const selected = attention.recapTrigger === option.trigger;
+          return (
+            <Pressable
+              key={option.trigger}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected, disabled: !attention.loaded }}
+              disabled={!attention.loaded}
+              onPress={() => savePreferences({ recapTrigger: option.trigger })}
+              className={cn(
+                "flex-row items-center gap-4 p-4",
+                index > 0 && "border-t border-border-subtle",
+              )}
+            >
+              <View className="min-w-0 flex-1 gap-1">
+                <Text className="text-lg text-foreground android:text-base">{option.label}</Text>
+                <Text className="text-sm leading-normal text-foreground-muted">
+                  {option.description}
+                </Text>
+              </View>
+              {selected ? (
+                <SymbolView
+                  name="checkmark"
+                  size={18}
+                  tintColorClassName="accent-icon"
+                  type="monochrome"
+                  weight="semibold"
+                />
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </SettingsSection>
     </View>
   );
 }

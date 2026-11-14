@@ -1,0 +1,492 @@
+/* The landing page (boards 19 to 21). Astro scopes component styles, so the
+   primitives the landing components share and the classes of their small
+   built-in illustrations live here, under .lp. Colors come from the tokens in
+   Layout.astro, whose comment maps each one to the app's role. */
+
+.lp {
+  font-size: 16px;
+  line-height: 26px;
+}
+
+.lp ul,
+.lp ol {
+  list-style: none;
+}
+
+.lp main a:not(.lp-btn) {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--fg-muted);
+  text-underline-offset: 3px;
+}
+
+.lp code {
+  font: 450 12.5px/20px var(--font-mono);
+  background: var(--surface-well);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ── Layout ── */
+.wrap {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.band {
+  padding: 72px 0;
+}
+
+.band--tint {
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr));
+  gap: 48px;
+  align-items: center;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 24px;
+  align-items: start;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wrap-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.grow {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.clip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Type ── */
+.h1 {
+  font: 600 clamp(36px, 4.6vw, 58px) / 1.05 var(--font-sans);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.h2 {
+  font: 600 clamp(26px, 3vw, 38px) / 1.14 var(--font-sans);
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.h3 {
+  font: 600 18px/26px var(--font-sans);
+  letter-spacing: -0.01em;
+}
+
+.lead {
+  font: 400 18px/28px var(--font-sans);
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+
+.copy {
+  font: 400 16px/26px var(--font-sans);
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+
+.eyebrow {
+  font: 500 12px/16px var(--font-mono);
+  color: var(--fg-muted);
+}
+
+.t-body {
+  font: 400 14px/22px var(--font-sans);
+}
+
+.t-label {
+  font: 500 13px/18px var(--font-sans);
+}
+
+.t-heading {
+  font: 600 14px/20px var(--font-sans);
+}
+
+.t-caption {
+  font: 400 12px/16px var(--font-sans);
+}
+
+.t-meta {
+  font: 400 11px/14px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.t-code {
+  font: 400 12px/20px var(--font-mono);
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+/* ── Icons ── */
+svg.i {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+svg.i14 {
+  width: 14px;
+  height: 14px;
+}
+
+svg.i18 {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── Buttons. One filled button per screen: the download. ── */
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font: 500 13px/18px var(--font-sans);
+  color: var(--fg);
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.lp-btn--primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: var(--primary-edge);
+}
+
+.lp-btn--primary:hover {
+  background: var(--primary-hover);
+}
+
+.lp-btn--primary:focus-visible {
+  outline-offset: 3px;
+}
+
+.lp-btn--outline {
+  background: var(--bg-card);
+  border-color: var(--fg-muted);
+}
+
+.lp-btn--ghost:hover,
+.lp-btn--outline:hover {
+  background: var(--hover);
+}
+
+.lp-btn--ghost > svg.i {
+  color: var(--fg-muted);
+}
+
+.lp-btn--lg {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.lp-btn--touch {
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.lp-btn--sm {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  gap: 6px;
+}
+
+/* One download button per platform is rendered; html[data-platform] picks one
+   before first paint, and macOS shows when the platform is unknown. */
+a.dl {
+  display: none;
+}
+
+a.dl--mac,
+html[data-platform="mac"] a.dl--mac,
+html[data-platform="win"] a.dl--win,
+html[data-platform="linux"] a.dl--linux,
+html[data-platform="ios"] a.dl--ios,
+html[data-platform="android"] a.dl--android {
+  display: inline-flex;
+}
+
+html[data-platform]:not([data-platform="mac"]) a.dl--mac {
+  display: none;
+}
+
+/* A phone visitor (board 21) gets its own hero copy and actions: the app runs
+   on a computer and the phone connects to it. .for-phone shows on iOS and
+   Android, .for-desktop everywhere else, including when scripts are off.
+   .on-ios and .on-android narrow a phone part to one store. Important because
+   scoped component styles that set display outrank a global class. */
+html:not([data-platform="ios"], [data-platform="android"]) .for-phone,
+html:is([data-platform="ios"], [data-platform="android"]) .for-desktop,
+html:not([data-platform="ios"]) .on-ios,
+html:not([data-platform="android"]) .on-android {
+  display: none !important;
+}
+
+/* ── Install command. Both commands are rendered; the platform picks one in
+   CSS until the visitor chooses with the toggle (data-choice). ── */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--surface-well);
+  border-radius: 8px;
+}
+
+.seg button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--fg-muted);
+}
+
+.seg button:focus-visible {
+  outline-offset: 0;
+}
+
+.seg [data-os="unix"],
+html[data-platform="win"] .install:not([data-choice]) .seg [data-os="windows"],
+.install[data-choice="windows"] .seg [data-os="windows"] {
+  background: var(--bg-card);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--primary-edge);
+}
+
+html[data-platform="win"] .install:not([data-choice]) .seg [data-os="unix"],
+.install[data-choice="windows"] .seg [data-os="unix"] {
+  background: none;
+  color: var(--fg-muted);
+  box-shadow: none;
+}
+
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 10px;
+  background: var(--surface-well);
+  border: 1px solid var(--border);
+  font: 400 13px/20px var(--font-mono);
+  max-width: 100%;
+}
+
+.cmd > span {
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.cmd[data-os="windows"],
+html[data-platform="win"] .install:not([data-choice]) .cmd[data-os="unix"],
+.install[data-choice="windows"] .cmd[data-os="unix"] {
+  display: none;
+}
+
+html[data-platform="win"] .install:not([data-choice]) .cmd[data-os="windows"],
+.install[data-choice="windows"] .cmd[data-os="windows"] {
+  display: flex;
+}
+
+/* ── Lists of commands and facts ── */
+.agent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+.agent b {
+  font: 500 14px/20px var(--font-sans);
+}
+
+.agent span {
+  font: 400 12px/16px var(--font-mono);
+  color: var(--fg-muted);
+}
+
+.fact {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font: 400 14px/20px var(--font-sans);
+  color: var(--fg-muted);
+}
+
+.fact svg.i {
+  /* Centers the 16px icon on the first 20px text line. */
+  margin-top: 2px;
+}
+
+.shotimg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-shot);
+}
+
+/* ── Illustrations: small pieces of the app's interface, drawn in markup.
+   Each one is a single role="img" with a label; its parts are hidden from
+   assistive technology. ── */
+.vig {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vig--on-page {
+  background: var(--bg);
+}
+
+.floating {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-shot);
+}
+
+.ill-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 12px/16px var(--font-sans);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.status--working {
+  color: var(--accent);
+}
+
+.status--waiting {
+  color: var(--warn);
+}
+
+.status--done {
+  color: var(--ok);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--fg-muted);
+  flex: none;
+}
+
+.dot--working {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.dot--waiting {
+  background: var(--warn);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.done-mark {
+  color: var(--ok);
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  background: var(--bg-card);
+  font: 500 11px/14px var(--font-sans);
+  color: var(--fg-muted);
+}
+
+/* ── Under 700px: touch-sized controls and tighter bands. ── */
+@media (max-width: 700px) {
+  .lp-btn,
+  .seg button {
+    min-height: 44px;
+  }
+
+  .band {
+    padding: 48px 0;
+  }
+}
+
+/* ── Phone width: the 16px gutter of board 21. ── */
+@media (max-width: 480px) {
+  .wrap {
+    padding: 0 16px;
+  }
+}

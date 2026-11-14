@@ -97,6 +97,23 @@ export const ComposerContextRecordsContext = createContext<ComposerDraftContextR
   EMPTY_COMPOSER_CONTEXT_RECORDS,
 );
 
+/**
+ * F22: the composer's attached row lists Diff and file comments, browser notes and terminal
+ * output, so the prompt does not draw their references a second time. A pull request hand-off
+ * stays an inline chip: it is the reader's request, not an attached item.
+ */
+export function isAttachedLedgerReference(
+  kind: string,
+  entry: ComposerDraftContextRecord | undefined,
+): boolean {
+  if (kind === "terminal" || kind === "preview-annotation") return true;
+  return (
+    kind === "review-comment" &&
+    entry?.kind === "review-comment" &&
+    !isPullRequestSummaryContext(entry.record)
+  );
+}
+
 export function composerContextRecordsFromDraft(input: {
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
   reviewComments?: ReadonlyArray<ReviewCommentContext>;

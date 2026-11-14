@@ -1,0 +1,48 @@
+---
+import { shipped } from "../../lib/shipped";
+
+const points = [
+  {
+    title: "Color means status",
+    copy: "The interface is neutral. Color appears only when something happened, and always beside a word.",
+  },
+  { title: "No streaks, points or scores", copy: "A plain list of what got done today. Nothing is tallied or ranked." },
+  { title: "Real times, no estimates", copy: "Elapsed time and clock times, where you are looking. No countdowns." },
+];
+---
+
+{
+  shipped.calmByDesign && (
+    <section id="calm" class="band band--tint">
+      <div class="wrap stack calm">
+        <div class="stack head">
+          <p class="eyebrow">Calm by design</p>
+          <h2 class="h2">Motion only when a status changes.</h2>
+        </div>
+        <div class="grid3">
+          {points.map((point) => (
+            <div class="stack point">
+              <h3 class="h3">{point.title}</h3>
+              <p class="copy">{point.copy}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .calm {
+    gap: 32px;
+  }
+
+  .head {
+    gap: 12px;
+    max-width: 760px;
+  }
+
+  .point {
+    gap: 8px;
+  }
+</style>

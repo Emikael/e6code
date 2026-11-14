@@ -28,6 +28,8 @@ import {
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
   shortcutLabelForCommand,
+  firstDeclaredShortcutLabelForCommand,
+  shortcutLabelKeys,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
   threadJumpCommandForIndex,
@@ -449,6 +451,68 @@ describe("split/new/close terminal shortcuts", () => {
       isTerminalNewShortcut(event({ key: "m", ctrlKey: true }), keybindings, {
         platform: "Linux",
       }),
+    );
+  });
+});
+
+describe("shortcutLabelKeys", () => {
+  it("gives each key its own cap", () => {
+    assert.deepEqual(shortcutLabelKeys("\u2325\u2318N"), ["\u2325", "\u2318", "N"]);
+    assert.deepEqual(shortcutLabelKeys("\u2318Space"), ["\u2318", "Space"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Alt+N"), ["Ctrl", "Alt", "N"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl++"), ["Ctrl", "+"]);
+    assert.deepEqual(shortcutLabelKeys("+"), ["+"]);
+    assert.deepEqual(shortcutLabelKeys("Esc"), ["Esc"]);
+  });
+
+  it("draws Shift as its symbol when asked for compact modifiers", () => {
+    const compact = { compactModifiers: true };
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Shift+O", compact), ["Ctrl", "\u21e7", "O"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Alt+Shift+N", compact), [
+      "Ctrl",
+      "Alt",
+      "\u21e7",
+      "N",
+    ]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+N", compact), ["Ctrl", "N"]);
+    assert.deepEqual(shortcutLabelKeys("\u21e7\u2318O", compact), ["\u21e7", "\u2318", "O"]);
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Shift+O"), ["Ctrl", "Shift", "O"]);
+  });
+
+  it("keeps a key named Shift as the key, not a modifier", () => {
+    assert.deepEqual(shortcutLabelKeys("Ctrl+Shift", { compactModifiers: true }), [
+      "Ctrl",
+      "Shift",
+    ]);
+  });
+});
+
+describe("firstDeclaredShortcutLabelForCommand", () => {
+  it("names the desktop New thread binding, not the browser alternative", () => {
+    const bindings = compile([
+      { shortcut: modShortcut("n"), command: "chat.new" },
+      { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
+    ]);
+    assert.strictEqual(
+      firstDeclaredShortcutLabelForCommand(bindings, "chat.new", "MacIntel"),
+      "⌘N",
+    );
+    assert.strictEqual(
+      firstDeclaredShortcutLabelForCommand(bindings, "chat.new", "Linux"),
+      "Ctrl+N",
+    );
+    assert.strictEqual(shortcutLabelForCommand(bindings, "chat.new", "MacIntel"), "⇧⌘O");
+  });
+
+  it("skips a declared shortcut that a later binding took over", () => {
+    const bindings = compile([
+      { shortcut: modShortcut("n"), command: "chat.new" },
+      { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
+      { shortcut: modShortcut("n"), command: "chat.newLocal" },
+    ]);
+    assert.strictEqual(
+      firstDeclaredShortcutLabelForCommand(bindings, "chat.new", "MacIntel"),
+      "⇧⌘O",
     );
   });
 });

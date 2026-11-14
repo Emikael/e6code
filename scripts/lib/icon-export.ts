@@ -2,6 +2,34 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 
 export const WINDOWS_ICON_SIZES = [16, 24, 32, 48, 64, 128, 256] as const;
 
+/** Renditions below this size show only the tile and the E6 glyph. */
+const SMALL_ICON_MAX_EXCLUSIVE = 64;
+/** Detail layers that blur into a smudge at small sizes, by Icon Composer layer name. */
+const SMALL_ICON_DROPPED_LAYERS: ReadonlySet<string> = new Set(["Step meter", "Channel label"]);
+
+export const isSmallIconSize = (size: number) => size < SMALL_ICON_MAX_EXCLUSIVE;
+
+interface IconComposerDocument {
+  readonly groups: ReadonlyArray<{ readonly layers: ReadonlyArray<{ readonly name?: string }> }>;
+}
+
+/** Rewrites an Icon Composer `icon.json` without the layers dropped at small sizes. */
+export function withoutSmallSizeLayers(iconJson: string): string {
+  const document: IconComposerDocument = JSON.parse(iconJson);
+  let dropped = 0;
+  const groups = document.groups.map((group) => {
+    const layers = group.layers.filter((layer) => !SMALL_ICON_DROPPED_LAYERS.has(layer.name ?? ""));
+    dropped += group.layers.length - layers.length;
+    return { ...group, layers };
+  });
+  if (dropped === 0) {
+    throw new Error(
+      `Icon Composer project has no ${[...SMALL_ICON_DROPPED_LAYERS].join(" or ")} layer to drop at small sizes.`,
+    );
+  }
+  return JSON.stringify({ ...document, groups }, null, 2);
+}
+
 export interface PngIconImage {
   readonly size: number;
   readonly contents: Buffer;

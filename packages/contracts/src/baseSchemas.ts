@@ -119,6 +119,12 @@ export const MessageId = makeEntityId("MessageId");
 export type MessageId = typeof MessageId.Type;
 export const TurnId = makeEntityId("TurnId");
 export type TurnId = typeof TurnId.Type;
+/** One parked thought or note to self (`parked.ts`). */
+export const ParkedEntryId = makeEntityId("ParkedEntryId");
+export type ParkedEntryId = typeof ParkedEntryId.Type;
+/** The environment's one Parked list: the id of the `parked` aggregate. */
+export const ParkedListId = makeEntityId("ParkedListId");
+export type ParkedListId = typeof ParkedListId.Type;
 export const AuthSessionId = makeEntityId("AuthSessionId");
 export type AuthSessionId = typeof AuthSessionId.Type;
 export const RpcClientId = NonNegativeInt.pipe(Schema.brand("RpcClientId"));

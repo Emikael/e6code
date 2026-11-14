@@ -12,7 +12,12 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadLinkedPullRequest, ThreadTitleState } from "@e6tools/contracts";
+import {
+  ModelSelection,
+  ThreadLinkedPullRequest,
+  ThreadPendingRequestSummary,
+  ThreadTitleState,
+} from "@e6tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
@@ -20,6 +25,7 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    pendingRequestSummary: Schema.NullOr(Schema.fromJsonString(ThreadPendingRequestSummary)),
   }),
 );
 
@@ -60,6 +66,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at,
           pending_approval_count,
           pending_user_input_count,
+          pending_request_since,
+          pending_request_summary_json,
           has_actionable_proposed_plan,
           deleted_at
         )
@@ -93,6 +101,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.latestUserMessageAt},
           ${row.pendingApprovalCount},
           ${row.pendingUserInputCount},
+          ${row.pendingRequestSince ?? null},
+          ${row.pendingRequestSummary == null ? null : JSON.stringify(row.pendingRequestSummary)},
           ${row.hasActionableProposedPlan},
           ${row.deletedAt}
         )
@@ -126,6 +136,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at = excluded.latest_user_message_at,
           pending_approval_count = excluded.pending_approval_count,
           pending_user_input_count = excluded.pending_user_input_count,
+          pending_request_since = excluded.pending_request_since,
+          pending_request_summary_json = excluded.pending_request_summary_json,
           has_actionable_proposed_plan = excluded.has_actionable_proposed_plan,
           deleted_at = excluded.deleted_at
       `,
@@ -166,6 +178,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads

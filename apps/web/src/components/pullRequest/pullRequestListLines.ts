@@ -47,3 +47,38 @@ export function pullRequestListLines(
     }));
   });
 }
+
+/** One status of a linked pull request, said as a word; `tone` marks the ones that need you. */
+export interface PullRequestRowWord {
+  readonly text: string;
+  readonly tone: "muted" | "failed" | "merged";
+}
+
+/**
+ * What a thread's linked pull request row says under its title (board 14): its state, then for an
+ * open one how its checks and review stand, each in words. A host that reported nothing about
+ * checks or review leaves that word out rather than guessing.
+ */
+export function threadPullRequestRowWords(
+  snapshot: NonNullable<ThreadPullRequestLink["snapshot"]>,
+): PullRequestRowWord[] {
+  if (snapshot.state === "merged") return [{ text: "Merged", tone: "merged" }];
+  if (snapshot.state === "closed") return [{ text: "Closed", tone: "muted" }];
+  const words: PullRequestRowWord[] = [
+    { text: snapshot.isDraft ? "Draft" : "Open", tone: "muted" },
+  ];
+  if (snapshot.mergeability === "conflicting") words.push({ text: "Conflicts", tone: "failed" });
+  if (snapshot.checksState === "failing") words.push({ text: "Checks failing", tone: "failed" });
+  else if (snapshot.checksState === "pending")
+    words.push({ text: "Checks running", tone: "muted" });
+  else if (snapshot.checksState === "passing") words.push({ text: "Checks passed", tone: "muted" });
+  if (snapshot.reviewDecision === "approved") words.push({ text: "Approved", tone: "muted" });
+  else if (snapshot.reviewDecision === "changes-requested") {
+    words.push({ text: "Changes requested", tone: "failed" });
+  } else if (snapshot.reviewDecision === "review-required") {
+    words.push({ text: "Review required", tone: "muted" });
+  }
+  // A null decision only means there is no verdict and no rule requires one; reviewers may
+  // already be requested, so it says nothing worth a word.
+  return words;
+}

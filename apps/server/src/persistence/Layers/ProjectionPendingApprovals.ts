@@ -27,7 +27,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status,
           decision,
           created_at,
-          resolved_at
+          resolved_at,
+          request_kind,
+          request_type
         )
         VALUES (
           ${row.requestId},
@@ -36,7 +38,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           ${row.status},
           ${row.decision},
           ${row.createdAt},
-          ${row.resolvedAt}
+          ${row.resolvedAt},
+          ${row.requestKind ?? null},
+          ${row.requestType ?? null}
         )
         ON CONFLICT (request_id)
         DO UPDATE SET
@@ -45,7 +49,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status = excluded.status,
           decision = excluded.decision,
           created_at = excluded.created_at,
-          resolved_at = excluded.resolved_at
+          resolved_at = excluded.resolved_at,
+          request_kind = COALESCE(excluded.request_kind, projection_pending_approvals.request_kind),
+          request_type = COALESCE(excluded.request_type, projection_pending_approvals.request_type)
       `,
   });
 
@@ -61,20 +67,40 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status,
           decision,
           created_at AS "createdAt",
-          resolved_at AS "resolvedAt"
+          resolved_at AS "resolvedAt",
+          request_kind AS "requestKind",
+          request_type AS "requestType"
         FROM projection_pending_approvals
         WHERE thread_id = ${threadId}
         ORDER BY created_at ASC, request_id ASC
       `,
   });
 
-  const countPendingApprovalRows = SqlSchema.findOne({
+  const summarizePendingApprovalRows = SqlSchema.findOne({
     Request: ListProjectionPendingApprovalsInput,
-    Result: Schema.Struct({ count: Schema.Number }),
+    Result: Schema.Struct({
+      count: Schema.Number,
+      earliestCreatedAt: Schema.NullOr(Schema.String),
+    }),
     execute: ({ threadId }) => sql`
-      SELECT COUNT(*) AS count
+      SELECT COUNT(*) AS count, MIN(created_at) AS "earliestCreatedAt"
       FROM projection_pending_approvals
       WHERE thread_id = ${threadId} AND status = 'pending'
+    `,
+  });
+
+  // Stored from the request's latest `approval.requested` when the row is written.
+  const listPendingApprovalKindRows = SqlSchema.findAll({
+    Request: ListProjectionPendingApprovalsInput,
+    Result: Schema.Struct({
+      requestKind: Schema.NullOr(Schema.String),
+      requestType: Schema.NullOr(Schema.String),
+    }),
+    execute: ({ threadId }) => sql`
+      SELECT request_kind AS "requestKind", request_type AS "requestType"
+      FROM projection_pending_approvals
+      WHERE thread_id = ${threadId} AND status = 'pending'
+      ORDER BY created_at ASC, request_id ASC
     `,
   });
 
@@ -90,7 +116,9 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
           status,
           decision,
           created_at AS "createdAt",
-          resolved_at AS "resolvedAt"
+          resolved_at AS "resolvedAt",
+          request_kind AS "requestKind",
+          request_type AS "requestType"
         FROM projection_pending_approvals
         WHERE request_id = ${requestId}
       `,
@@ -117,13 +145,24 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
       ),
     );
 
-  const countPendingByThreadId: ProjectionPendingApprovalRepositoryShape["countPendingByThreadId"] =
+  const summarizePendingByThreadId: ProjectionPendingApprovalRepositoryShape["summarizePendingByThreadId"] =
     (input) =>
-      countPendingApprovalRows(input).pipe(
+      summarizePendingApprovalRows(input).pipe(
         Effect.mapError(
-          toPersistenceSqlError("ProjectionPendingApprovalRepository.countPendingByThreadId:query"),
+          toPersistenceSqlError(
+            "ProjectionPendingApprovalRepository.summarizePendingByThreadId:query",
+          ),
         ),
-        Effect.map((row) => row.count),
+      );
+
+  const listPendingKindsByThreadId: ProjectionPendingApprovalRepositoryShape["listPendingKindsByThreadId"] =
+    (input) =>
+      listPendingApprovalKindRows(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlError(
+            "ProjectionPendingApprovalRepository.listPendingKindsByThreadId:query",
+          ),
+        ),
       );
 
   const getByRequestId: ProjectionPendingApprovalRepositoryShape["getByRequestId"] = (input) =>
@@ -143,7 +182,8 @@ const makeProjectionPendingApprovalRepository = Effect.gen(function* () {
   return {
     upsert,
     listByThreadId,
-    countPendingByThreadId,
+    summarizePendingByThreadId,
+    listPendingKindsByThreadId,
     getByRequestId,
     deleteByThreadId,
   } satisfies ProjectionPendingApprovalRepositoryShape;

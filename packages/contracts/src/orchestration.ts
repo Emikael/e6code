@@ -16,6 +16,8 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  ParkedEntryId,
+  ParkedListId,
   PositiveInt,
   ProjectId,
   ProviderItemId,
@@ -25,6 +27,17 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import {
+  OrchestrationParkedEntry,
+  OrchestrationParkedState,
+  OrchestrationParkedStreamItem,
+  OrchestrationSubscribeParkedInput,
+  PARKED_IMPORT_MAX,
+  PARKED_TEXT_MAX_CHARS,
+  ParkedImportEntry,
+  ParkedPinDate,
+  ParkedText,
+} from "./parked.ts";
 import {
   PullRequestActor,
   PullRequestChecksState,
@@ -42,6 +55,8 @@ export const ORCHESTRATION_WS_METHODS = {
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
+  /** The environment's Parked list (`parked.ts`). Servers without `parkedSync` reject it. */
+  subscribeParked: "orchestration.subscribeParked",
 } as const;
 
 export const ProviderApprovalPolicy = Schema.Literals([
@@ -878,6 +893,8 @@ export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  /** The environment's Parked list. Absent reads as empty. */
+  parked: Schema.optional(OrchestrationParkedState),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -932,6 +949,32 @@ export const ThreadUsageTotal = Schema.Struct({
 });
 export type ThreadUsageTotal = typeof ThreadUsageTotal.Type;
 
+/** Longest question text a shell carries; the server cuts longer ones with "…". */
+export const PENDING_REQUEST_QUESTION_MAX_CHARS = 160;
+
+/**
+ * What a blocked thread is waiting on, small enough to ride on every shell so
+ * the start screen, notifications and mobile can say it without subscribing
+ * to the thread: "Codex wants to run 1 command", "Claude asks 1 question:
+ * …". It never carries command text, output or file contents; those stay in
+ * thread detail.
+ *
+ * `approvalKind` is the oldest open approval's `ProviderRequestKind`, kept a
+ * plain string so a kind this client does not know decodes and falls back to
+ * generic wording. `approvalKindCount` counts the open approvals of that kind.
+ */
+export const ThreadPendingRequestSummary = Schema.Struct({
+  approvalCount: NonNegativeInt,
+  approvalKind: Schema.optional(TrimmedNonEmptyString),
+  approvalKindCount: Schema.optional(NonNegativeInt),
+  userInputCount: NonNegativeInt,
+  /** Questions across the open user-input requests. */
+  questionCount: NonNegativeInt,
+  /** The oldest open request's first question, cut to `PENDING_REQUEST_QUESTION_MAX_CHARS`. */
+  question: Schema.optional(TrimmedNonEmptyString),
+});
+export type ThreadPendingRequestSummary = typeof ThreadPendingRequestSummary.Type;
+
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -977,6 +1020,19 @@ export const OrchestrationThreadShell = Schema.Struct({
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
   hasPendingUserInput: Schema.Boolean,
+  /**
+   * When the oldest unresolved approval or user-input request was asked, so
+   * clients can order blocked threads by how long they have waited. Omitted
+   * when nothing is pending; clients on an older server fall back to
+   * `updatedAt`.
+   */
+  pendingRequestSince: Schema.optional(IsoDateTime),
+  /**
+   * What the pending requests ask (see ThreadPendingRequestSummary). Omitted
+   * when nothing is pending or the adapter gave nothing to summarize; clients
+   * then fall back to generic wording, as they do on older servers.
+   */
+  pendingRequestSummary: Schema.optional(ThreadPendingRequestSummary),
   hasActionableProposedPlan: Schema.Boolean,
   /**
    * Native background work alive after the turn settles: "working" while
@@ -1266,6 +1322,61 @@ const ThreadUnsnoozeCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
+// Parked list (phase 20). One aggregate per environment (`PARKED_LIST_ID`).
+const ParkedThoughtAddCommand = Schema.Struct({
+  type: Schema.Literal("parked.thought.add"),
+  commandId: CommandId,
+  /** Chosen by the client, so a retry or Undo names the same thought. */
+  entryId: ParkedEntryId,
+  text: ParkedText,
+  projectId: Schema.NullOr(ProjectId),
+  pinnedFor: Schema.NullOr(ParkedPinDate),
+  createdAt: IsoDateTime,
+});
+
+const ParkedThoughtUpdateCommand = Schema.Struct({
+  type: Schema.Literal("parked.thought.update"),
+  commandId: CommandId,
+  entryId: ParkedEntryId,
+  text: ParkedText,
+  pinnedFor: Schema.NullOr(ParkedPinDate),
+});
+
+const ParkedEntryRemoveCommand = Schema.Struct({
+  type: Schema.Literal("parked.entry.remove"),
+  commandId: CommandId,
+  entryId: ParkedEntryId,
+});
+
+const ParkedNoteSetCommand = Schema.Struct({
+  type: Schema.Literal("parked.note.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  /** Empty clears the note. */
+  text: TrimmedString.check(Schema.isMaxLength(PARKED_TEXT_MAX_CHARS)),
+  /**
+   * The `updatedAt` of the note the client edited, or null when it saw none.
+   * When the note changed since, the edit is merged rather than replacing
+   * text the client never saw (see the decider).
+   */
+  baseUpdatedAt: Schema.NullOr(IsoDateTime),
+  /**
+   * The note text the client edited (null: it saw none). When present it
+   * decides whether the note changed since, in place of `baseUpdatedAt`, so a
+   * second edit queued behind an unanswered first one is judged against the
+   * first one's text. Older clients leave it out.
+   */
+  baseText: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  createdAt: IsoDateTime,
+});
+
+const ParkedImportCommand = Schema.Struct({
+  type: Schema.Literal("parked.import"),
+  commandId: CommandId,
+  entries: Schema.Array(ParkedImportEntry).check(Schema.isMaxLength(PARKED_IMPORT_MAX)),
+  createdAt: IsoDateTime,
+});
+
 const ThreadPinCommand = Schema.Struct({
   type: Schema.Literal("thread.pin"),
   commandId: CommandId,
@@ -1503,6 +1614,11 @@ const ThreadSessionStopCommand = Schema.Struct({
 
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
+  ParkedThoughtAddCommand,
+  ParkedThoughtUpdateCommand,
+  ParkedEntryRemoveCommand,
+  ParkedNoteSetCommand,
+  ParkedImportCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
@@ -1537,6 +1653,11 @@ export type DispatchableClientOrchestrationCommand =
 
 export const ClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
+  ParkedThoughtAddCommand,
+  ParkedThoughtUpdateCommand,
+  ParkedEntryRemoveCommand,
+  ParkedNoteSetCommand,
+  ParkedImportCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
@@ -1812,10 +1933,15 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "parked.thought-added",
+  "parked.thought-updated",
+  "parked.entry-removed",
+  "parked.note-set",
+  "parked.imported",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals(["project", "thread", "parked"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -1910,6 +2036,30 @@ export const ThreadUnsnoozedPayload = Schema.Struct({
   // derive them from snoozedUntil passing.
   reason: Schema.Literals(["user", "activity"]),
   updatedAt: IsoDateTime,
+});
+
+export const ParkedThoughtAddedPayload = Schema.Struct({
+  entry: OrchestrationParkedEntry,
+});
+
+/** The thought as it now stands, so a listener needs no earlier state to show it. */
+export const ParkedThoughtUpdatedPayload = Schema.Struct({
+  entry: OrchestrationParkedEntry,
+});
+
+export const ParkedEntryRemovedPayload = Schema.Struct({
+  entryId: ParkedEntryId,
+  removedAt: IsoDateTime,
+});
+
+/** The thread's note as it now stands (created, replaced or merged). */
+export const ParkedNoteSetPayload = Schema.Struct({
+  entry: OrchestrationParkedEntry,
+});
+
+/** Each imported entry as it now stands; empty when the server already held them all. */
+export const ParkedImportedPayload = Schema.Struct({
+  entries: Schema.Array(OrchestrationParkedEntry),
 });
 
 export const ThreadPinnedPayload = Schema.Struct({
@@ -2133,7 +2283,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, ParkedListId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -2311,6 +2461,31 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("parked.thought-added"),
+    payload: ParkedThoughtAddedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("parked.thought-updated"),
+    payload: ParkedThoughtUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("parked.entry-removed"),
+    payload: ParkedEntryRemovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("parked.note-set"),
+    payload: ParkedNoteSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("parked.imported"),
+    payload: ParkedImportedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
@@ -2498,6 +2673,10 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationSubscribeThreadInput,
     output: OrchestrationThreadStreamItem,
   },
+  subscribeParked: {
+    input: OrchestrationSubscribeParkedInput,
+    output: OrchestrationParkedStreamItem,
+  },
   subscribeShell: {
     input: OrchestrationSubscribeShellInput,
     output: OrchestrationShellStreamItem,
@@ -2518,6 +2697,12 @@ export class OrchestrationDispatchCommandError extends Schema.TaggedError<Orches
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
     bootstrapThreadDisposition: Schema.optional(Schema.Literals(["deleted", "not-created"])),
+    /**
+     * The command answered a request that already had an answer, from another
+     * surface or device or from the provider. Nothing changed; clients can
+     * ignore it quietly.
+     */
+    requestAlreadyAnswered: Schema.optional(Schema.Literal(true)),
   },
 ) {}
 

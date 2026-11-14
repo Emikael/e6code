@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
+  carryRetiredClientSettings,
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
@@ -282,50 +283,66 @@ describe("ClaudeSettings auto-compaction", () => {
 });
 
 describe("ClientSettings notifications", () => {
-  it("requires opt-in when existing settings omit notification preferences", () => {
-    expect(decodeClientSettings({}).notificationMode).toBe("off");
-    expect(decodeClientSettings({}).inAppNotificationsEnabled).toBe(false);
-    expect(decodeClientSettingsPatch({})).not.toHaveProperty("inAppNotificationsEnabled");
-    expect(decodeClientSettingsPatch({})).not.toHaveProperty("notificationMode");
+  it("defaults to notifying when an agent is blocked", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.attentionNotifications).toBe("blocked");
+    expect(decoded.notifyWatchedThreads).toBe(true);
+    expect(decoded.holdFinishedUntilBreakpoint).toBe(true);
+    expect(decoded.attentionSoundEnabled).toBe(false);
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("attentionNotifications");
   });
 
-  it.each([true, false])(
-    "round-trips in-app notifications set to %s",
-    (inAppNotificationsEnabled) => {
-      const settings = decodeClientSettings({ inAppNotificationsEnabled });
-      expect(encodeClientSettings(settings).inAppNotificationsEnabled).toBe(
-        inAppNotificationsEnabled,
-      );
-      expect(
-        decodeClientSettingsPatch({ inAppNotificationsEnabled }).inAppNotificationsEnabled,
-      ).toBe(inAppNotificationsEnabled);
-    },
-  );
+  it("drops the retired keys so stored opt-outs reset to the new default", () => {
+    const decoded = decodeClientSettings({
+      notificationMode: "off",
+      inAppNotificationsEnabled: false,
+    });
+    expect(decoded.attentionNotifications).toBe("blocked");
+    const encoded = encodeClientSettings(decoded);
+    expect(encoded).not.toHaveProperty("notificationMode");
+    expect(encoded).not.toHaveProperty("inAppNotificationsEnabled");
+  });
 
-  it.each(["true", 1, null])(
-    "rejects an invalid in-app notification preference %s",
-    (inAppNotificationsEnabled) => {
-      expect(() => decodeClientSettings({ inAppNotificationsEnabled })).toThrow();
-      expect(() => decodeClientSettingsPatch({ inAppNotificationsEnabled })).toThrow();
-    },
-  );
-
-  it.each(["off", "notifications", "sound", "notifications-and-sound"])(
-    "round-trips the %s mode",
+  it.each(["sound", "notifications-and-sound"])(
+    "keeps sound for people who chose %s, once",
     (notificationMode) => {
-      const settings = decodeClientSettings({ notificationMode });
-      expect(encodeClientSettings(settings).notificationMode).toBe(notificationMode);
-      expect(decodeClientSettingsPatch({ notificationMode }).notificationMode).toBe(
-        notificationMode,
+      const carried = decodeClientSettings(carryRetiredClientSettings({ notificationMode }));
+      expect(carried.attentionSoundEnabled).toBe(true);
+      const saved = encodeClientSettings({ ...carried, attentionSoundEnabled: false });
+      expect(saved).not.toHaveProperty("notificationMode");
+      expect(decodeClientSettings(carryRetiredClientSettings(saved)).attentionSoundEnabled).toBe(
+        false,
       );
     },
   );
 
-  it.each(["always", true, null])(
-    "rejects unsupported notification mode %s",
-    (notificationMode) => {
-      expect(() => decodeClientSettings({ notificationMode })).toThrow();
-      expect(() => decodeClientSettingsPatch({ notificationMode })).toThrow();
+  it.each(["notifications", "off"])("leaves sound off for %s", (notificationMode) => {
+    const carried = decodeClientSettings(carryRetiredClientSettings({ notificationMode }));
+    expect(carried.attentionSoundEnabled).toBe(false);
+  });
+
+  it("does not override a sound choice already made", () => {
+    const stored = { notificationMode: "sound", attentionSoundEnabled: false };
+    expect(decodeClientSettings(carryRetiredClientSettings(stored)).attentionSoundEnabled).toBe(
+      false,
+    );
+  });
+
+  it.each(["blocked", "all", "off"])("round-trips %s", (attentionNotifications) => {
+    const settings = decodeClientSettings({ attentionNotifications });
+    expect(encodeClientSettings(settings).attentionNotifications).toBe(attentionNotifications);
+    expect(decodeClientSettingsPatch({ attentionNotifications }).attentionNotifications).toBe(
+      attentionNotifications,
+    );
+  });
+
+  it.each(["notifications-and-sound", true, null])(
+    "stores the default for unsupported notification choice %s and rejects it in a patch",
+    (attentionNotifications) => {
+      expect(decodeClientSettings({ attentionNotifications }).attentionNotifications).toBe(
+        "blocked",
+      );
+      expect(() => decodeClientSettingsPatch({ attentionNotifications })).toThrow();
     },
   );
 });
@@ -361,24 +378,78 @@ describe("ClientSettings diff colors", () => {
   });
 });
 
-describe("ClientSettings thinking timeline", () => {
-  it("shows the timeline for settings saved before it existed", () => {
-    expect(decodeClientSettings({}).showThinkingTimeline).toBe(true);
+describe("ClientSettings agent activity and open-thread reminder", () => {
+  it("defaults to summary activity and a reminder at 5 open threads", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.agentActivityDetail).toBe("summary");
+    expect(decoded.openThreadReminderAt).toBe(5);
   });
 
-  it("keeps an explicit choice and patches it", () => {
-    const settings = decodeClientSettings({ showThinkingTimeline: false });
-    expect(settings.showThinkingTimeline).toBe(false);
-    expect(encodeClientSettings(settings).showThinkingTimeline).toBe(false);
-    expect(decodeClientSettingsPatch({ showThinkingTimeline: false })).toEqual({
-      showThinkingTimeline: false,
+  it("drops the retired thinking timeline key", () => {
+    const decoded = decodeClientSettings({ showThinkingTimeline: false });
+    expect(decoded.agentActivityDetail).toBe("summary");
+    expect(encodeClientSettings(decoded)).not.toHaveProperty("showThinkingTimeline");
+  });
+
+  it("keeps and patches a choice, and falls back for a malformed value", () => {
+    const settings = decodeClientSettings({
+      agentActivityDetail: "live",
+      openThreadReminderAt: "off",
     });
+    expect(encodeClientSettings(settings)).toMatchObject({
+      agentActivityDetail: "live",
+      openThreadReminderAt: "off",
+    });
+    expect(decodeClientSettingsPatch({ openThreadReminderAt: 8 })).toEqual({
+      openThreadReminderAt: 8,
+    });
+    const malformed = decodeClientSettings({
+      agentActivityDetail: "loud",
+      openThreadReminderAt: 4,
+      chatWidth: "wide",
+    });
+    expect(malformed.agentActivityDetail).toBe("summary");
+    expect(malformed.openThreadReminderAt).toBe(5);
+    expect(malformed.chatWidth).toBe("wide");
+  });
+});
+
+describe("ClientSettings session clock, break reminder and intro card", () => {
+  it("starts with the clock and reminder off and the What changed card undecided", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.sessionClockEnabled).toBe(false);
+    expect(decoded.breakReminderMinutes).toBe("off");
+    expect(decoded.attentionIntroDismissed).toBeUndefined();
   });
 
-  it("falls back to on for a malformed stored value without failing other settings", () => {
-    const settings = decodeClientSettings({ showThinkingTimeline: "yes", chatWidth: "wide" });
-    expect(settings.showThinkingTimeline).toBe(true);
-    expect(settings.chatWidth).toBe("wide");
+  it("keeps and patches a choice, and turns a malformed reminder off", () => {
+    expect(
+      encodeClientSettings(
+        decodeClientSettings({ breakReminderMinutes: 50, attentionIntroDismissed: true }),
+      ),
+    ).toMatchObject({ breakReminderMinutes: 50, attentionIntroDismissed: true });
+    expect(
+      decodeClientSettingsPatch({ breakReminderMinutes: 90, sessionClockEnabled: true }),
+    ).toEqual({ breakReminderMinutes: 90, sessionClockEnabled: true });
+    expect(decodeClientSettings({ breakReminderMinutes: 40 }).breakReminderMinutes).toBe("off");
+  });
+});
+
+describe("ClientSettings values from a newer build", () => {
+  it.each([
+    ["attentionNotifications", "blocked"],
+    ["recapTrigger", "after-break"],
+    ["composerControls", "compact"],
+    ["interfaceMotion", "system"],
+  ] as const)("decodes an unknown %s to its default and keeps the rest", (key, fallback) => {
+    const decoded = decodeClientSettings({
+      [key]: "from-a-newer-build",
+      chatWidth: "wide",
+      breakReminderMinutes: 50,
+    });
+    expect(decoded[key]).toBe(fallback);
+    expect(decoded.chatWidth).toBe("wide");
+    expect(decoded.breakReminderMinutes).toBe(50);
   });
 });
 
@@ -400,8 +471,12 @@ describe("ClientSettings chat width", () => {
 });
 
 describe("ClientSettings stock accent", () => {
-  it("defaults to Iris when no accent is saved", () => {
-    expect(decodeClientSettings({}).stockAccent).toBe("iris");
+  it("defaults to Graphite when no accent is saved", () => {
+    expect(decodeClientSettings({}).stockAccent).toBe("graphite");
+  });
+
+  it("keeps a stored Iris profile on Iris", () => {
+    expect(decodeClientSettings({ stockAccent: "iris" }).stockAccent).toBe("iris");
   });
 
   it.each(["iris", "cobalt", "rose", "graphite"])("round-trips the %s accent", (stockAccent) => {
@@ -410,9 +485,9 @@ describe("ClientSettings stock accent", () => {
     expect(decodeClientSettingsPatch({ stockAccent }).stockAccent).toBe(stockAccent);
   });
 
-  it("falls back to Iris for an accent this client does not know", () => {
-    expect(decodeClientSettings({ stockAccent: "chartreuse" }).stockAccent).toBe("iris");
-    expect(decodeClientSettings({ stockAccent: 7 }).stockAccent).toBe("iris");
+  it("falls back to the default for an accent this client does not know", () => {
+    expect(decodeClientSettings({ stockAccent: "chartreuse" }).stockAccent).toBe("graphite");
+    expect(decodeClientSettings({ stockAccent: 7 }).stockAccent).toBe("graphite");
   });
 });
 
@@ -620,8 +695,12 @@ describe("ClientSettings glass opacity", () => {
 });
 
 describe("ClientSettings appearance contrast", () => {
-  it("defaults to the theme's original contrast", () => {
-    expect(decodeClientSettings({}).appearanceContrast).toBe(100);
+  it("defaults new profiles to contrast 120", () => {
+    expect(decodeClientSettings({}).appearanceContrast).toBe(120);
+  });
+
+  it("keeps the contrast a stored profile was saved with", () => {
+    expect(decodeClientSettings({ appearanceContrast: 100 }).appearanceContrast).toBe(100);
   });
 
   it.each([49, 201, 92.5])("rejects an invalid appearance contrast: %s", (value) => {
@@ -690,6 +769,18 @@ describe("ClientSettings sidebar", () => {
     expect(decoded).not.toHaveProperty("compactSidebarEnabled");
     expect(decoded).not.toHaveProperty("sidebarCompactThreadRows");
     expect(decodeClientSettingsPatch(stored)).toEqual({});
+  });
+
+  it("turns the Needs you section and sidebar minutes on by default, and lets either be turned off", () => {
+    const decoded = decodeClientSettings({});
+    expect(decoded.needsYouSectionEnabled).toBe(true);
+    expect(decoded.sidebarElapsedTimeEnabled).toBe(true);
+    expect(
+      decodeClientSettingsPatch({
+        needsYouSectionEnabled: false,
+        sidebarElapsedTimeEnabled: false,
+      }),
+    ).toEqual({ needsYouSectionEnabled: false, sidebarElapsedTimeEnabled: false });
   });
 
   it("preserves an explicit legacy sidebar opt-in", () => {

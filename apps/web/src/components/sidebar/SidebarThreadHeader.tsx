@@ -1,112 +1,75 @@
 /**
- * The sidebar's actions under the environment header: a full-width New thread
- * button with its shortcut, then one quiet row holding search, project scope
- * and new project.
- *
- * Search owns the row's text and spans it. Project scope collapses to an icon
- * beside new-project at the end. The scope icon swaps to the project favicon
- * while a project is selected, so the row still names the scope.
- *
- * The scope picker itself is passed in: its combobox state lives with the rest
- * of the sidebar's scope logic. `searchFieldRef` lands on the search field so
- * the picker's popup can anchor to that width rather than to its 28px trigger.
+ * The sidebar's actions under the environment header (board 1): a full-width
+ * New thread button with its shortcut in key caps, and Park a thought beside
+ * it. Search, project scope and new project live in the command palette.
  */
-import { FolderPlusIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
-import {
-  type ComponentProps,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { InboxIcon, PlusIcon } from "lucide-react";
+import { type MouseEvent as ReactMouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { SidebarMenuButton } from "../ui/sidebar";
+import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
+import { openCaptureBar } from "~/parkedThoughts";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
+/** Board 1 `.btn--outline`: 32px, card fill, input border, 13px/500. */
+const OUTLINE_BUTTON_CLASS =
+  "flex h-8 cursor-pointer items-center rounded-lg border border-input bg-card text-[13px] leading-[18px] font-medium text-sidebar-foreground outline-hidden transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar disabled:cursor-default disabled:opacity-60 [&_svg]:size-4 [&_svg]:shrink-0";
+
 export interface SidebarThreadHeaderProps {
-  /** Lands on the search field so a popup can anchor to its width. */
-  searchFieldRef?: RefObject<HTMLDivElement | null>;
-  /** Without projects there is nothing to scope, so those controls stay out. */
-  hasProjects: boolean;
-  /** The project scope combobox, rendered as the first icon of the group. */
-  projectScope: ReactNode;
-  onNewProject: () => void;
   /** Receives the click so Shift+click can skip the project picker. */
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
+  /** The start screen is open: New thread reads as the current page (board 1). */
+  newThreadCurrent: boolean;
   newThreadShortcutLabel: string | null | undefined;
   newThreadInProjectShortcutLabel: string | null | undefined;
   /** Shift+click only matters once there is more than one project to pick. */
   showNewThreadInProjectHint: boolean;
-  searchInputRef: RefObject<HTMLInputElement | null>;
-  searchQuery: string;
-  onSearchQueryChange: (value: string) => void;
-  onSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
-  isSearching: boolean;
-  searchResultCount: number;
-  activeSearchResultIndex: number;
-  onClearSearch: () => void;
-  /** Shown in the idle search field as a jump to the command palette. */
-  commandPaletteShortcutLabel: string | null;
-  onOpenCommandPalette: () => void;
+  /** "Park a thought" beside New thread (board 2). */
+  parkShortcutLabel?: string | null;
 }
 
 export function SidebarThreadHeader({
-  searchFieldRef,
-  hasProjects,
-  projectScope,
-  onNewProject,
   onNewThread,
   newThreadDisabled,
+  newThreadCurrent,
   newThreadShortcutLabel,
   newThreadInProjectShortcutLabel,
   showNewThreadInProjectHint,
-  searchInputRef,
-  searchQuery,
-  onSearchQueryChange,
-  onSearchKeyDown,
-  isSearching,
-  searchResultCount,
-  activeSearchResultIndex,
-  onClearSearch,
-  commandPaletteShortcutLabel,
-  onOpenCommandPalette,
+  parkShortcutLabel = null,
 }: SidebarThreadHeaderProps) {
-  const resultsVisible = isSearching && searchResultCount > 0;
-  // Results shrink as the query narrows, so the active index can outrun the
-  // list; pointing aria-activedescendant at a removed option strands the
-  // screen reader on nothing.
-  const activeResultExists = resultsVisible && activeSearchResultIndex < searchResultCount;
   const newThreadLabel = newThreadShortcutLabel
     ? `New thread (${newThreadShortcutLabel})`
     : "New thread";
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex items-center gap-1.5">
       <Tooltip>
         <TooltipTrigger
           render={
             <button
               type="button"
               aria-label="New thread"
+              aria-current={newThreadCurrent ? "page" : undefined}
               disabled={newThreadDisabled}
               onClick={onNewThread}
-              className="flex h-[34px] w-full cursor-pointer items-center gap-2 rounded-lg border border-sidebar-foreground/14 bg-sidebar-row-active px-2.5 text-[13px] font-medium text-sidebar-foreground shadow-xs outline-hidden transition-colors hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 dark:shadow-none"
+              className={cn(
+                OUTLINE_BUTTON_CLASS,
+                "min-w-0 flex-1 gap-2 px-3",
+                newThreadCurrent && "bg-sidebar-row-selected hover:bg-sidebar-row-selected",
+              )}
             />
           }
         >
-          <PlusIcon aria-hidden className="size-[15px] shrink-0" />
-          <span className="truncate">New thread</span>
+          <PlusIcon aria-hidden />
+          <span className="shrink-0 whitespace-nowrap">New thread</span>
           {newThreadShortcutLabel ? (
-            <kbd
-              aria-hidden
-              className="ml-auto shrink-0 font-mono text-[11px] font-normal text-sidebar-muted-foreground pointer-coarse:hidden"
-            >
-              {newThreadShortcutLabel}
-            </kbd>
+            // The label never yields to its hint: when the caps do not fit beside it they wrap
+            // past the zero-width spacer onto a clipped second line and disappear whole.
+            <span className="flex h-5 min-w-0 flex-1 flex-wrap justify-end overflow-hidden pointer-coarse:hidden">
+              <span aria-hidden className="h-5 w-0" />
+              <ShortcutKeyCaps label={newThreadShortcutLabel} compact />
+            </span>
           ) : null}
         </TooltipTrigger>
         <TooltipPopup side="bottom">
@@ -123,125 +86,23 @@ export function SidebarThreadHeader({
           )}
         </TooltipPopup>
       </Tooltip>
-      {/* Search, project scope and new project share one quiet row: they are
-          reached far less often than New thread. */}
-      <div className="flex items-center gap-0.5">
-        <div
-          ref={searchFieldRef}
-          className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-xs text-sidebar-muted-foreground ring-1 ring-transparent transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-control-surface focus-within:text-sidebar-foreground focus-within:ring-ring/60"
-        >
-          <SearchIcon className="size-3.5 shrink-0 text-[var(--sidebar-icon-color)]" />
-          <Input
-            ref={searchInputRef}
-            nativeInput
-            unstyled
-            type="search"
-            value={searchQuery}
-            onChange={(event) => onSearchQueryChange(event.currentTarget.value)}
-            onKeyDown={onSearchKeyDown}
-            placeholder="Search"
-            aria-label="Search threads"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={resultsVisible}
-            aria-controls={resultsVisible ? "sidebar-thread-search-results" : undefined}
-            aria-activedescendant={
-              activeResultExists
-                ? `sidebar-thread-search-result-${activeSearchResultIndex}`
-                : undefined
-            }
-            className="min-w-0 flex-1 [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:p-0 [&_[data-slot=input]]:leading-normal [&_[data-slot=input]]:text-xs [&_[data-slot=input]]:text-sidebar-foreground [&_[data-slot=input]]:placeholder:text-sidebar-muted-foreground"
-          />
-          {isSearching ? (
-            <Button
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
               type="button"
-              size="icon-micro"
-              variant="ghost"
-              className="shrink-0 text-sidebar-muted-foreground hover:bg-sidebar-control-surface hover:text-sidebar-foreground"
-              aria-label="Clear thread search"
-              onClick={() => {
-                onClearSearch();
-                searchInputRef.current?.focus();
-              }}
-            >
-              <XIcon className="size-3" />
-            </Button>
-          ) : commandPaletteShortcutLabel ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={`Open command palette (${commandPaletteShortcutLabel})`}
-                    onClick={onOpenCommandPalette}
-                    className="shrink-0 cursor-pointer rounded font-mono text-[11px] text-sidebar-muted-foreground outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2 pointer-coarse:hidden"
-                  />
-                }
-              >
-                {commandPaletteShortcutLabel}
-              </TooltipTrigger>
-              <TooltipPopup side="top">Command palette</TooltipPopup>
-            </Tooltip>
-          ) : null}
-        </div>
-        {hasProjects ? (
-          <>
-            {projectScope}
-            <SidebarHeaderIconButton label="New project" onClick={onNewProject}>
-              <FolderPlusIcon />
-            </SidebarHeaderIconButton>
-          </>
-        ) : null}
-      </div>
+              aria-label="Park a thought"
+              onClick={openCaptureBar}
+              className={cn(OUTLINE_BUTTON_CLASS, "size-8 shrink-0 justify-center")}
+            />
+          }
+        >
+          <InboxIcon aria-hidden />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          {parkShortcutLabel ? `Park a thought (${parkShortcutLabel})` : "Park a thought"}
+        </TooltipPopup>
+      </Tooltip>
     </div>
-  );
-}
-
-/**
- * Small icon button with a tooltip for the header's quiet row. Spreads
- * unknown props through so it can serve as a popup trigger's render target,
- * which injects its own handlers, ref and aria state.
- */
-export function SidebarHeaderIconButton({
-  label,
-  tooltip = label,
-  className,
-  children,
-  ...rest
-}: {
-  /** Accessible name; also the tooltip unless `tooltip` says more. */
-  label: string;
-  tooltip?: ReactNode;
-  className?: string | undefined;
-  children?: ReactNode;
-} & Omit<
-  ComponentProps<typeof SidebarMenuButton>,
-  "children" | "className" | "tooltip" | "isActive" | "aria-label"
->) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <SidebarMenuButton
-            size="icon"
-            type="button"
-            aria-label={label}
-            {...rest}
-            className={cn(
-              "relative size-7 shrink-0 text-sidebar-muted-foreground hover:text-sidebar-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar [&>svg]:size-3.5",
-              className,
-            )}
-          />
-        }
-      >
-        {children}
-        {/* Coarse-pointer hit area, matching the rest of the sidebar chrome. */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-        />
-      </TooltipTrigger>
-      <TooltipPopup side="top">{tooltip}</TooltipPopup>
-    </Tooltip>
   );
 }

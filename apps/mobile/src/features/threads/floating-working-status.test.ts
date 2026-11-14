@@ -4,6 +4,7 @@ import {
   activeWorkFloatingStatus,
   connectionFloatingStatus,
   pendingAttentionFloatingStatus,
+  planMeter,
 } from "./floating-working-status";
 
 describe("activeWorkFloatingStatus", () => {
@@ -25,6 +26,23 @@ describe("activeWorkFloatingStatus", () => {
         activeWorkStartedAt: startedAt,
       }),
     ).toEqual({ kind: "working", startedAt });
+  });
+
+  it("opens Run details from the working bar when asked to", () => {
+    const onOpenRunDetails = () => undefined;
+    expect(
+      activeWorkFloatingStatus({
+        isCompacting: false,
+        agentState: undefined,
+        activeWorkStartedAt: startedAt,
+        planProgress: { completedSteps: 2, totalSteps: 5 },
+        onOpenRunDetails,
+      }),
+    ).toMatchObject({
+      kind: "working",
+      plan: { label: "Step 3 of 5" },
+      onPress: onOpenRunDetails,
+    });
   });
 
   it("keeps a requested /compact ahead of what the agent reports", () => {
@@ -150,6 +168,39 @@ describe("pendingAttentionFloatingStatus", () => {
       kind: "attention",
       tone: "input",
       label: "Needs your answer",
+    });
+  });
+});
+
+describe("planMeter", () => {
+  it("draws board 9's meter: done steps, the live one, then the rest", () => {
+    expect(planMeter({ completedSteps: 2, totalSteps: 5 })).toEqual({
+      label: "Step 3 of 5",
+      segments: ["done", "done", "live", "todo", "todo"],
+    });
+  });
+
+  it("keeps the words without a meter for long plans, and nothing without a plan", () => {
+    expect(planMeter({ completedSteps: 3, totalSteps: 12 })).toEqual({
+      label: "Step 4 of 12",
+      segments: [],
+    });
+    expect(planMeter(null)).toBeNull();
+    expect(planMeter({ completedSteps: 0, totalSteps: 0 })).toBeNull();
+  });
+
+  it("rides on the working status while the agent reports a plan", () => {
+    expect(
+      activeWorkFloatingStatus({
+        isCompacting: false,
+        agentState: undefined,
+        activeWorkStartedAt: "2026-01-01T00:00:00.000Z",
+        planProgress: { completedSteps: 0, totalSteps: 2 },
+      }),
+    ).toEqual({
+      kind: "working",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      plan: { label: "Step 1 of 2", segments: ["live", "todo"] },
     });
   });
 });

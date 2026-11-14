@@ -1,4 +1,6 @@
 import { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
+import { classifyDestructiveCommand } from "@e6tools/client-runtime/destructive-commands";
+import type { AgentActivityDetail } from "@e6tools/contracts/settings";
 export { worktreeSetupAgentStarted } from "@e6tools/client-runtime/worktree-setup";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
@@ -62,6 +64,20 @@ function singleToolCallLabel(entry: WorkLogEntry): string {
   return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
 }
 
+/**
+ * The one file a file tool works on (Claude's Read and Edit name it as their detail), or null.
+ * Reads count only when the provider titles them "Read file", as the tool group summary does.
+ */
+function fileToolPath(entry: WorkLogEntry): string | null {
+  const isRead =
+    entry.itemType === "dynamic_tool_call" && entry.toolTitle?.trim().toLowerCase() === "read file";
+  if (entry.itemType !== "file_change" && !isRead) return null;
+  const [changed] = entry.changedFiles ?? [];
+  if (changed) return changed;
+  const detail = entry.detail?.trim();
+  return detail && !/\s/.test(detail) ? detail : null;
+}
+
 export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string | undefined) {
   // A Tasks row's detail is its step list, shown when expanded; the label is its summary.
   if (entry.sourceActivityKind === "turn.plan.updated") return entry.label;
@@ -70,6 +86,10 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
   if (entry.command) return entry.command;
+  const filePath = fileToolPath(entry);
+  if (filePath && entry.changedFiles === undefined) {
+    return formatWorkspaceRelativePath(filePath, workspaceRoot);
+  }
   if (entry.detail) return entry.detail;
   const [firstPath] = entry.changedFiles ?? [];
   if (firstPath) {
@@ -86,6 +106,8 @@ export function liveWorkEntryLabel(
   entry: WorkLogEntry,
   workspaceRoot: string | undefined,
   active: boolean,
+  /** "base" names a file by its name alone, as the now bar does ("Editing themePalettes.ts"). */
+  fileName: "relative" | "base" = "relative",
 ) {
   const status = liveActivityToolStatus(entry.toolLifecycleStatus, active);
   const toolPresentation = resolveWorkEntryToolPresentation({
@@ -106,6 +128,16 @@ export function liveWorkEntryLabel(
               ? "Stopped"
               : "Ran";
     return `${verb} ${commandProgramName(command) ?? "command"}`;
+  }
+  // Board 2: "Editing packages/shared/src/themePalettes.ts" while the edit runs.
+  const filePath = status === "inProgress" ? fileToolPath(entry) : null;
+  if (filePath) {
+    const verb = entry.itemType === "file_change" ? "Editing" : "Reading";
+    const shown =
+      fileName === "base"
+        ? (filePath.split(/[\\/]/).at(-1) ?? filePath)
+        : formatWorkspaceRelativePath(filePath, workspaceRoot);
+    return `${verb} ${shown}`;
   }
   return workEntryDisplayLabel(entry, workspaceRoot);
 }
@@ -498,6 +530,14 @@ export type MessagesTimelineRow =
       label: string;
     }
   | {
+      /** Focus mode: "Earlier in this thread · 2 turns", standing in for every turn before yours. */
+      kind: "earlier-turns";
+      id: string;
+      createdAt: string;
+      turnCount: number;
+      expanded: boolean;
+    }
+  | {
       kind: "message";
       id: string;
       createdAt: string;
@@ -506,7 +546,6 @@ export type MessagesTimelineRow =
       showAssistantMeta: boolean;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
-      assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       revertTurnCount?: number | undefined;
       /** Turn usage for a settled turn with no "Worked for ..." row to carry it. */
       assistantUsageLabel?: string | undefined;
@@ -901,14 +940,26 @@ function deriveTurnFolds(input: {
               lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
+    // "· 5 steps" (boards 2 and 3): the tool work the fold hides, as the thinking timeline counts it.
+    let stepCount = 0;
+    for (const entry of group.entries) {
+      if (
+        hiddenEntryIds.has(entry.id) &&
+        entry.kind === "work" &&
+        entry.entry.sourceActivityKind !== "context-compaction"
+      ) {
+        stepCount += 1;
+      }
+    }
+    const heading = isLatestInterruptedTurn
+      ? duration
+        ? `You stopped after ${duration}`
+        : "You stopped this response"
+      : duration
+        ? `Worked for ${duration}`
+        : "Worked";
     const label = appendTurnUsage(
-      isLatestInterruptedTurn
-        ? duration
-          ? `You stopped after ${duration}`
-          : "You stopped this response"
-        : duration
-          ? `Worked for ${duration}`
-          : "Worked",
+      stepCount > 0 ? `${heading} · ${stepCount} step${stepCount === 1 ? "" : "s"}` : heading,
       input.turnUsageByTurnId?.get(turnId),
     );
 
@@ -1064,6 +1115,68 @@ function buildRevertTurnCountByUserMessageId(input: {
   return byUserMessageId;
 }
 
+/**
+ * The disclosure set holds groups the reader opened, plus a marker for each
+ * group the reader folded although it opens by itself.
+ */
+const workGroupFoldedKey = (groupId: string) => `folded:${groupId}`;
+
+/**
+ * Must be on screen while it happens, whatever "Agent activity" says: an
+ * approval request, or a command that is hard to undo.
+ */
+function workEntryStaysVisible(
+  entry: Pick<WorkLogEntry, "sourceActivityKind" | "command" | "rawCommand">,
+): boolean {
+  if (entry.sourceActivityKind === "approval.requested") return true;
+  const command = entry.rawCommand ?? entry.command;
+  return command !== undefined && classifyDestructiveCommand(command) !== null;
+}
+
+/**
+ * Whether a work group opens without a click (F11). With "Summary" a working
+ * agent's tool calls and thinking stay folded to their one-line summary;
+ * with "Live" the group the agent is working in opens as it goes. A settled
+ * group always folds. Approval requests and destructive commands open their
+ * live group under either setting.
+ */
+export function workGroupOpensByItself(input: {
+  readonly active: boolean;
+  readonly detail: AgentActivityDetail;
+  readonly entries: ReadonlyArray<
+    Pick<WorkLogEntry, "sourceActivityKind" | "command" | "rawCommand">
+  >;
+}): boolean {
+  if (!input.active) return false;
+  return input.detail === "live" || input.entries.some(workEntryStaysVisible);
+}
+
+export function resolveWorkGroupExpanded(
+  disclosures: ReadonlySet<string> | undefined,
+  groupId: string,
+  opensByItself: boolean,
+): boolean {
+  if (disclosures?.has(groupId)) return true;
+  return opensByItself && !disclosures?.has(workGroupFoldedKey(groupId));
+}
+
+/** The disclosure set after the reader opens or folds a group that is now `expanded`. */
+export function toggleWorkGroupDisclosure(
+  disclosures: ReadonlySet<string>,
+  groupId: string,
+  expanded: boolean,
+): ReadonlySet<string> {
+  const next = new Set(disclosures);
+  if (expanded) {
+    next.delete(groupId);
+    next.add(workGroupFoldedKey(groupId));
+  } else {
+    next.add(groupId);
+    next.delete(workGroupFoldedKey(groupId));
+  }
+  return next;
+}
+
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   latestTurn?: TimelineLatestTurn | null;
@@ -1082,7 +1195,15 @@ export function deriveMessagesTimelineRows(input: {
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
   /** Settled turns' tokens and cost, appended to their "Worked for ..." row. */
   turnUsageByTurnId?: ReadonlyMap<TurnId, TurnUsageActivityPayload> | undefined;
+  /**
+   * Focus mode folds every turn before your latest message into one row;
+   * "expanded" keeps that row and shows the turns under it. Absent: no fold.
+   */
+  earlierTurns?: "folded" | "expanded" | undefined;
+  /** "Agent activity": whether live groups open by themselves. Defaults to summary. */
+  agentActivityDetail?: AgentActivityDetail | undefined;
 }): MessagesTimelineRow[] {
+  const activityDetail = input.agentActivityDetail ?? "summary";
   const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
   for (const summary of input.turnDiffSummaries) {
     if (summary.assistantMessageId) {
@@ -1202,7 +1323,15 @@ export function deriveMessagesTimelineRows(input: {
             entry: (latestRunningToolEntry ?? latestVisibleToolEntry).entry,
             groupedEntries: visibleActiveToolEntries.map((entry) => entry.entry),
             groupId,
-            expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
+            expanded: resolveWorkGroupExpanded(
+              input.expandedWorkGroupIds,
+              groupId,
+              workGroupOpensByItself({
+                active: latestToolKeepsActivityLive,
+                detail: activityDetail,
+                entries: visibleActiveToolEntries.map((entry) => entry.entry),
+              }),
+            ),
             active: latestToolKeepsActivityLive,
           };
         })()
@@ -1305,7 +1434,15 @@ export function deriveMessagesTimelineRows(input: {
           turnId: activityTurnId,
           groupId,
           entries,
-          expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
+          expanded: resolveWorkGroupExpanded(
+            input.expandedWorkGroupIds,
+            groupId,
+            workGroupOpensByItself({
+              active,
+              detail: activityDetail,
+              entries: entries.flatMap((entry) => (entry.kind === "work" ? [entry.entry] : [])),
+            }),
+          ),
           active,
         });
         hasActivityRow ||= active;
@@ -1380,7 +1517,15 @@ export function deriveMessagesTimelineRows(input: {
         const activeInProgressToolEntries = visibleGroupedEntries.filter(workEntryIsInActiveRun);
         if (activeInProgressToolEntries.length > 0) {
           const groupId = workGroupId(timelineEntry.id, timelineEntry.entry);
-          const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
+          const expanded = resolveWorkGroupExpanded(
+            input.expandedWorkGroupIds,
+            groupId,
+            workGroupOpensByItself({
+              active: true,
+              detail: activityDetail,
+              entries: visibleGroupedEntries,
+            }),
+          );
           const latestActiveToolEntry = activeInProgressToolEntries.at(-1)!;
           nextRows.push({
             kind: "work-live",
@@ -1519,10 +1664,6 @@ export function deriveMessagesTimelineRows(input: {
       showAssistantMeta,
       showAssistantCopyButton: showAssistantMeta,
       assistantCopyStreaming: timelineEntry.message.streaming || assistantResponseStillInProgress,
-      assistantTurnDiffSummary:
-        timelineEntry.message.role === "assistant"
-          ? turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id)
-          : undefined,
       revertTurnCount:
         timelineEntry.message.role === "user"
           ? revertTurnCountByUserMessageId.get(timelineEntry.message.id)
@@ -1593,7 +1734,7 @@ export function deriveMessagesTimelineRows(input: {
       createdAt: input.activeTurnStartedAt,
     });
   }
-  const rows = attachTrailingToolGroupsToAssistant(nextRows);
+  const rows = foldEarlierTurns(attachTrailingToolGroupsToAssistant(nextRows), input.earlierTurns);
   input.queuedMessages?.forEach((queuedMessage, index) => {
     rows.push({
       kind: "queued-message",
@@ -1607,6 +1748,38 @@ export function deriveMessagesTimelineRows(input: {
 }
 
 export const WORKTREE_SETUP_ROW_ID = "worktree-setup-row";
+export const EARLIER_TURNS_ROW_ID = "earlier-turns-row";
+
+/**
+ * Focus mode (board 3): every row before your latest message gives way to one
+ * "Earlier in this thread · N turns" row, N being your earlier messages. With
+ * nothing earlier the rows are returned as they are. Expanded, the row stays
+ * on top so the way back is where you clicked.
+ */
+function foldEarlierTurns(
+  rows: MessagesTimelineRow[],
+  mode: "folded" | "expanded" | undefined,
+): MessagesTimelineRow[] {
+  if (mode === undefined) return rows;
+  let latestUserIndex = -1;
+  let firstUserCreatedAt = "";
+  let turnCount = 0;
+  for (const [index, row] of rows.entries()) {
+    if (row.kind !== "message" || row.message.role !== "user") continue;
+    if (latestUserIndex >= 0) turnCount += 1;
+    else firstUserCreatedAt = row.createdAt;
+    latestUserIndex = index;
+  }
+  if (turnCount === 0) return rows;
+  const foldRow: MessagesTimelineRow = {
+    kind: "earlier-turns",
+    id: EARLIER_TURNS_ROW_ID,
+    createdAt: firstUserCreatedAt,
+    turnCount,
+    expanded: mode === "expanded",
+  };
+  return mode === "expanded" ? [foldRow, ...rows] : [foldRow, ...rows.slice(latestUserIndex)];
+}
 
 type MessagesTimelineRowsInput = Parameters<typeof deriveMessagesTimelineRows>[0];
 
@@ -1760,6 +1933,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return a.createdAt === bc.createdAt && a.label === bc.label;
     }
 
+    case "earlier-turns": {
+      const be = b as typeof a;
+      return a.turnCount === be.turnCount && a.expanded === be.expanded;
+    }
+
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
 
@@ -1813,7 +1991,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.showAssistantMeta === bm.showAssistantMeta &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
-        a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
         a.revertTurnCount === bm.revertTurnCount &&
         a.assistantUsageLabel === bm.assistantUsageLabel
       );
@@ -1930,6 +2107,17 @@ export function findSubagentSpawnRow(
     }
   }
   return null;
+}
+
+/** Where a reveal request scrolls: a message (the recap's "You asked"). */
+export type TimelineRevealTarget = { readonly kind: "message"; readonly messageId: string };
+
+/** The row to scroll to for a reveal target, or -1 when it is not loaded. */
+export function findRevealRowIndex(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  target: TimelineRevealTarget,
+): number {
+  return rows.findIndex((row) => row.kind === "message" && row.message.id === target.messageId);
 }
 
 /** What the working row says while a turn runs. */

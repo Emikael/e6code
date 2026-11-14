@@ -32,16 +32,32 @@ function toNativeHeaderMenuItems(items: HomeListFilterMenu["items"]): NativeHead
 }
 
 /**
- * Right-side UINavigationBar items for the sidebar column: the thread list
- * filter/sort menu plus the settings button, sharing one glass capsule —
+ * Right-side UINavigationBar items for the sidebar column: Park a thought,
+ * Parked, the thread list filter/sort menu and the settings button, sharing one glass capsule —
  * the Messages-style grouped header buttons.
  */
 export function createSidebarHeaderItems(input: {
   readonly filterIcon: string;
   readonly filterMenu: HomeListFilterMenu;
   readonly onOpenSettings: () => void;
+  readonly onParkThought: () => void;
+  readonly onOpenParked: () => void;
 }): NativeStackHeaderItem[] {
   return [
+    withNativeGlassHeaderItem({
+      type: "button",
+      label: "",
+      accessibilityLabel: "Park a thought",
+      icon: sfSymbolIcon("lightbulb"),
+      onPress: input.onParkThought,
+    }),
+    withNativeGlassHeaderItem({
+      type: "button",
+      label: "",
+      accessibilityLabel: "Parked",
+      icon: sfSymbolIcon("tray"),
+      onPress: input.onOpenParked,
+    }),
     withNativeGlassHeaderItem({
       type: "menu",
       label: "",

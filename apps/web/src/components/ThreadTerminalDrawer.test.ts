@@ -10,11 +10,14 @@ import {
 } from "./ThreadTerminalDrawer";
 
 describe("terminal selection menus", () => {
-  it("omits Add to chat when the terminal has no chat target", () => {
-    expect(terminalSelectionMenuItems().map(({ id }) => id)).toEqual(["add-to-chat", "copy"]);
+  it("puts Copy first and omits Add to message when the terminal has no chat target", () => {
+    expect(terminalSelectionMenuItems().map(({ label }) => label)).toEqual([
+      "Copy",
+      "Add to message",
+    ]);
     expect(terminalContextMenuItems({ hasSelection: true }).map(({ id }) => id)).toEqual([
-      "add-to-chat",
       "copy",
+      "add-to-chat",
       "paste",
     ]);
 

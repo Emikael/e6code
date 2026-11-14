@@ -10,8 +10,13 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+/** A file a main-agent change counted, with the path the provider reported. */
+export interface WorkLogFileDiffStat extends WorkLogDiffStat {
+  readonly path: string;
+}
+
 /** Same file when equal, or when one is the other's workspace-relative tail. */
-function samePath(left: string, right: string): boolean {
+export function samePath(left: string, right: string): boolean {
   return left === right || left.endsWith(`/${right}`) || right.endsWith(`/${left}`);
 }
 
@@ -57,4 +62,27 @@ export function mainAgentDiffStat(
     deletions += file.deletions;
   }
   return additions === 0 && deletions === 0 ? null : { additions, deletions };
+}
+
+/**
+ * Each counted file of a main-agent file-change row, for listing the files a
+ * turn changed before its checkpoint lands. Files without counts are left out.
+ */
+export function mainAgentFileDiffStats(payloadValue: unknown): WorkLogFileDiffStat[] {
+  const payload = asRecord(payloadValue);
+  if (!payload || payload.agentId !== undefined || !Array.isArray(payload.changedFiles)) {
+    return [];
+  }
+  const files: WorkLogFileDiffStat[] = [];
+  for (const value of payload.changedFiles) {
+    const file = asRecord(value);
+    if (
+      typeof file?.path === "string" &&
+      typeof file.additions === "number" &&
+      typeof file.deletions === "number"
+    ) {
+      files.push({ path: file.path, additions: file.additions, deletions: file.deletions });
+    }
+  }
+  return files;
 }

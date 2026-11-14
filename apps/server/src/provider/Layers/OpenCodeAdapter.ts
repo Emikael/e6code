@@ -694,17 +694,30 @@ function toToolLifecycleItemType(toolName: string): ToolLifecycleItemType {
   return "dynamic_tool_call";
 }
 
+/**
+ * Names an OpenCode permission for clients. Anything that is not a shell
+ * command, a read or an edit (web fetch, an external directory, a custom
+ * tool) stays a generic tool approval, as in the Claude and ACP adapters, so
+ * no client claims the agent "wants to run 1 command". It is still an
+ * actionable approval in every client.
+ */
 function mapPermissionToRequestType(
   permission: string,
-): "command_execution_approval" | "file_read_approval" | "file_change_approval" {
+):
+  | "command_execution_approval"
+  | "file_read_approval"
+  | "file_change_approval"
+  | "dynamic_tool_call" {
   switch (permission) {
+    case "shell":
+    case "bash":
+      return "command_execution_approval";
     case "read":
       return "file_read_approval";
     case "edit":
       return "file_change_approval";
     default:
-      // Every OpenCode permission needs an actionable approval in each client.
-      return "command_execution_approval";
+      return "dynamic_tool_call";
   }
 }
 

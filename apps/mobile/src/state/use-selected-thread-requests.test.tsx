@@ -6,6 +6,7 @@ const fixture = vi.hoisted(() => ({
   uploads: {} as Record<string, unknown>,
   preparations: {} as Record<string, number>,
   preparationAtom: Symbol("preparation"),
+  respond: (() => Promise.resolve({ _tag: "Success" })) as (value: unknown) => Promise<unknown>,
 }));
 vi.mock("react-native", () => ({ Alert: { alert: vi.fn() } }));
 vi.mock("@effect/atom-react", () => ({
@@ -48,7 +49,9 @@ vi.mock("./entities", () => ({
     ]),
 }));
 vi.mock("./threads", () => ({ threadEnvironment: {} }));
-vi.mock("./use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
+vi.mock("./use-atom-command", () => ({
+  useAtomCommand: () => (value: unknown) => fixture.respond(value),
+}));
 vi.mock("./use-thread-selection", () => ({
   useThreadSelection: () => ({
     selectedThread: { environmentId: "environment-1", id: "thread-1" },
@@ -76,7 +79,14 @@ vi.mock("./use-thread-detail", () => ({
   }),
 }));
 
-import { ApprovalRequestId, EnvironmentId, ThreadId } from "@e6tools/contracts";
+import { approvalAnswers, approvalAnswersKey } from "@e6tools/client-runtime/approval-answers";
+import {
+  ApprovalRequestId,
+  EnvironmentId,
+  OrchestrationDispatchCommandError,
+  ThreadId,
+} from "@e6tools/contracts";
+import * as Cause from "effect/Cause";
 import { questionAttachmentDraftKey } from "./question-attachments";
 import { useSelectedThreadRequests } from "./use-selected-thread-requests";
 
@@ -136,5 +146,51 @@ describe("question attachment submission readiness", () => {
     fixture.uploads["environment-1:second"] = { status: "ready" };
     fixture.preparations[key("first")] = 1;
     expect(submitButtonMarkup()).toContain("disabled");
+  });
+});
+
+describe("answering an approval", () => {
+  const answersKey = approvalAnswersKey(environmentId, ThreadId.make("thread-1"));
+  function respond(requestId: ApprovalRequestId) {
+    let answer: ReturnType<typeof useSelectedThreadRequests>["onRespondToApproval"] | null = null;
+    function Probe() {
+      answer = useSelectedThreadRequests().onRespondToApproval;
+      return null;
+    }
+    renderToStaticMarkup(<Probe />);
+    return answer!(requestId, "accept");
+  }
+
+  it("keeps a request answered elsewhere answered, without reporting a failure", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fixture.respond = () =>
+      Promise.resolve({
+        _tag: "Failure",
+        cause: Cause.fail(
+          new OrchestrationDispatchCommandError({
+            message: "This request has already been answered.",
+            requestAlreadyAnswered: true,
+          }),
+        ),
+      });
+    const requestId = ApprovalRequestId.make("approval-elsewhere");
+    await respond(requestId);
+    expect(approvalAnswers.forThread(answersKey).get(requestId)).toBe("already-answered");
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("frees and reports a request whose answer failed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fixture.respond = () =>
+      Promise.resolve({
+        _tag: "Failure",
+        cause: Cause.fail(new OrchestrationDispatchCommandError({ message: "Not running." })),
+      });
+    const requestId = ApprovalRequestId.make("approval-failed");
+    await respond(requestId);
+    expect(approvalAnswers.forThread(answersKey).has(requestId)).toBe(false);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 });

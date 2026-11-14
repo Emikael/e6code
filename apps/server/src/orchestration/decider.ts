@@ -3,6 +3,7 @@ import {
   MAX_SCRIPT_ID_LENGTH,
   SCRIPT_RUN_COMMAND_PATTERN,
   MessageId,
+  PARKED_LIST_ID,
   ThreadLinkedPullRequest,
   UserInputRequestedPayload,
   isImportedAgentSessionMessageId,
@@ -13,6 +14,7 @@ import {
   type ThreadPullRequestKey,
   type ThreadPullRequestLink,
   type OrchestrationThreadActivity,
+  type ProjectionPendingApprovalStatus,
 } from "@e6tools/contracts";
 import {
   legacyLinkedPullRequestOf,
@@ -31,6 +33,7 @@ import type * as PlatformError from "effect/PlatformError";
 
 import {
   OrchestrationCommandInvariantError,
+  OrchestrationRequestAlreadyAnsweredError,
   OrchestrationThreadSettleBlockedError,
   type OrchestrationCommandRejection,
 } from "./Errors.ts";
@@ -45,6 +48,7 @@ import {
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
+import { decideParkedCommand } from "./parked.ts";
 import { threadHasQueuedTurnStart } from "./ThreadSettlementPolicy.ts";
 
 const monogramSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -212,16 +216,43 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   userInputActivity,
+  approvalRequestStatus,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly userInputActivity?: OrchestrationThreadActivity;
+  /** The answered request's pending-approval row status, when it has one. */
+  readonly approvalRequestStatus?: ProjectionPendingApprovalStatus;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandRejection | PlatformError.PlatformError,
   Crypto.Crypto
 > {
   switch (command.type) {
+    case "parked.thought.add":
+    case "parked.thought.update":
+    case "parked.entry.remove":
+    case "parked.note.set":
+    case "parked.import": {
+      const occurredAt = yield* nowIso;
+      const decision = decideParkedCommand({ command, readModel, occurredAt });
+      if (!decision.ok) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: decision.detail,
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "parked",
+          aggregateId: PARKED_LIST_ID,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        ...decision.event,
+      } as PlannedOrchestrationEvent;
+    }
+
     case "project.create": {
       yield* requireProjectAbsent({
         readModel,
@@ -1602,6 +1633,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      // Answered already (another surface or device, or the provider resolved
+      // it). The provider has its answer; a second one would only fail there.
+      // A failed answer reopens the row, so a retry after a failure passes.
+      if (approvalRequestStatus === "resolved") {
+        return yield* new OrchestrationRequestAlreadyAnsweredError({
+          threadId: command.threadId,
+          requestId: command.requestId,
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",

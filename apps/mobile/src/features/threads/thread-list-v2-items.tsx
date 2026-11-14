@@ -24,7 +24,15 @@ import {
   joinThreadRowStatus,
 } from "@e6tools/client-runtime/state/agent-state";
 import type { MenuAction } from "@react-native-menu/menu";
-import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import { Alert, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
@@ -45,14 +53,26 @@ import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  describeThreadListV2NeedsYou,
   formatResetClockTime,
+  formatThreadListV2WorkingCaption,
+  threadAgentName,
   resolveThreadListV2SnoozeMenuSelection,
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
+  resolveThreadListV2WorkingSince,
   type ThreadListV2Status,
 } from "./threadListV2";
 import { QueuedMessageIcon } from "./queued-message-icon";
+import {
+  describeAttentionAgeSpoken,
+  formatAttentionAge,
+  formatElapsedAge,
+  type ThreadAttentionItem,
+} from "@e6tools/client-runtime/state/thread-attention";
+import { useMinuteClock } from "../../lib/useMinuteClock";
+import { useAttentionPreferences } from "./use-attention-preferences";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 
 /**
@@ -63,23 +83,18 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
  */
 
 // Status colours use the semantic roles of the web sidebar's status line
-// (warning approval, primary input, primary working: Iris marks a live agent)
+// (warning for approval and input, both blocked on you; primary working marks a live agent)
 // so a thread reads the same everywhere it surfaces. Each colour sits on a
 // word, never alone.
 const STATUS_LABEL_BY_STATUS: Partial<
   Record<ThreadListV2Status, { label: string; accessibilityLabel?: string; className: string }>
 > = {
-  approval: {
-    label: "Approval",
-    accessibilityLabel: "Needs approval",
-    className: "text-warning-foreground",
-  },
-  input: {
-    label: "Input",
-    accessibilityLabel: "Needs your answer",
-    className: "text-primary-text",
-  },
-  paused: { label: "Paused", className: "text-warning-foreground" },
+  // Worded and marked as Needs you words them, so one thread reads one way
+  // wherever it shows (plan: diamond for approval, question bubble for answer).
+  approval: { label: "Needs approval", className: "text-warning-foreground" },
+  input: { label: "Needs your answer", className: "text-warning-foreground" },
+  // A usage-limit pause waits on the clock, not on you, so it stays neutral.
+  paused: { label: "Paused", className: "text-foreground-muted" },
   working: { label: "Working", className: "text-primary-text" },
   failed: { label: "Failed", className: "text-danger-foreground" },
 };
@@ -117,79 +132,409 @@ const SIDEBAR_V2_ROW_RADIUS = 12;
 function ThreadListV2Section(props: {
   readonly label: string;
   readonly pane?: "screen" | "sidebar";
-  readonly tone?: "default" | "snoozed";
-  readonly disclosure?: {
-    readonly expanded: boolean;
-    readonly disabled?: boolean;
-    readonly onToggle: () => void;
-    readonly accessibilityLabel: string;
-    readonly accessibilityHint: string;
-  };
 }) {
-  const snoozed = props.tone === "snoozed";
   const sidebarPane = props.pane === "sidebar";
-  const className = cn(
-    "mb-1.5 mt-4 flex-row items-center gap-2.5",
-    props.pane === "sidebar" ? "px-3" : "px-5",
-  );
-  const content = (
-    <>
+  return (
+    <View
+      className={cn("mb-1.5 mt-4 flex-row items-center gap-2.5", sidebarPane ? "px-3" : "px-4")}
+    >
       <Text
         className={cn(
           "text-xs font-e6-medium",
-          sidebarPane
-            ? "text-drawer-foreground-muted"
-            : snoozed
-              ? "text-foreground-secondary"
-              : "text-foreground-tertiary",
+          sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-tertiary",
         )}
       >
         {props.label}
       </Text>
-      <View
-        className={cn(
-          "h-px flex-1",
-          snoozed ? "bg-primary/20" : sidebarPane ? "bg-drawer-border" : "bg-border",
-        )}
-      />
-      {props.disclosure ? (
-        <SymbolView
-          name="chevron.down"
-          size={10}
-          tintColorClassName={
-            sidebarPane
-              ? "accent-drawer-foreground-muted"
-              : snoozed
-                ? "accent-icon-muted"
-                : "accent-foreground-muted"
-          }
-          type="monochrome"
-          style={{ transform: [{ rotate: props.disclosure.expanded ? "180deg" : "0deg" }] }}
-        />
-      ) : null}
-    </>
-  );
-
-  return props.disclosure ? (
-    <Pressable
-      accessibilityHint={props.disclosure.accessibilityHint}
-      accessibilityLabel={props.disclosure.accessibilityLabel}
-      accessibilityRole="button"
-      accessibilityState={{
-        disabled: props.disclosure.disabled,
-        expanded: props.disclosure.expanded,
-      }}
-      className={className}
-      disabled={props.disclosure.disabled}
-      onPress={props.disclosure.onToggle}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-    >
-      {content}
-    </Pressable>
-  ) : (
-    <View className={className}>{content}</View>
+      <View className={cn("h-px flex-1", sidebarPane ? "bg-drawer-border" : "bg-border")} />
+    </View>
   );
 }
+
+/** "Needs you" and its blocked count (board 8), above the list. */
+export const ThreadListV2NeedsYouHeader = memo(function ThreadListV2NeedsYouHeader(props: {
+  readonly count: number;
+  readonly pane?: "screen" | "sidebar";
+}) {
+  const sidebarPane = props.pane === "sidebar";
+  return (
+    // One element for screen readers: "Needs you, 2 blocked", read as a header.
+    <View
+      accessible
+      accessibilityRole="header"
+      accessibilityLabel={`Needs you, ${props.count} blocked`}
+      className={cn("mb-2 mt-4 flex-row items-center gap-2", sidebarPane ? "px-3" : "px-4")}
+    >
+      <Text
+        className={cn(
+          "flex-1 text-[13px] leading-[18px] font-e6-medium",
+          sidebarPane ? "text-drawer-foreground" : "text-foreground",
+        )}
+      >
+        Needs you
+      </Text>
+      <View className="h-5 min-w-5 items-center justify-center rounded bg-warning px-1.5">
+        <Text className="text-[11px] leading-[14px] font-e6-medium text-warning-foreground tabular-nums">
+          {props.count}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
+/**
+ * "Earlier · 3": threads blocked for more than a day, folded into one row
+ * (F1). Tapping opens them below it; they stay counted in the header. Its
+ * "Snooze N failed" button snoozes the folded threads that can be snoozed
+ * and names them; approvals and questions stay.
+ */
+export const ThreadListV2NeedsYouEarlierRow = memo(function ThreadListV2NeedsYouEarlierRow(props: {
+  readonly count: number;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+  /** "Snooze 2 failed", or null when nothing folded can be snoozed. */
+  readonly snoozeLabel?: string | null;
+  readonly onSnooze?: (snoozedUntil: string) => void;
+  /** The parent's minute, so the preset times stay current. */
+  readonly snoozePresetMinute?: string;
+  readonly pane?: "screen" | "sidebar";
+}) {
+  const { onSnooze } = props;
+  const presets = useMemo(
+    () => (props.snoozeLabel ? resolveSnoozePresets(new Date()) : []),
+    [props.snoozeLabel, props.snoozePresetMinute],
+  );
+  const handleSnooze = useCallback(
+    ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      const selection = resolveThreadListV2SnoozeMenuSelection({
+        event: nativeEvent.event,
+        displayedPresets: presets,
+        now: new Date(),
+      });
+      if (selection._tag === "selected") onSnooze?.(selection.preset.snoozedUntil);
+      else if (selection._tag === "expired") {
+        Alert.alert(
+          "Could not snooze threads",
+          "That snooze time has passed. Choose another time.",
+        );
+      }
+    },
+    [onSnooze, presets],
+  );
+  return (
+    <View
+      className={cn("flex-row items-center gap-2 pb-2", props.pane === "sidebar" ? "px-1" : "px-4")}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Earlier, ${props.count} blocked for over a day`}
+        accessibilityHint={props.expanded ? "Hides them." : "Shows them."}
+        accessibilityState={{ expanded: props.expanded }}
+        onPress={props.onToggle}
+        className="min-h-11 flex-1 flex-row items-center gap-2 rounded-xl border border-border px-3.5 py-2.5"
+        style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+      >
+        <Text className="flex-1 text-sm font-e6-medium text-foreground-secondary">
+          {`Earlier · ${props.count}`}
+        </Text>
+        <SymbolView
+          name="chevron.down"
+          size={12}
+          tintColorClassName="accent-icon-muted"
+          type="monochrome"
+          style={{ transform: [{ rotate: props.expanded ? "180deg" : "0deg" }] }}
+        />
+      </Pressable>
+      {props.snoozeLabel && onSnooze ? (
+        <ControlPillMenu
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={props.snoozeLabel}
+          title={`${props.snoozeLabel} until`}
+          actions={presets.map((preset) => ({
+            id: `snooze:${preset.id}`,
+            title: preset.label,
+            subtitle: preset.whenLabel,
+          }))}
+          onPressAction={handleSnooze}
+        >
+          <View className="min-h-11 items-center justify-center rounded-xl border border-border px-3">
+            <Text className="text-sm font-e6-medium text-foreground">{props.snoozeLabel}</Text>
+          </View>
+        </ControlPillMenu>
+      ) : null}
+    </View>
+  );
+});
+
+/** The approval mark: an 8pt diamond in the warning role, always beside a word. */
+export function BlockedDiamond() {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      className="mx-[5px] size-2 rotate-45 rounded-[2px] bg-warning-foreground"
+    />
+  );
+}
+
+/** What a blocked row waits on, as a glyph in its `*-foreground` role. */
+function NeedsYouGlyph(props: {
+  readonly kind: ThreadAttentionItem<EnvironmentThreadShell>["kind"];
+}) {
+  if (props.kind === "approval") return <BlockedDiamond />;
+  return (
+    <SymbolView
+      name={props.kind === "input" ? "questionmark.bubble" : "exclamationmark.circle"}
+      size={18}
+      tintColorClassName={
+        props.kind === "input" ? "accent-warning-foreground" : "accent-danger-foreground"
+      }
+      type="monochrome"
+    />
+  );
+}
+
+/**
+ * Whole minutes since `since` (board 8's "12m"): a request's age, or how long
+ * an agent has worked. On the shared minute clock so only this text
+ * re-renders; no seconds anywhere in the list. Past a day it names the day.
+ */
+export function WholeMinutesSince(props: { readonly since: string; readonly prefix?: string }) {
+  // Settings → Thread behavior → Elapsed time turns every list minute off (F5).
+  const { elapsedTimeEnabled } = useAttentionPreferences();
+  const nowMs = useMinuteClock(elapsedTimeEnabled);
+  if (!elapsedTimeEnabled) return null;
+  const now = new Date(nowMs).toISOString();
+  // Elapsed time reads "<1m" at first (board 8); a request's age reads "just now".
+  const age =
+    props.prefix === undefined
+      ? formatElapsedAge(props.since, now)
+      : formatAttentionAge(props.since, now);
+  if (!age) return null;
+  const text =
+    props.prefix === undefined
+      ? age
+      : age === "now"
+        ? `${props.prefix} just now`
+        : age.startsWith("since ")
+          ? `${props.prefix} ${age.slice("since ".length)}`
+          : `${props.prefix} ${age} ago`;
+  return (
+    <Text
+      className="text-[11px] leading-[14px] text-foreground-muted tabular-nums"
+      style={{ fontFamily: MONO_FONT }}
+    >
+      {text}
+    </Text>
+  );
+}
+
+/**
+ * The row's button, labelled with how long the request has waited. Only this
+ * wrapper reads the minute clock: the row's content arrives as the same
+ * elements each tick, so React leaves it alone.
+ */
+function NeedsYouRowButton(props: {
+  readonly label: string;
+  readonly since: string;
+  readonly verb: "asked" | "failed";
+  readonly onPress: () => void;
+  readonly className: string;
+  readonly children: ReactNode;
+}) {
+  const nowMs = useMinuteClock(true);
+  const age = describeAttentionAgeSpoken(props.since, new Date(nowMs).toISOString());
+  const spoken = age.startsWith("since ") ? `waiting ${age}` : age ? `${props.verb} ${age}` : null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={spoken ? `${props.label}, ${spoken}` : props.label}
+      accessibilityHint="Opens the thread."
+      onPress={props.onPress}
+      className={props.className}
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+    >
+      {props.children}
+    </Pressable>
+  );
+}
+
+/**
+ * One thread blocked on you (board 8): its mark, title, what it waits on and
+ * how long. Tapping opens the thread, where the request is answered.
+ */
+export const ThreadListV2NeedsYouRow = memo(function ThreadListV2NeedsYouRow(props: {
+  readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
+  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  /** Replaces the detail: "Sent. Waiting for Codex." once every request is answered. */
+  readonly note?: string;
+  readonly pane?: "screen" | "sidebar";
+}) {
+  const { item, onSelectThread } = props;
+  const sidebarPane = props.pane === "sidebar";
+  const described = describeThreadListV2NeedsYou(item, threadAgentName(item.thread));
+  const caption = props.note === undefined ? described : { ...described, detail: props.note };
+  // The label carries everything under the button: what is asked, then how long ago.
+  const label = [item.thread.title, caption.status, caption.detail].filter(Boolean).join(", ");
+  const onPress = useCallback(() => onSelectThread(item.thread), [item.thread, onSelectThread]);
+  const content = useMemo(
+    () => (
+      <>
+        <NeedsYouGlyph kind={item.kind} />
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text
+            className={cn(
+              "text-base font-e6-medium",
+              sidebarPane ? "text-drawer-foreground" : "text-foreground",
+            )}
+            numberOfLines={1}
+          >
+            {item.thread.title}
+          </Text>
+          <Text className="text-2xs" numberOfLines={1}>
+            <Text
+              className={cn(
+                "font-e6-medium",
+                item.kind === "failed" ? "text-danger-foreground" : "text-warning-foreground",
+              )}
+            >
+              {caption.status}
+            </Text>
+            {caption.detail ? (
+              <Text
+                className={sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-muted"}
+              >{` · ${caption.detail}`}</Text>
+            ) : null}
+          </Text>
+        </View>
+        <WholeMinutesSince since={item.since} />
+        {sidebarPane ? null : (
+          <SymbolView
+            name="chevron.right"
+            size={16}
+            tintColorClassName="accent-icon-muted"
+            type="monochrome"
+          />
+        )}
+      </>
+    ),
+    [caption.detail, caption.status, item.kind, item.since, item.thread.title, sidebarPane],
+  );
+  return (
+    <View className={sidebarPane ? "px-1 pb-1" : "px-4 pb-2"}>
+      <NeedsYouRowButton
+        label={label}
+        since={item.since}
+        verb={item.kind === "failed" ? "failed" : "asked"}
+        onPress={onPress}
+        className={
+          sidebarPane
+            ? "min-h-11 flex-row items-center gap-2.5 rounded-xl px-2 py-2"
+            : "min-h-16 flex-row items-center gap-2.5 rounded-xl border border-border bg-card-alt px-3.5 py-3"
+        }
+      >
+        {content}
+      </NeedsYouRowButton>
+    </View>
+  );
+});
+
+/** "To review", "Working", "Other threads": board 8's section headings. */
+export const ThreadListV2SectionHeader = memo(function ThreadListV2SectionHeader(props: {
+  readonly label: string;
+  readonly pane?: "screen" | "sidebar";
+}) {
+  const sidebarPane = props.pane === "sidebar";
+  return (
+    <View
+      accessible
+      accessibilityRole="header"
+      className={cn("mt-4 pb-1", sidebarPane ? "px-3" : "px-4")}
+    >
+      <Text
+        className={cn(
+          "text-[13px] leading-[18px] font-e6-medium",
+          sidebarPane ? "text-drawer-foreground-muted" : "text-foreground",
+        )}
+      >
+        {props.label}
+      </Text>
+    </View>
+  );
+});
+
+/**
+ * A working agent (board 8, plan: "a dot with a halo plus 'Working'"): an
+ * 8pt primary dot in a 3pt primary-surface halo. Static; the words beside it
+ * carry the status.
+ */
+export function WorkingHaloDot() {
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      className="size-3.5 items-center justify-center rounded-full bg-primary/10"
+    >
+      <View className="size-2 rounded-full bg-primary" />
+    </View>
+  );
+}
+
+/**
+ * Work to review (F1): a plan ready (checklist glyph, neutral) or a finished
+ * turn you have not seen (tick in the success role), with the words beside it.
+ */
+export const ThreadListV2ReviewRow = memo(function ThreadListV2ReviewRow(props: {
+  readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
+  readonly pane?: "screen" | "sidebar";
+  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+}) {
+  const { item } = props;
+  const sidebarPane = props.pane === "sidebar";
+  const isPlan = item.kind === "plan";
+  const status = isPlan ? "Plan ready" : "Done";
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${item.thread.title}, ${status}`}
+      accessibilityHint="Opens the thread."
+      onPress={() => props.onSelectThread(item.thread)}
+      className={cn("min-h-11 flex-row items-center gap-2.5 py-2", sidebarPane ? "px-3" : "px-4")}
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+    >
+      <SymbolView
+        name={isPlan ? "checklist" : "checkmark"}
+        size={16}
+        tintColorClassName={
+          isPlan
+            ? sidebarPane
+              ? "accent-drawer-foreground-muted"
+              : "accent-foreground-muted"
+            : "accent-success-foreground"
+        }
+        type="monochrome"
+      />
+      <Text
+        className={cn(
+          "flex-1 text-base font-e6-medium",
+          sidebarPane ? "text-drawer-foreground" : "text-foreground",
+        )}
+        numberOfLines={1}
+      >
+        {item.thread.title}
+      </Text>
+      <Text
+        className={cn(
+          "text-2xs",
+          sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-muted",
+        )}
+      >
+        {status}
+      </Text>
+    </Pressable>
+  );
+});
 
 /** Section label + rule: the only structure in an otherwise flat list. */
 export const ThreadListV2SectionDivider = memo(function ThreadListV2SectionDivider(props: {
@@ -207,23 +552,58 @@ type ThreadListV2ShelfHeaderProps = {
   readonly pane?: "screen" | "sidebar";
 };
 
+/**
+ * Snoozed and Settled as board 8 draws them: 44pt rows with a leading
+ * chevron, the shelf's name and its count at the right. The chevron turns
+ * down while the shelf is open.
+ */
 function ThreadListV2ShelfHeader(
   props: ThreadListV2ShelfHeaderProps & { readonly kind: "snoozed" | "settled" },
 ) {
   const label = props.kind === "snoozed" ? "Snoozed" : "Settled";
+  const sidebarPane = props.pane === "sidebar";
   return (
-    <ThreadListV2Section
-      label={props.expanded ? label : `${label} (${props.count})`}
-      pane={props.pane}
-      tone={props.kind === "snoozed" ? "snoozed" : "default"}
-      disclosure={{
-        expanded: props.expanded,
-        disabled: props.disabled,
-        onToggle: props.onToggle,
-        accessibilityLabel: `${props.count} ${props.kind} ${props.count === 1 ? "thread" : "threads"}`,
-        accessibilityHint: `${props.expanded ? "Collapses" : "Expands"} the ${props.kind} threads.`,
-      }}
-    />
+    <View className={sidebarPane ? "px-3" : "px-4"}>
+      {/* The hairline between the two shelves (board 8). */}
+      {props.kind === "settled" && !sidebarPane ? <View className="h-px bg-border" /> : null}
+      <Pressable
+        accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the ${props.kind} threads.`}
+        accessibilityLabel={`${label}, ${props.count} ${props.count === 1 ? "thread" : "threads"}`}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: props.disabled, expanded: props.expanded }}
+        className="min-h-11 flex-row items-center gap-2.5"
+        disabled={props.disabled}
+        onPress={props.onToggle}
+        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      >
+        <SymbolView
+          name="chevron.right"
+          size={16}
+          tintColorClassName={
+            sidebarPane ? "accent-drawer-foreground-muted" : "accent-foreground-muted"
+          }
+          type="monochrome"
+          style={{ transform: [{ rotate: props.expanded ? "90deg" : "0deg" }] }}
+        />
+        <Text
+          className={cn(
+            "flex-1 text-base",
+            sidebarPane ? "text-drawer-foreground" : "text-foreground",
+          )}
+        >
+          {label}
+        </Text>
+        <Text
+          className={cn(
+            "text-[11px] leading-[14px] tabular-nums",
+            sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-muted",
+          )}
+          style={{ fontFamily: MONO_FONT }}
+        >
+          {props.count}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -443,9 +823,9 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
             rowContent
           ) : (
             <View>
-              <View className="px-5 py-2.5">{rowContent}</View>
+              <View className="px-4 py-2.5">{rowContent}</View>
               {props.showTrailingDivider !== false ? (
-                <View className="ml-5 h-px bg-border-subtle" />
+                <View className="ml-4 h-px bg-border-subtle" />
               ) : null}
             </View>
           )}
@@ -489,6 +869,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly pane?: "screen" | "sidebar";
   /** Keeps row hairlines inside a section; section headers draw their own rule. */
   readonly showTrailingDivider?: boolean;
+  /** Under Home's "Working" heading: drawn as board 8's Working row. */
+  readonly working?: boolean;
   /** Highlights the thread open in the detail pane (iPad split view). The
       compact Home list never sets it — phones navigate away on select. */
   readonly selected?: boolean;
@@ -563,6 +945,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const status = resolveThreadListV2Status(thread);
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
+  const workingSince = status === "working" ? resolveThreadListV2WorkingSince(thread) : null;
   // Working and paused rows add the agent state or plan step, matching the
   // web sidebar: "Working · step 4 of 6", "Waiting for usage limit · resets 14:20".
   const statusText =
@@ -889,6 +1272,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             type="monochrome"
           />
         ) : null}
+        {status === "approval" ? <BlockedDiamond /> : null}
+        {status === "input" ? (
+          <SymbolView
+            name="questionmark.bubble"
+            size={13}
+            tintColorClassName="accent-warning-foreground"
+            type="monochrome"
+          />
+        ) : null}
         <Text
           className={cn(
             "max-w-[55%] shrink text-xs tabular-nums",
@@ -902,6 +1294,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         >
           {statusText ?? timeLabel}
         </Text>
+        {/* F5: working rows show how long the agent has worked, blocked rows how
+            long the request has waited, in whole minutes. */}
+        {status === "working" && workingSince ? (
+          <WholeMinutesSince since={workingSince} />
+        ) : status === "approval" || status === "input" ? (
+          <WholeMinutesSince since={thread.pendingRequestSince ?? thread.updatedAt} />
+        ) : null}
       </View>
       {props.searchMatch ? (
         <View className="mt-1">
@@ -1060,6 +1459,43 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     </>
   );
 
+  // Board 8's Working row: halo dot (a pause glyph while a usage limit
+  // holds it), title, what the agent is doing, and whole minutes.
+  const workingRow = props.working === true && !sidebarPane && variant === "card";
+  const workingCaption = workingRow ? formatThreadListV2WorkingCaption(thread) : null;
+  const workingContent = workingRow ? (
+    <View className="min-h-9 flex-row items-center gap-2.5">
+      {status === "paused" ? (
+        <SymbolView
+          name="pause.circle"
+          size={14}
+          tintColorClassName="accent-foreground-muted"
+          type="monochrome"
+        />
+      ) : (
+        <WorkingHaloDot />
+      )}
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-base font-e6-medium text-foreground" numberOfLines={1}>
+          {thread.title}
+        </Text>
+        <Text className="text-2xs text-foreground-muted" numberOfLines={1}>
+          {workingCaption}
+        </Text>
+      </View>
+      {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
+      {workingSince ? <WholeMinutesSince since={workingSince} /> : null}
+    </View>
+  ) : null;
+  const rowAccessibilityLabel = [
+    thread.title,
+    workingRow ? (status === "paused" ? null : "Working") : null,
+    workingCaption,
+    props.hasQueuedMessages ? "messages queued to send" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
   const rowContent = (close: () => void) =>
     variant === "card" ? (
       <RowPressable
@@ -1068,9 +1504,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         interactionOpacity={rowAppearance.interactionOpacity}
         className={rowAppearance.className}
         accessibilityHint={swipeAccessibilityHint}
-        accessibilityLabel={
-          props.hasQueuedMessages ? `${thread.title}, messages queued to send` : thread.title
-        }
+        accessibilityLabel={rowAccessibilityLabel}
         accessibilityRole="button"
         accessibilityState={{ selected }}
         onPress={() => {
@@ -1087,9 +1521,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
              separates rows. The opaque screen background stays so swipe
              actions reveal behind the row. */
           <View>
-            <View className={THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME}>{cardContent}</View>
+            <View className={THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME}>
+              {workingContent ?? cardContent}
+            </View>
             {THREAD_LIST_V2_ROW_DIVIDERS && props.showTrailingDivider !== false ? (
-              <View className="ml-5 h-px bg-border-subtle" />
+              <View className="ml-4 h-px bg-border-subtle" />
             ) : null}
           </View>
         )}
@@ -1116,7 +1552,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         <View
           className={cn(
             "min-h-[44px] flex-row items-center gap-2.5 py-2",
-            sidebarPane ? "px-3" : "px-5",
+            sidebarPane ? "px-3" : "px-4",
           )}
         >
           {props.project ? (

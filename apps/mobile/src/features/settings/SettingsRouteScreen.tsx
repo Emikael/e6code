@@ -164,6 +164,7 @@ function SettingsIndexSections() {
         ) : null}
         <SettingsRow icon="folder" label="Organization" target="SettingsOrganization" />
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
+        <SettingsRow icon="tray" label="Parked" target="SettingsParked" />
         <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
       </SettingsSection>
 

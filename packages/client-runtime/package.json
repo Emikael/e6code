@@ -31,6 +31,10 @@
       "types": "./src/pendingRequests.ts",
       "default": "./src/pendingRequests.ts"
     },
+    "./approval-answers": {
+      "types": "./src/approvalAnswers.ts",
+      "default": "./src/approvalAnswers.ts"
+    },
     "./approval-feedback": {
       "types": "./src/approvalFeedback.ts",
       "default": "./src/approvalFeedback.ts"
@@ -94,6 +98,14 @@
     "./rpc": {
       "types": "./src/rpc/index.ts",
       "default": "./src/rpc/index.ts"
+    },
+    "./parked-sync": {
+      "types": "./src/parked/parkedSync.ts",
+      "default": "./src/parked/parkedSync.ts"
+    },
+    "./state/parked": {
+      "types": "./src/state/parked.ts",
+      "default": "./src/state/parked.ts"
     },
     "./operations": {
       "types": "./src/operations/index.ts",
@@ -251,6 +263,14 @@
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"
     },
+    "./state/done-today": {
+      "types": "./src/state/doneToday.ts",
+      "default": "./src/state/doneToday.ts"
+    },
+    "./state/thread-attention": {
+      "types": "./src/state/threadAttention.ts",
+      "default": "./src/state/threadAttention.ts"
+    },
     "./state/thread-settled": {
       "types": "./src/state/threadSettled.ts",
       "default": "./src/state/threadSettled.ts"
@@ -270,6 +290,14 @@
     "./work-log/user-input": {
       "types": "./src/work-log/userInput.ts",
       "default": "./src/work-log/userInput.ts"
+    },
+    "./work-log/entries": {
+      "types": "./src/work-log/workLogEntries.ts",
+      "default": "./src/work-log/workLogEntries.ts"
+    },
+    "./work-log/thread-recap": {
+      "types": "./src/work-log/threadRecap.ts",
+      "default": "./src/work-log/threadRecap.ts"
     },
     "./work-log/presentation": {
       "types": "./src/work-log/presentation.ts",

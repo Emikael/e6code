@@ -6,7 +6,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@e6tools/contracts";
-import { StockAccent } from "@e6tools/contracts/settings";
+import { RecapTrigger, StockAccent } from "@e6tools/contracts/settings";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
@@ -14,6 +14,7 @@ import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
 
 const isStockAccent = Schema.is(StockAccent);
+const isRecapTrigger = Schema.is(RecapTrigger);
 
 const PREFERENCES_KEY = "e6code.preferences";
 const PREFERENCES_FALLBACK_KEY = "e6code.preferences.fallback";
@@ -31,7 +32,7 @@ export interface Preferences {
   readonly markdownFontSize?: number;
   readonly codeFontSize?: number | null;
   readonly codeWordBreak?: boolean;
-  /** Work log as a thinking timeline, like the web `showThinkingTimeline` client setting. */
+  /** Work log as a thinking timeline (the rail), a mobile-only choice. */
   readonly showThinkingTimeline?: boolean;
   readonly connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
   readonly collapsedProjectGroups?: readonly string[];
@@ -58,6 +59,12 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** Device-local counterpart of web's `needsYouSectionEnabled`; on when unset. */
+  readonly needsYouSectionEnabled?: boolean;
+  /** Device-local counterpart of web's `recapTrigger`; "after-break" when unset. */
+  readonly recapTrigger?: RecapTrigger;
+  /** Device-local counterpart of web's `sidebarElapsedTimeEnabled`; on when unset. */
+  readonly sidebarElapsedTimeEnabled?: boolean;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -121,6 +128,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    needsYouSectionEnabled?: boolean;
+    recapTrigger?: RecapTrigger;
+    sidebarElapsedTimeEnabled?: boolean;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -151,7 +161,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   ) {
     preferences.themeMode = parsed.themeMode;
   }
-  // An accent this build does not know is dropped and reads back as Iris.
+  // An accent this build does not know is dropped and reads back as the default.
   if (isStockAccent(parsed.stockAccent)) preferences.stockAccent = parsed.stockAccent;
   if (typeof parsed.baseFontSize === "number") preferences.baseFontSize = parsed.baseFontSize;
   if (typeof parsed.terminalFontSize === "number" || parsed.terminalFontSize === null) {
@@ -212,6 +222,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (typeof parsed.needsYouSectionEnabled === "boolean") {
+    preferences.needsYouSectionEnabled = parsed.needsYouSectionEnabled;
+  }
+  if (isRecapTrigger(parsed.recapTrigger)) preferences.recapTrigger = parsed.recapTrigger;
+  if (typeof parsed.sidebarElapsedTimeEnabled === "boolean") {
+    preferences.sidebarElapsedTimeEnabled = parsed.sidebarElapsedTimeEnabled;
   }
   return preferences;
 }

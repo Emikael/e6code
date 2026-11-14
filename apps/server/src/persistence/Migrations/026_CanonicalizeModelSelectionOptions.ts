@@ -28,6 +28,10 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
  *     (thread.created | thread.meta-updated | thread.turn-start-requested)
  *   - `orchestration_events.payload_json.$.defaultModelSelection.options`
  *     (project.created | project.meta-updated)
+ *
+ * Each subquery is wrapped in `json(...)`: SQLite does not promise that the
+ * JSON subtype survives a scalar subquery, and from 3.54 it does not, so
+ * without the wrapper `json_set` stores the new array as a quoted string.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

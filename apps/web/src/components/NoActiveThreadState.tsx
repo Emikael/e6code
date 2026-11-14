@@ -23,7 +23,7 @@ export function NoActiveThreadState() {
         <Empty className="flex-1">
           <div className="w-full max-w-lg px-8 py-12">
             <EmptyHeader className="max-w-none">
-              <E6Monogram assemble className="mx-auto mb-5 size-10" />
+              <E6Monogram assemble meter className="mx-auto mb-5 size-10" />
               <EmptyTitle className="text-foreground text-xl">Pick a thread to continue</EmptyTitle>
               <EmptyDescription className="mt-2 text-sm text-muted-foreground/78">
                 Select an existing thread or create a new one to get started.

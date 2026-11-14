@@ -4,9 +4,10 @@ import type { AppNativeStackNavigationOptions } from "../../native/StackHeader";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import {
-  ThreadGitControls,
+  type ThreadGitControlsProps,
+  type ThreadOptionsMenuAction,
   useThreadGitCenterHeaderItems,
-  useThreadGitRightHeaderItems,
+  useThreadOptionsHeaderItem,
 } from "./ThreadGitControls";
 
 type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
@@ -16,13 +17,19 @@ export function useThreadHeaderOptions(props: {
   readonly subtitle: string;
   readonly headerColor: string;
   readonly usesNativeHeaderGlass: boolean;
-  readonly gitControls: Parameters<typeof ThreadGitControls>[0];
+  readonly gitControls: ThreadGitControlsProps;
   readonly onReturnToThread?: () => void;
+  /** The phone header's "Thread options" menu around the git, files and terminal entries. */
+  readonly threadOptions: {
+    readonly leading: ReadonlyArray<ThreadOptionsMenuAction>;
+    readonly trailing: ReadonlyArray<ThreadOptionsMenuAction>;
+  };
 }) {
   const navigation = useNavigation();
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(props.gitControls);
-  const compactRightHeaderItems = useThreadGitRightHeaderItems(props.gitControls);
+  // Board 9: a phone header holds the title and one "…" button.
+  const threadOptionsItem = useThreadOptionsHeaderItem(props.gitControls, props.threadOptions);
   const splitLeftHeaderItems = useMemo<NativeHeaderItems>(
     () => [
       {
@@ -104,16 +111,15 @@ export function useThreadHeaderOptions(props: {
     // the git controls on the RIGHT (no center items — center space is
     // reserved for future breadcrumbs/status).
     unstable_headerRightItems: () =>
-      layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems,
-    unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
+      layout.usesSplitView ? threadCenterHeaderItems : [threadOptionsItem],
+    // A phone shows the title alone; its context leads the options menu.
+    unstable_headerSubtitle:
+      props.usesNativeHeaderGlass && layout.usesSplitView ? props.subtitle : undefined,
     contentStyle: undefined,
   };
   return {
     options,
     sidebar: false,
-    fallback:
-      !layout.usesSplitView && !props.usesNativeHeaderGlass ? (
-        <ThreadGitControls {...props.gitControls} showActionControls />
-      ) : null,
+    fallback: null,
   };
 }

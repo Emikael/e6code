@@ -1,32 +1,32 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 import { isElectron } from "~/env";
 import { cn } from "~/lib/utils";
 
+import { PanelSurfaceHeader } from "./panel/PanelSurfaceHeader";
 import { Skeleton } from "./ui/skeleton";
 
 export type DiffPanelMode = "inline" | "sheet" | "sidebar" | "embedded";
 
-function getDiffPanelHeaderRowClassName(mode: DiffPanelMode) {
-  const shouldUseDragRegion = isElectron && mode !== "sheet" && mode !== "embedded";
-  return cn(
-    "flex items-center justify-between gap-2",
-    mode === "embedded" ? "px-2" : "px-4",
-    shouldUseDragRegion
-      ? "drag-region h-[var(--workspace-topbar-height)] border-b border-border wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]"
-      : "flex h-10 min-h-10 shrink-0 items-center border-b border-border/60 bg-background in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent",
-  );
-}
+/** Outside the right panel, an Electron diff window's header doubles as its title bar. */
+const DIFF_PANEL_DRAG_HEADER_CLASS =
+  "drag-region flex h-[var(--workspace-topbar-height)] items-center justify-between gap-2 border-b border-border px-4 wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]";
 
-export function DiffPanelShell(props: {
+export function DiffPanelShell({
+  rootRef,
+  ...props
+}: {
   mode: DiffPanelMode;
   header: ReactNode;
   children: ReactNode;
+  /** The whole tab, header row included: the area the Diff's paging keys answer in. */
+  rootRef?: Ref<HTMLDivElement>;
 }) {
   const shouldUseDragRegion = isElectron && props.mode !== "sheet" && props.mode !== "embedded";
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "flex h-full min-w-0 flex-col bg-background",
         props.mode === "inline"
@@ -35,11 +35,9 @@ export function DiffPanelShell(props: {
       )}
     >
       {shouldUseDragRegion ? (
-        <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
+        <div className={DIFF_PANEL_DRAG_HEADER_CLASS}>{props.header}</div>
       ) : (
-        <div className={getDiffPanelHeaderRowClassName(props.mode)} data-surface-subheader>
-          {props.header}
-        </div>
+        <PanelSurfaceHeader className="justify-between">{props.header}</PanelSurfaceHeader>
       )}
       {props.children}
     </div>

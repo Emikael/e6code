@@ -204,6 +204,37 @@ export function formatShortcutLabel(
   return parts.join("+");
 }
 
+export interface ShortcutLabelKeysOptions {
+  /**
+   * Draws Shift as ⇧, the symbol printed on the key itself on every platform, so a hint fits
+   * beside a label in a narrow control. Ctrl and Alt stay words: their symbols are macOS-only.
+   */
+  readonly compactModifiers?: boolean;
+}
+
+/**
+ * One key cap per key of a label from `formatShortcutLabel`: "⌥⌘N" becomes
+ * ["⌥", "⌘", "N"], "Ctrl+Alt+N" becomes ["Ctrl", "Alt", "N"].
+ */
+export function shortcutLabelKeys(label: string, options?: ShortcutLabelKeysOptions): string[] {
+  if (label.includes("+") && label.length > 1) {
+    const parts = label.split("+");
+    // A trailing "+" key ("Ctrl++") leaves an empty last part.
+    const keys = parts.at(-1) === "" ? [...parts.slice(0, -2), "+"] : parts;
+    if (!options?.compactModifiers) return keys;
+    // Only modifiers shrink: the final part is the key itself, even a key named "Shift".
+    return keys.map((key, index) => (index < keys.length - 1 && key === "Shift" ? "\u21e7" : key));
+  }
+  const keys: string[] = [];
+  let index = 0;
+  while (index < label.length && "\u2303\u2325\u21e7\u2318".includes(label[index]!)) {
+    keys.push(label[index]!);
+    index += 1;
+  }
+  if (index < label.length) keys.push(label.slice(index));
+  return keys;
+}
+
 export function shortcutLabelForCommand(
   keybindings: ResolvedKeybindingsConfig,
   command: KeybindingCommand | null,
@@ -217,6 +248,25 @@ export function shortcutLabelForCommand(
   const platform = resolvePlatform(resolvedOptions);
   const shortcut = findEffectiveShortcutForCommand(keybindings, command, resolvedOptions);
   return shortcut ? formatShortcutLabel(shortcut, platform) : null;
+}
+
+/**
+ * The label of the command's earliest declared shortcut that is still in
+ * effect, where {@link shortcutLabelForCommand} names the latest. Commands
+ * with a desktop binding and a browser-safe alternative (`chat.new`: Mod+N,
+ * then Mod+Shift+O) declare the desktop one first.
+ */
+export function firstDeclaredShortcutLabelForCommand(
+  keybindings: ResolvedKeybindingsConfig,
+  command: KeybindingCommand,
+  options?: string | ResolvedShortcutLabelOptions,
+): string | null {
+  const resolvedOptions =
+    typeof options === "string"
+      ? ({ platform: options } satisfies ResolvedShortcutLabelOptions)
+      : options;
+  const shortcut = effectiveShortcutsForCommand(keybindings, command, resolvedOptions).at(-1);
+  return shortcut ? formatShortcutLabel(shortcut, resolvePlatform(resolvedOptions)) : null;
 }
 
 export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCommand | null {

@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 
 import * as MobileDatabase from "../persistence/mobile-database";
 import { attachProjectFaviconDatabase, projectFaviconCache } from "../lib/projectFaviconCache";
+import { attachThreadVisitDatabase } from "../persistence/thread-visits";
 
 const SHELL_SNAPSHOT_CACHE_SCHEMA_VERSION = 1;
 // v3 adds windowed (paginated) snapshots carrying `page` metadata; the bump
@@ -119,6 +120,7 @@ function loadDecodedCache<A, B>(input: {
 export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
   const database = yield* MobileDatabase.MobileDatabase;
   attachProjectFaviconDatabase(database);
+  attachThreadVisitDatabase(database);
   return EnvironmentCacheStore.of({
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({

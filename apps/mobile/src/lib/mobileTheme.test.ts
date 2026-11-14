@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { DEFAULT_STOCK_ACCENT } from "@e6tools/contracts/settings";
 import {
   BUILT_IN_THEME_IDS,
   BUILT_IN_THEMES,
@@ -7,6 +8,7 @@ import {
   E6_CODE_DARK_MOBILE_PANE_COLORS,
   E6_CODE_DARK_THEME_COLORS,
   MOBILE_THEME_IDS,
+  STOCK_ACCENT_PALETTES,
   getThemeColorsForAppearance,
 } from "@e6tools/shared/themePalettes";
 import { readDefaultMobileThemeVariables } from "./mobileTheme.test-support";
@@ -112,7 +114,12 @@ describe("mobile themes", () => {
       expect(variables["--color-thread-selected-foreground"]).toBe(
         themeColorToNativeColor(colors.sidebarForeground),
       );
-      expect(variables["--color-primary"]).toBe(themeColorToNativeColor(colors.messageAction));
+      // The stock palette wears the default accent (Graphite) rather than its own Iris.
+      expect(variables["--color-primary"]).toBe(
+        themeId === DEFAULT_MOBILE_THEME_ID
+          ? STOCK_ACCENT_PALETTES[DEFAULT_STOCK_ACCENT][appearance].primary
+          : themeColorToNativeColor(colors.messageAction),
+      );
       if (themeId !== DEFAULT_MOBILE_THEME_ID) {
         expect(variables["--color-user-bubble"]).toBe(
           themeColorToNativeColor(colors.messageSurface),

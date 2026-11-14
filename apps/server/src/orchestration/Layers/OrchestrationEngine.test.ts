@@ -421,8 +421,10 @@ describe("OrchestrationEngine", () => {
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
+          getParkedState: () => Effect.die("unused"),
           getUserInputActivity: () => Effect.die("unused"),
           getApprovalRequestTurnId: () => Effect.die("unused"),
+          getApprovalRequestStatus: () => Effect.die("unused"),
           listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),
           getSnapshot: () =>

@@ -1,6 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { encodePngIco, readPngDimensions } from "./icon-export.ts";
+import {
+  encodePngIco,
+  isSmallIconSize,
+  readPngDimensions,
+  withoutSmallSizeLayers,
+} from "./icon-export.ts";
 
 const pngHeader = (width: number, height: number) => {
   const contents = Buffer.alloc(24);
@@ -43,5 +48,33 @@ describe("icon export", () => {
         ]),
       /provided more than once/,
     );
+  });
+
+  it("drops the step meter and channel label layers for small renditions", () => {
+    const layer = (name: string) => ({ name, "image-name": `${name}.svg` });
+    const iconJson = JSON.stringify({
+      fill: { solid: "display-p3:0,0,0,1" },
+      groups: [
+        { layers: [layer("Text"), layer("Step meter"), layer("Background")], shadow: {} },
+        { layers: [layer("Channel label")] },
+      ],
+    });
+
+    const small = JSON.parse(withoutSmallSizeLayers(iconJson));
+
+    assert.deepEqual(small.fill, { solid: "display-p3:0,0,0,1" });
+    assert.deepEqual(small.groups[0].layers, [layer("Text"), layer("Background")]);
+    assert.deepEqual(small.groups[0].shadow, {});
+    assert.deepEqual(small.groups[1].layers, []);
+  });
+
+  it("rejects a project without a small-size layer to drop", () => {
+    const iconJson = JSON.stringify({ groups: [{ layers: [{ name: "Text" }] }] });
+    assert.throws(() => withoutSmallSizeLayers(iconJson), /Step meter/);
+  });
+
+  it("treats renditions below 64px as small", () => {
+    assert.isTrue(isSmallIconSize(48));
+    assert.isFalse(isSmallIconSize(64));
   });
 });

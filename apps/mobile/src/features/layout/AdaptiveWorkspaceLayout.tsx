@@ -60,6 +60,7 @@ import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
 import { WorkspaceContentWidthContext } from "./workspace-content-width";
+import { useParkedNavigation } from "../parked/useParkedNavigation";
 
 interface AdaptiveWorkspaceContextValue {
   readonly layout: Layout;
@@ -421,6 +422,9 @@ function AdaptiveWorkspaceLayoutContent(
     });
   }, [navigation]);
 
+  const { parkThought, openParked } = useParkedNavigation();
+  const handleParkThought = useCallback(() => parkThought(), [parkThought]);
+
   const handleStartNewTask = useCallback(() => {
     navigation.navigate("NewTaskSheet", { screen: "NewTask" });
   }, [navigation]);
@@ -587,6 +591,8 @@ function AdaptiveWorkspaceLayoutContent(
                     onRequestVisibility={revealPrimarySidebar}
                     selectedThreadKey={selectedThreadKey}
                     onOpenSettings={handleOpenSettings}
+                    onParkThought={handleParkThought}
+                    onOpenParked={openParked}
                     onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
                     onNewThreadInProject={handleNewThreadInProject}
                     onNewThreadOnBranch={handleNewThreadOnBranch}

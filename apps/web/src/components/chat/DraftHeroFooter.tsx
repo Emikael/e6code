@@ -1,39 +1,71 @@
 /**
- * Below the new-thread composer: threads that are waiting on you and commits
- * still to push, then the shortcuts that start most work. Both are quiet; the composer stays the
- * figure on the screen.
+ * Below the new-thread composer (board 1): what needs you, what is ready to
+ * review and what is working. The composer stays
+ * first, so an idea you arrive with is not displaced by a list of
+ * obligations. With nothing waiting and nothing working, only the shortcut
+ * hints show.
  */
 import { scopeThreadRef } from "@e6tools/client-runtime/environment";
-import type {
-  EnvironmentId,
-  KeybindingCommand,
-  ResolvedKeybindingsConfig,
-  ThreadId,
+import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/models";
+import {
+  formatAttentionAge,
+  formatElapsedAge,
+  type ThreadAttentionItem,
+} from "@e6tools/client-runtime/state/thread-attention";
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type EnvironmentId,
+  type KeybindingCommand,
+  type ResolvedKeybindingsConfig,
+  type ThreadId,
 } from "@e6tools/contracts";
 import { useRouter } from "@tanstack/react-router";
-import {
-  ChevronRightIcon,
-  MessageCircleQuestionIcon,
-  RefreshCwIcon,
-  TriangleAlertIcon,
-  XIcon,
-} from "lucide-react";
-import { useMemo, useState } from "react";
+import { CheckIcon, ListChecksIcon, MessageCircleQuestionIcon } from "lucide-react";
+import { memo, useCallback, useMemo } from "react";
 
+import { useNowMinute } from "~/hooks/useNowMinute";
+import { useParkedActions } from "~/hooks/useParkedActions";
+import {
+  localDateKey,
+  openParkedList,
+  removeParkedEntry,
+  selectParkedChips,
+} from "~/parkedThoughts";
+import { usePromptStashStore, type PromptStashEntry } from "~/promptStashStore";
+import { useClientSettings } from "~/hooks/useSettings";
+import { useThreadAttention } from "~/hooks/useThreadAttention";
 import { shortcutLabelForCommand } from "~/keybindings";
-import { useAtomCommand } from "~/state/use-atom-command";
-import { useProjects, useThreadShells } from "~/state/entities";
-import { threadEnvironment } from "~/state/threads";
+import { cn } from "~/lib/utils";
+import { useRightPanelStore } from "~/rightPanelStore";
+import { useThreadShells } from "~/state/entities";
+import { threadNotificationFact } from "~/threadNotificationPolicy";
 import { buildThreadRouteParams } from "~/threadRoutes";
-import { formatRelativeTimeLabel } from "~/timestampFormat";
-import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { formatShortTimestamp, formatUpcomingTimestamp } from "~/timestampFormat";
+import {
+  resolveWorkingStartedAt,
+  runningThreadMarkKind,
+  THREAD_STATUS_MARKS,
+} from "../Sidebar.logic";
+import { BlockedDiamond } from "../SidebarNeedsYou";
+import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "../ThreadStatusMarker";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { toastManager } from "../ui/toast";
 import {
-  selectPickUpThreads,
-  selectStaleSetupThread,
-  type UnpushedCommits,
+  asSentence,
+  attentionCueVerb,
+  formatAttentionCue,
+  needsYouHeading,
+  reviewCaption,
+  selectStartScreenBlocked,
+  selectWorkingThreads,
+  workingCaption,
+  type WorkingThread,
 } from "./DraftHeroFooter.logic";
+import { PlanStepMeter } from "./PlanStepMeter";
+import { StartScreenApprovalCard } from "./StartScreenApprovalCard";
+import { useWhatChangedVisible, WhatChangedCard } from "./WhatChangedCard";
 
 const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["chat.new", "New thread"],
@@ -42,173 +74,134 @@ const HINTS: ReadonlyArray<readonly [KeybindingCommand, string]> = [
   ["terminal.toggle", "Terminal"],
 ];
 
-const ROW_CLASS_NAME =
-  "flex w-full min-w-0 cursor-pointer items-center gap-3 px-3.5 py-2.5 text-left outline-none transition-colors hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+/** Each list shows this many rows; the rest stay in the sidebar. */
+const LIST_LIMIT = 3;
+
+type AttentionItem = ThreadAttentionItem<EnvironmentThreadShell>;
+type OpenThread = (
+  thread: { environmentId: EnvironmentId; id: ThreadId },
+  options?: { diff?: boolean },
+) => void;
+
+const providerLabel = (name: string) =>
+  (PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[name];
+
+const LIST_HEADING_CLASS =
+  "px-0.5 text-[11px] leading-[14px] font-medium tracking-[0.01em] text-muted-foreground";
+const LIST_ROW_CLASS = "flex min-w-0 items-center gap-2.5 px-0.5 py-2";
+const TIME_CUE_CLASS =
+  "shrink-0 font-mono text-[11px] leading-[14px] whitespace-nowrap text-muted-foreground tabular-nums";
 
 export function DraftHeroFooter({
   keybindings,
-  unpushed,
-  setupProject,
-  onOpenSourceControl,
+  composerHasText,
 }: {
   keybindings: ResolvedKeybindingsConfig;
-  /** Commits on the project's branch that its remote lacks. */
-  unpushed: UnpushedCommits | null;
-  /** The draft's project and its resolved scripts, to flag worktrees set up with an older setup script. */
-  setupProject: Parameters<typeof selectStaleSetupThread>[1];
-  /** Opens Run details, where Commit pushes or opens a pull request. */
-  onOpenSourceControl: () => void;
+  /** The composer holds a draft: Send has the screen's one fill, so Approve gives it up. */
+  composerHasText: boolean;
 }) {
   const router = useRouter();
   const threads = useThreadShells();
-  const projects = useProjects();
-  const [nowMs] = useState(Date.now);
-  const picked = useMemo(() => selectPickUpThreads(threads, { limit: 3, nowMs }), [threads, nowMs]);
-  const staleSetup = useMemo(
-    () => selectStaleSetupThread(threads, setupProject),
-    [threads, setupProject],
+  const attention = useThreadAttention();
+  // Board 1 lists what asks you something; failed threads stay in the sidebar's Needs you.
+  const blocked = useMemo(
+    () => selectStartScreenBlocked([...attention.blocked, ...attention.earlier]),
+    [attention.blocked, attention.earlier],
   );
-  const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
-    reportFailure: false,
-  });
-  const projectTitleByKey = useMemo(
-    () =>
-      new Map(projects.map((project) => [`${project.environmentId}:${project.id}`, project.title])),
-    [projects],
+  const working = useMemo(
+    () => selectWorkingThreads(threads, attention, resolveWorkingStartedAt),
+    [attention, threads],
   );
   const hints = HINTS.flatMap(([command, label]) => {
     const shortcut = shortcutLabelForCommand(keybindings, command);
     return shortcut ? [{ shortcut, label }] : [];
   });
 
-  const openThread = (thread: { environmentId: EnvironmentId; id: ThreadId }) =>
-    void router.navigate({
-      to: "/$environmentId/$threadId",
-      params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
-    });
+  const openThread = useCallback<OpenThread>(
+    (thread, options) => {
+      const ref = scopeThreadRef(thread.environmentId, thread.id);
+      if (options?.diff) useRightPanelStore.getState().open(ref, "diff");
+      void router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(ref),
+      });
+    },
+    [router],
+  );
 
-  if (picked.length === 0 && !unpushed && !staleSetup && hints.length === 0) return null;
+  // Only the first approval shown opens up, so the start screen holds one thread's detail.
+  const expandedApprovalKey =
+    blocked.slice(0, LIST_LIMIT).find((item) => item.kind === "approval")?.key ?? null;
+  const hasLists = blocked.length > 0 || attention.review.length > 0 || working.length > 0;
+  const parkedEntries = usePromptStashStore((store) => store.entries);
+  const nowMinute = useNowMinute();
+  const today = localDateKey(Date.parse(minuteToIso(nowMinute)));
+  const parked = useMemo(() => selectParkedChips(parkedEntries, today), [parkedEntries, today]);
+  const showWhatChanged = useWhatChangedVisible();
+  if (!hasLists && hints.length === 0 && parked.chips.length === 0 && !showWhatChanged) {
+    return null;
+  }
   return (
-    <div className="flex flex-col gap-5">
-      {picked.length > 0 || unpushed || staleSetup ? (
-        <div className="flex flex-col gap-2">
-          <span className="px-1 text-[11px] font-semibold text-muted-foreground">
-            Pick up where you left off
-          </span>
-          <ul className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
-            {picked.map(({ thread, reason }) => {
-              const projectTitle = projectTitleByKey.get(
-                `${thread.environmentId}:${thread.projectId}`,
-              );
-              return (
-                <li
-                  key={`${thread.environmentId}:${thread.id}`}
-                  className="border-border not-last:border-b"
-                >
-                  <button
-                    type="button"
-                    onClick={() => openThread(thread)}
-                    className={ROW_CLASS_NAME}
-                  >
-                    <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning-surface text-warning-foreground">
-                      {reason === "approval" ? (
-                        <TriangleAlertIcon aria-hidden className="size-3.5" />
-                      ) : (
-                        <MessageCircleQuestionIcon aria-hidden className="size-3.5" />
-                      )}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col leading-snug">
-                      <span className="truncate text-[13px] font-medium text-foreground">
-                        {thread.title}
-                      </span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        <span className="font-medium text-warning-foreground">
-                          {reason === "approval" ? "Needs approval" : "Needs your answer"}
-                        </span>
-                        {projectTitle ? ` · ${projectTitle}` : ""}
-                        {` · ${formatRelativeTimeLabel(thread.updatedAt)}`}
-                      </span>
-                    </span>
-                    <ChevronRightIcon
-                      aria-hidden
-                      className="size-3.5 shrink-0 text-muted-foreground"
-                    />
-                  </button>
-                </li>
-              );
-            })}
-            {staleSetup ? (
-              // Opens the thread; its Run details re-runs the setup script there.
-              // Dismissing marks the worktree as matching the current script.
-              <li className="flex items-center border-border not-last:border-b">
-                <button
-                  type="button"
-                  onClick={() => openThread(staleSetup.thread)}
-                  className={ROW_CLASS_NAME}
-                >
-                  <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-warning-surface text-warning-foreground">
-                    <RefreshCwIcon aria-hidden className="size-3.5" />
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col leading-snug">
-                    <span className="truncate text-[13px] font-medium text-foreground">
-                      Setup script changed
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      Re-run it in <span className="font-mono">{staleSetup.branch}</span>
-                    </span>
-                  </span>
-                  <ChevronRightIcon
-                    aria-hidden
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                  />
-                </button>
-                <Button
-                  size="icon-micro"
-                  variant="ghost-muted"
-                  aria-label="Dismiss: keep this worktree as it is"
-                  className="mr-2.5 shrink-0"
-                  onClick={() =>
-                    void updateThreadMetadata({
-                      environmentId: staleSetup.thread.environmentId,
-                      input: {
-                        threadId: staleSetup.thread.id,
-                        setupScriptHash: staleSetup.currentHash,
-                      },
-                    })
+    // Sits in the start screen's flow; long lists scroll the page with it.
+    <div className="flex flex-col gap-6">
+      {parked.chips.length > 0 ? <ParkedChips chips={parked.chips} more={parked.more} /> : null}
+      {showWhatChanged ? <WhatChangedCard /> : null}
+      {blocked.length > 0 ? (
+        <section aria-label="Needs you" className="flex flex-col gap-2">
+          <h3 className={LIST_HEADING_CLASS}>{needsYouHeading(blocked.length)}</h3>
+          {blocked
+            .slice(0, LIST_LIMIT)
+            .map((item) =>
+              item.key === expandedApprovalKey ? (
+                <StartScreenApprovalCard
+                  key={item.key}
+                  thread={item.thread}
+                  agent={
+                    (item.thread.session?.providerName &&
+                      providerLabel(item.thread.session.providerName)) ||
+                    "The agent"
                   }
-                >
-                  <XIcon aria-hidden className="size-3" />
-                </Button>
-              </li>
-            ) : null}
-            {unpushed ? (
-              <li className="border-border not-last:border-b">
-                <button type="button" onClick={onOpenSourceControl} className={ROW_CLASS_NAME}>
-                  <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent text-muted-foreground">
-                    <PullRequestGlyph.pullRequest aria-hidden className="size-3.5" />
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col leading-snug">
-                    <span className="truncate text-[13px] font-medium text-foreground">
-                      {unpushed.count} unpushed {unpushed.count === 1 ? "commit" : "commits"} on{" "}
-                      <span className="font-mono text-xs">{unpushed.refName}</span>
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {unpushed.hasOpenPullRequest
-                        ? "Push them to update the pull request"
-                        : "Push them or open a pull request"}
-                    </span>
-                  </span>
-                  <ChevronRightIcon
-                    aria-hidden
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                  />
-                </button>
-              </li>
-            ) : null}
-          </ul>
-        </div>
+                  fact={blockedFact(item)}
+                  since={item.since}
+                  renderCue={(since) => (
+                    <AttentionCue verb={attentionCueVerb(item.kind)} since={since} />
+                  )}
+                  onOpen={() => openThread(item.thread)}
+                  composerHasText={composerHasText}
+                />
+              ) : (
+                <BlockedCard key={item.key} item={item} onOpen={openThread} />
+              ),
+            )}
+          <MoreLine count={blocked.length - LIST_LIMIT} where="in the sidebar" />
+        </section>
       ) : null}
-      {hints.length > 0 ? (
+
+      {attention.review.length > 0 ? (
+        <section aria-label="To review" className="flex flex-col">
+          <h3 className={cn(LIST_HEADING_CLASS, "pb-1")}>To review</h3>
+          <ul className="flex flex-col">
+            {attention.review.slice(0, LIST_LIMIT).map((item) => (
+              <ReviewRow key={item.key} item={item} onOpen={openThread} />
+            ))}
+          </ul>
+          <MoreLine count={attention.review.length - LIST_LIMIT} where="in the sidebar" />
+        </section>
+      ) : null}
+
+      {working.length > 0 ? (
+        <section aria-label="Working" className="flex flex-col">
+          <h3 className={cn(LIST_HEADING_CLASS, "pb-1")}>Working</h3>
+          <ul className="flex flex-col">
+            {working.slice(0, LIST_LIMIT).map((row) => (
+              <WorkingRow key={row.key} row={row} onOpen={openThread} />
+            ))}
+          </ul>
+          <MoreLine count={working.length - LIST_LIMIT} where="in the sidebar" />
+        </section>
+      ) : null}
+
+      {!hasLists && hints.length > 0 ? (
         <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
           {hints.map((hint) => (
             <span key={hint.label} className="inline-flex items-center gap-1.5">
@@ -221,3 +214,238 @@ export function DraftHeroFooter({
     </div>
   );
 }
+
+function MoreLine({ count, where }: { count: number; where: string }) {
+  if (count <= 0) return null;
+  return (
+    <p className="px-0.5 pt-1 text-xs leading-4 text-muted-foreground">
+      {count} more {where}
+    </p>
+  );
+}
+
+/**
+ * Board 1: up to two parked thoughts under the composer, then "N more". A chip
+ * puts its thought in this composer and leaves Parked; "N more" opens the list.
+ */
+function ParkedChips({ chips, more }: { chips: ReadonlyArray<PromptStashEntry>; more: number }) {
+  const { putInComposer, takeBackFromComposer } = useParkedActions();
+  return (
+    <section aria-label="Parked" className="-mt-3 flex flex-wrap items-center gap-1.5">
+      <h3 className={LIST_HEADING_CLASS}>Parked</h3>
+      {chips.map((entry) => (
+        <Tooltip key={entry.id}>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`Put in composer: ${entry.prompt}`}
+                className={cn(PARKED_CHIP_CLASS, "max-w-62.5")}
+                onClick={() => {
+                  void putInComposer(entry.prompt, entry.projectKey).then((placed) => {
+                    if (!placed) return;
+                    const removed = removeParkedEntry(entry.id);
+                    if (!removed) return;
+                    // Undo puts the thought back in Parked and takes it out of the composer.
+                    toastManager.add({
+                      type: "success",
+                      title: "Put in composer",
+                      actionProps: {
+                        children: "Undo",
+                        onClick: () => {
+                          usePromptStashStore.getState().restoreEntry(removed.entry, removed.index);
+                          takeBackFromComposer(removed.entry.prompt);
+                        },
+                      },
+                    });
+                  });
+                }}
+              />
+            }
+          >
+            <span className="truncate">{entry.prompt}</span>
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" className="max-w-80">
+            Put in composer: {entry.prompt}
+          </TooltipPopup>
+        </Tooltip>
+      ))}
+      {more > 0 ? (
+        <button type="button" className={PARKED_CHIP_CLASS} onClick={openParkedList}>
+          {more} more
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+const PARKED_CHIP_CLASS =
+  "inline-flex h-6 cursor-pointer items-center rounded-md bg-secondary px-2 text-xs leading-4 font-medium whitespace-nowrap text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+
+/** The minute clock reads "2026-11-11T14:02" in UTC; give it back its zone. */
+function minuteToIso(minute: string): string {
+  return `${minute}:00.000Z`;
+}
+
+/** "asked 4m ago", on the shared minute clock so only this span re-renders. */
+function AttentionCue({ verb, since }: { verb: string; since: string }) {
+  const nowMinute = useNowMinute();
+  const cue = formatAttentionCue(verb, formatAttentionAge(since, minuteToIso(nowMinute)));
+  return cue ? <span className={TIME_CUE_CLASS}>{cue}</span> : null;
+}
+
+/** "2m · since 14:02"; "<1m" in the first minute; past a day, "since Tue" alone. */
+function WorkingCue({ startedAt }: { startedAt: string }) {
+  const nowMinute = useNowMinute();
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const age = formatElapsedAge(startedAt, minuteToIso(nowMinute));
+  if (age === "") return null;
+  const label = age.startsWith("since ")
+    ? age
+    : `${age} · since ${formatShortTimestamp(startedAt, timestampFormat)}`;
+  return <span className={TIME_CUE_CLASS}>{label}</span>;
+}
+
+const BLOCKED_ACTION = {
+  approval: "Open thread",
+  input: "Answer",
+} as const;
+
+/**
+ * "Codex wants to run 1 command", "Claude asks 1 question: …": what a blocked
+ * thread waits on, from its shell, so no row subscribes to thread detail.
+ */
+function blockedFact(item: AttentionItem): string {
+  return (
+    threadNotificationFact(
+      item.thread,
+      item.kind === "approval" ? "approval" : "input",
+      providerLabel,
+    ) ?? ""
+  );
+}
+
+/**
+ * One thread blocked on you, past the first approval (which expands with its
+ * actions in StartScreenApprovalCard): its fact and a button into the thread.
+ */
+const BlockedCard = memo(function BlockedCard({
+  item,
+  onOpen,
+}: {
+  item: AttentionItem;
+  onOpen: OpenThread;
+}) {
+  const kind = item.kind as keyof typeof BLOCKED_ACTION;
+  const fact = blockedFact(item);
+  return (
+    <article className="flex flex-wrap items-center gap-2.5 rounded-xl border border-warning-foreground bg-card px-4 py-3">
+      <span className="inline-flex w-4 shrink-0 justify-center">
+        {kind === "approval" ? (
+          <BlockedDiamond />
+        ) : (
+          <MessageCircleQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
+        )}
+      </span>
+      <div className="flex min-w-0 flex-1 basis-[260px] flex-col gap-0.5">
+        <h4 className="truncate text-[13px] leading-[18px] font-medium text-foreground">
+          {item.thread.title}
+        </h4>
+        {fact ? (
+          <p className="truncate text-xs leading-4 text-muted-foreground">{asSentence(fact)}</p>
+        ) : null}
+      </div>
+      <AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />
+      <Button
+        size="sm"
+        variant="outline"
+        className="sm:text-xs"
+        aria-label={`${BLOCKED_ACTION[kind]}: ${item.thread.title}`}
+        onClick={() => onOpen(item.thread)}
+      >
+        {BLOCKED_ACTION[kind]}
+      </Button>
+    </article>
+  );
+});
+
+const ReviewRow = memo(function ReviewRow({
+  item,
+  onOpen,
+}: {
+  item: AttentionItem;
+  onOpen: OpenThread;
+}) {
+  const isPlan = item.kind === "plan";
+  return (
+    <li className={cn(LIST_ROW_CLASS, "flex-wrap border-border not-last:border-b")}>
+      {isPlan ? (
+        <ListChecksIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <CheckIcon aria-hidden className="size-4 shrink-0 text-success-foreground" />
+      )}
+      <span className="min-w-0 flex-1 basis-[200px] truncate text-[13px] leading-[18px] font-medium text-foreground">
+        {item.thread.title}
+      </span>
+      <span className="shrink-0 text-xs leading-4 text-muted-foreground">
+        {reviewCaption(isPlan ? "plan" : "done", item.thread.latestTurn?.diffStat)}
+      </span>
+      <AttentionCue verb={attentionCueVerb(item.kind)} since={item.since} />
+      <Button
+        size="sm"
+        variant="ghost"
+        className="sm:text-xs"
+        aria-label={`${isPlan ? "Review plan" : "Review diff"}: ${item.thread.title}`}
+        onClick={() => onOpen(item.thread, { diff: !isPlan })}
+      >
+        {isPlan ? "Review plan" : "Review diff"}
+      </Button>
+    </li>
+  );
+});
+
+const WorkingRow = memo(function WorkingRow({
+  row,
+  onOpen,
+}: {
+  row: WorkingThread;
+  onOpen: OpenThread;
+}) {
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const { thread } = row;
+  const progress = thread.agentState ? null : thread.planProgress;
+  // Retrying and waiting on a usage limit are neutral, as in the sidebar; the caption names them.
+  const markKind = runningThreadMarkKind(thread);
+  const caption = workingCaption(thread, (resetsAt) =>
+    formatUpcomingTimestamp(resetsAt, timestampFormat),
+  );
+  return (
+    <li className="border-border not-last:border-b">
+      <button
+        type="button"
+        onClick={() => onOpen(thread)}
+        className={cn(
+          LIST_ROW_CLASS,
+          "w-full cursor-pointer rounded-md text-left outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <span
+          className={cn(
+            "mx-1 inline-flex w-2 shrink-0 justify-center",
+            THREAD_STATUS_TONE_TEXT[THREAD_STATUS_MARKS[markKind].tone],
+          )}
+        >
+          <ThreadStatusMarker kind={markKind} marker={THREAD_STATUS_MARKS[markKind].marker} />
+        </span>
+        <span className="min-w-0 shrink truncate text-[13px] leading-[18px] font-medium text-foreground">
+          {thread.title}
+        </span>
+        {progress ? <PlanStepMeter progress={progress} /> : null}
+        <span className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground">
+          {caption}
+        </span>
+        {row.startedAt ? <WorkingCue startedAt={row.startedAt} /> : null}
+      </button>
+    </li>
+  );
+});

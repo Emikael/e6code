@@ -6,6 +6,7 @@ import {
   COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX,
   COMPOSER_RESTING_EXPANSION_MIN_PX,
   getRestingComposerImagePreviewCounts,
+  resolveComposerFooterSurrender,
   resolveComposerTimelineInset,
   resolveScrollToEndClearance,
   resolveRestingComposerControlsLayout,
@@ -523,5 +524,14 @@ describe("progressive composer controls", () => {
         previous = next;
       }
     }
+  });
+});
+
+describe("resolveComposerFooterSurrender", () => {
+  it("gives up Park it's label first, then the mode chip's values", () => {
+    expect(resolveComposerFooterSurrender(null)).toEqual({ parkLabel: true, modeSummary: true });
+    expect(resolveComposerFooterSurrender(556)).toEqual({ parkLabel: true, modeSummary: true });
+    expect(resolveComposerFooterSurrender(456)).toEqual({ parkLabel: false, modeSummary: true });
+    expect(resolveComposerFooterSurrender(376)).toEqual({ parkLabel: false, modeSummary: false });
   });
 });

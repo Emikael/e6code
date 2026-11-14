@@ -1,8 +1,10 @@
-import { MessageCircle, Trash2 } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+import { formatShortcutLabel } from "~/keybindings";
+import { ATTACHED_SENTENCE } from "~/lib/attachedForAgent";
+import { cn } from "~/lib/utils";
 
 import { isCommentSubmitShortcut } from "./commentSubmitShortcut";
 
@@ -21,11 +23,34 @@ interface DiffCommentAnnotationProps {
   onCancel: () => void;
   onComment: (text: string) => void;
   onDelete?: () => void;
+  /** Reopens a saved comment for editing. */
+  onEdit?: () => void;
+  /** The saved card's heading; file previews name the lines ("Your comment · lines 3 to 5"). */
+  heading?: string;
   placeholder?: string;
   submitLabel?: string;
+  /** What the submit key does, after "⌘Enter to": the comment is attached, not sent. */
+  submitHint?: string;
   pending?: boolean;
   secondaryAction?: DiffCommentSecondaryAction;
   focusOnMount?: boolean;
+  /**
+   * Where the saved card sits: a diff (board 12) insets it 28px with the `input` edge; a file
+   * (board 15) insets it past the line numbers, 44px, with the stronger `muted-foreground` edge.
+   */
+  surface?: "diff" | "file";
+}
+
+/** "⌘Enter" or "Ctrl+Enter", as the app writes shortcuts elsewhere. */
+function submitShortcutLabel(): string {
+  return formatShortcutLabel({
+    key: "enter",
+    modKey: true,
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+  });
 }
 
 /** The shared inline comment treatment for file previews, thread diffs, and pull-request diffs. */
@@ -37,13 +62,18 @@ export function DiffCommentAnnotation({
   onCancel,
   onComment,
   onDelete,
+  onEdit,
+  heading = "Your comment",
   placeholder = "Add a comment…",
   submitLabel = "Comment",
+  submitHint = "attach",
   pending = false,
   secondaryAction,
   focusOnMount = true,
+  surface = "diff",
 }: DiffCommentAnnotationProps) {
-  const [localDraftText, setLocalDraftText] = useState("");
+  // A draft reopened from a saved comment starts from its words.
+  const [localDraftText, setLocalDraftText] = useState(text);
   const displayedText = kind === "draft" && !onTextChange ? localDraftText : text;
   const trimmedText = displayedText.trim();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -57,29 +87,32 @@ export function DiffCommentAnnotation({
   }, [focusOnMount, kind]);
 
   if (kind === "comment") {
+    // A saved comment is attached to the composer draft, so the card says where it goes.
     return (
       <div
         data-diff-comment-annotation
-        className="group/comment flex min-w-0 items-start gap-2.5 border-s-2 border-primary-edge bg-primary/[0.045] px-3 py-2.5 font-sans text-foreground"
+        className={cn(
+          "my-1.5 me-3 flex min-w-0 flex-col gap-1.5 rounded-lg border bg-card px-3 py-2.5 font-sans text-foreground",
+          surface === "file" ? "ms-11 mb-2 border-muted-foreground" : "ms-7 border-input",
+        )}
         contentEditable={false}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <MessageCircle
-          className="mt-0.5 size-3.5 shrink-0 text-primary-text/70"
-          aria-hidden="true"
-        />
-        <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13px] leading-5">{displayedText}</p>
-        {onDelete ? (
-          <Button
-            className="-my-1 -mr-1 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/comment:opacity-100 focus-visible:opacity-100 max-sm:opacity-100"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Delete comment"
-            onClick={onDelete}
-          >
-            <Trash2 className="size-3" />
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-1">
+          <span className="min-w-0 flex-1 font-medium text-[13px] leading-[18px]">{heading}</span>
+          {onEdit ? (
+            <Button variant="ghost" size="compact" onClick={onEdit}>
+              Edit
+            </Button>
+          ) : null}
+          {onDelete ? (
+            <Button variant="ghost" size="compact" onClick={onDelete}>
+              Remove
+            </Button>
+          ) : null}
+        </div>
+        <p className="min-w-0 whitespace-pre-wrap text-sm leading-[22px]">{displayedText}</p>
+        <p className="text-muted-foreground text-xs">{ATTACHED_SENTENCE}</p>
       </div>
     );
   }
@@ -117,7 +150,9 @@ export function DiffCommentAnnotation({
         }}
       />
       <div className="mt-1.5 flex items-center gap-1">
-        <span className="mr-auto text-[10px] text-muted-foreground/70">⌘/Ctrl Enter to send</span>
+        <span className="mr-auto text-[10px] text-muted-foreground">
+          {`${submitShortcutLabel()} to ${submitHint}`}
+        </span>
         <Button
           className="text-muted-foreground hover:text-foreground"
           variant="ghost"
@@ -137,7 +172,14 @@ export function DiffCommentAnnotation({
             {secondaryAction.label}
           </Button>
         ) : null}
-        <Button size="xs" disabled={pending || !trimmedText} onClick={() => onComment(trimmedText)}>
+        {/* Outline: the key attaches and sends nothing, so this never holds the screen's fill
+            (`panelFill.ts`). */}
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={pending || !trimmedText}
+          onClick={() => onComment(trimmedText)}
+        >
           {submitLabel}
         </Button>
       </div>

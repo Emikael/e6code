@@ -1,0 +1,43 @@
+---
+import { getImage } from "astro:assets";
+import threadDark from "../../assets/app-thread-dark.webp";
+import threadLight from "../../assets/app-thread-light.webp";
+
+// Screenshots are 2x captures of the desktop app at 1440x900. The page column
+// is at most 1072px wide.
+const widths = [960, 1440, 2160];
+const sizes = "(max-width: 480px) calc(100vw - 32px), (max-width: 1120px) calc(100vw - 48px), 1072px";
+const [dark, light] = await Promise.all(
+  [threadDark, threadLight].map((src) => getImage({ src, widths, format: "webp", quality: 86 })),
+);
+---
+
+<section class="wrap product" aria-label="The app">
+  <div class="stack">
+    <picture>
+      <source media="(prefers-color-scheme: light)" srcset={light!.srcSet.attribute} sizes={sizes} />
+      <img
+        class="shotimg"
+        src={dark!.src}
+        srcset={dark!.srcSet.attribute}
+        sizes={sizes}
+        alt="The E6 Code desktop app: a working thread with two subagents, beside its plan and changed files in the run details panel."
+        width={threadDark.width}
+        height={threadDark.height}
+        decoding="async"
+      />
+    </picture>
+  </div>
+</section>
+
+<style>
+  .product {
+    padding-bottom: 72px;
+  }
+
+  @media (max-width: 700px) {
+    .product {
+      padding-bottom: 48px;
+    }
+  }
+</style>

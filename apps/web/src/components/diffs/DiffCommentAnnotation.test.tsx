@@ -21,7 +21,7 @@ describe("DiffCommentAnnotation", () => {
     expect(markup).not.toContain("font-mono");
     expect(markup).not.toContain("Local comment");
     expect(markup).not.toContain("on +78");
-    expect(markup).toContain("⌘/Ctrl Enter to send");
+    expect(markup).toMatch(/(⌘|Ctrl\+)Enter to attach/);
     expect(markup).toContain("Add a comment…");
     expect(markup).toContain(">Comment</button>");
     expect(markup).toContain("autofocus");
@@ -39,6 +39,7 @@ describe("DiffCommentAnnotation", () => {
         text=""
         {...callbacks}
         submitLabel="Add to review"
+        submitHint="add to review"
         secondaryAction={{
           label: "Add to agent",
           onAction: vi.fn(),
@@ -48,28 +49,28 @@ describe("DiffCommentAnnotation", () => {
 
     expect(markup).toContain("Add a comment…");
     expect(markup).toContain(">Add to review</button>");
+    expect(markup).toMatch(/Enter to add to review/);
     expect(markup.match(/<button[^>]*disabled[^>]*>Add to review<\/button>/)).not.toBeNull();
     expect(markup.match(/<button[^>]*disabled[^>]*>Add to agent<\/button>/)).not.toBeNull();
   });
 
-  it("renders a saved comment without a nested card or redundant range label", () => {
+  it("says a saved comment is attached to the next message", () => {
     const markup = renderToStaticMarkup(
       <DiffCommentAnnotation
         kind="comment"
         rangeLabel="+78"
         text="Please keep this branch explicit."
         {...callbacks}
+        onEdit={vi.fn()}
       />,
     );
 
-    expect(markup).toContain("font-sans");
-    expect(markup).not.toContain("chat-composer-glass");
     expect(markup).not.toContain("on +78");
+    expect(markup).toContain("Your comment");
     expect(markup).toContain("Please keep this branch explicit.");
-    expect(markup).toContain('aria-label="Delete comment"');
-    expect(markup).toContain("border-s-2");
-    expect(markup).toContain("bg-primary/[0.045]");
-    expect(markup).toContain("lucide-message-circle");
+    expect(markup).toContain(">Edit</button>");
+    expect(markup).toContain(">Remove</button>");
+    expect(markup).toContain("Attached. Goes with your next message in this thread.");
   });
 
   it("renders draft text owned by the annotation wrapper", () => {

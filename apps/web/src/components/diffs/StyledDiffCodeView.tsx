@@ -4,15 +4,20 @@ import {
   type CodeViewHandle,
   type CodeViewProps,
   type ControlledCodeViewProps,
-  type UncontrolledCodeViewProps,
 } from "@pierre/diffs/react";
 /* oxlint-enable eslint/no-restricted-imports */
-import type { Ref } from "react";
+import { type Ref, useMemo } from "react";
 
-import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
+import { DIFF_SURFACE_THEME_UNSAFE_CSS, plainFileDiff } from "~/lib/diffRendering";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 
+// Pierre draws selected lines and the comment button in its "modified" blue. They take the
+// primary edge instead, as every selection in the app does: hue is kept for status.
 const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
+:host {
+  --diffs-modified-color-override: var(--primary-edge);
+}
+
 :is(
   [data-line],
   [data-line-annotation],
@@ -98,52 +103,41 @@ const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
   box-shadow: inset 3px 0 color-mix(in srgb, var(--code-foreground) 24%, transparent);
 }
 
+/* Each hunk opens with its header ("@@ name @@"), drawn as one more quiet line of the diff where
+   the code text starts (board 12). The viewer puts it in place of its "N unmodified lines" row,
+   which still expands the hidden lines when clicked. */
 :is([data-separator="line-info"], [data-separator="line-info-basic"]) {
-  height: 24px !important;
+  height: 20px !important;
   margin-block: 0 !important;
   background-color: var(--code-background) !important;
 }
 
 :is([data-separator="line-info"], [data-separator="line-info-basic"])
   [data-separator-wrapper] {
-  padding-inline: 8px 12px !important;
+  /* The row is drawn from the line-number column, which is its containing block, across the
+     code: a full column width plus the code's own 2ch inset lands on the code text. */
+  padding-inline: calc(100% + 2ch) 12px !important;
   background-color: transparent !important;
+  font-family: var(--diffs-font-family) !important;
+  font-size: var(--diffs-font-size, 13px) !important;
 }
 
 :is([data-separator="line-info"], [data-separator="line-info-basic"])
   [data-separator-content] {
-  gap: 8px;
   padding-inline: 0 !important;
   background-color: transparent !important;
   color: color-mix(in srgb, var(--code-foreground) 52%, var(--code-background)) !important;
-  font-family: var(--font-sans) !important;
-  font-size: 11px !important;
+  font: inherit !important;
   text-decoration: none !important;
 }
 
 :is([data-separator="line-info"], [data-separator="line-info-basic"])
   [data-unmodified-lines] {
-  display: flex !important;
+  display: block !important;
   min-width: 0;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 8px;
-}
-
-:is([data-separator="line-info"], [data-separator="line-info-basic"])[data-expand-index]
-  [data-unmodified-lines] {
-  cursor: pointer;
-}
-
-:is([data-separator="line-info"], [data-separator="line-info-basic"])
-  [data-unmodified-lines]::before,
-:is([data-separator="line-info"], [data-separator="line-info-basic"])
-  [data-unmodified-lines]::after {
-  width: auto;
-  height: 1px;
-  flex: 1 1 auto;
-  content: "";
-  background-color: color-mix(in srgb, var(--code-background) 92%, var(--code-foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
 }
 
 :is([data-separator="line-info"], [data-separator="line-info-basic"])[data-expand-index]
@@ -154,6 +148,7 @@ const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
 :is([data-separator="line-info"], [data-separator="line-info-basic"])[data-expand-index]
   [data-separator-content] {
   grid-column: 2 !important;
+  cursor: pointer;
 }
 
 /* Visually hidden rather than display: none so the expand action stays keyboard-reachable. */
@@ -172,27 +167,9 @@ const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
 
 :is([data-separator="line-info"], [data-separator="line-info-basic"]):has(
     [data-expand-button]
-  )
-  [data-separator-content] {
-  cursor: pointer;
-}
-
-:is([data-separator="line-info"], [data-separator="line-info-basic"]):has(
-    [data-expand-button]
   ):is(:hover, :focus-within)
   [data-separator-content] {
   color: color-mix(in srgb, var(--code-foreground) 76%, var(--code-background)) !important;
-}
-
-:is([data-separator="line-info"], [data-separator="line-info-basic"]):has(
-    [data-expand-button]
-  ):is(:hover, :focus-within)
-  [data-unmodified-lines]::before,
-:is([data-separator="line-info"], [data-separator="line-info-basic"]):has(
-    [data-expand-button]
-  ):is(:hover, :focus-within)
-  [data-unmodified-lines]::after {
-  background-color: color-mix(in srgb, var(--code-background) 84%, var(--code-foreground));
 }
 
 [data-diffs-header] [data-header-content] {
@@ -241,7 +218,8 @@ const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
    Departing content cuts, the same one-way rule the pull request chrome fold follows. */
 [data-diff],
 [data-file] {
-  transition: opacity 200ms ease-out;
+  /* The Motion setting reaches into this shadow root through the inherited variable. */
+  transition: var(--reduced-motion-transition, opacity 200ms ease-out);
 }
 
 @starting-style {
@@ -261,13 +239,14 @@ const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
 
 export type StyledDiffCodeViewOptions<LAnnotation> = Omit<
   NonNullable<CodeViewProps<LAnnotation>["options"]>,
-  "unsafeCSS" | "itemMetrics" | "layout"
+  "unsafeCSS" | "itemMetrics" | "layout" | "lineDiffType"
 >;
 
-type StyledDiffCodeViewProps<LAnnotation> = (
-  | Omit<ControlledCodeViewProps<LAnnotation>, "options">
-  | Omit<UncontrolledCodeViewProps<LAnnotation>, "options">
-) & {
+// Controlled only: the surface hands the viewer plain copies of the items it is given.
+type StyledDiffCodeViewProps<LAnnotation> = Omit<
+  ControlledCodeViewProps<LAnnotation>,
+  "options"
+> & {
   readonly options?: StyledDiffCodeViewOptions<LAnnotation>;
   readonly viewerRef?: Ref<CodeViewHandle<LAnnotation>>;
   /**
@@ -275,20 +254,36 @@ type StyledDiffCodeViewProps<LAnnotation> = (
    * to restyle chrome the viewer owns — such as replacing its per-file line counts.
    */
   readonly unsafeCSSExtra?: string;
+  /** The height every file header takes, when the surface draws its own (32 by default). */
+  readonly headerHeight?: number;
 };
 
-/** The shared web CodeView surface: app styling and virtualized geometry stay paired here. */
+/**
+ * The shared web CodeView surface: app styling and virtualized geometry stay paired here. Diffs
+ * are drawn as board 12 draws them, plain +/− lines with no token colors, in the Diff tab and the
+ * pull request's Code tab alike.
+ */
 export function StyledDiffCodeView<LAnnotation = undefined>({
   options,
   viewerRef,
   className,
   unsafeCSSExtra,
+  headerHeight = 32,
+  items,
   ...props
 }: StyledDiffCodeViewProps<LAnnotation>) {
+  const plainItems = useMemo(
+    () =>
+      items.map((item) =>
+        item.type === "diff" ? { ...item, fileDiff: plainFileDiff(item.fileDiff) } : item,
+      ),
+    [items],
+  );
   return (
     <DiffWorkerPoolProvider>
       <CodeView<LAnnotation>
         {...props}
+        items={plainItems}
         {...(viewerRef ? { ref: viewerRef } : {})}
         // The custom element itself is focusable for keyboard scrolling. Its native outline sits
         // outside the panel clipping boundary; actual controls inside retain their own indicators.
@@ -298,13 +293,16 @@ export function StyledDiffCodeView<LAnnotation = undefined>({
             : "diff-render-surface [--code-background:var(--background)] outline-none"
         }
         options={{
+          diffIndicators: "classic",
           ...options,
+          // Whole +/− lines only: no changed words picked out inside a line (board 12).
+          lineDiffType: "none",
           unsafeCSS: unsafeCSSExtra
             ? `${DIFF_VIEW_UNSAFE_CSS}\n${unsafeCSSExtra}`
             : DIFF_VIEW_UNSAFE_CSS,
           itemMetrics: {
-            diffHeaderHeight: 32,
-            hunkSeparatorHeight: 24,
+            diffHeaderHeight: headerHeight,
+            hunkSeparatorHeight: 20,
             // Pierre uses its general file spacing as a fallback in expanded-file layout paths.
             // Keep it zero alongside the explicit paddingTop or expanding the first file can
             // reintroduce the library's default 8px gap above its header.

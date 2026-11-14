@@ -15,6 +15,7 @@ export type SettingsPath =
   | "/settings/projects"
   | "/settings/general"
   | "/settings/appearance"
+  | "/settings/attention"
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
@@ -84,6 +85,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/projects": "Project",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
+  "/settings/attention": "Attention",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -173,6 +175,96 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "attention-notifications",
+    title: "Notify me",
+    to: "/settings/attention",
+    searchTerms: [
+      "notifications thread notifications desktop system alert blocked approval question failed every update off in-app toast",
+    ],
+  },
+  {
+    id: "notify-watched-threads",
+    title: "Tell me when my thread finishes",
+    to: "/settings/attention",
+    searchTerms: ["notification watched waiting completion finished done turn"],
+  },
+  {
+    id: "hold-finished-threads",
+    title: "Hold other finished threads until a pause",
+    to: "/settings/attention",
+    searchTerms: ["notification digest batch breakpoint pause typing interrupt finished"],
+  },
+  {
+    id: "attention-sound",
+    title: "Sound",
+    to: "/settings/attention",
+    searchTerms: ["notification sound audio chime alert blocked"],
+  },
+  {
+    id: "needs-you-section",
+    title: "Needs you at the top of the sidebar",
+    to: "/settings/attention",
+    searchTerms: [
+      "attention blocked waiting approval question failed review sidebar section badge count",
+    ],
+  },
+  {
+    id: "open-thread-reminder",
+    title: "Open-thread reminder",
+    to: "/settings/attention",
+    searchTerms: ["attention open threads count many too much reminder composer limit"],
+  },
+  {
+    id: "composer-controls",
+    title: "Composer controls",
+    to: "/settings/attention",
+    searchTerms: ["attention composer compact full chip effort permissions plan build mode footer"],
+  },
+  {
+    id: "interface-motion",
+    title: "Motion",
+    to: "/settings/attention",
+    searchTerms: ["attention motion animation reduced reduce transitions accessibility calm still"],
+  },
+  {
+    id: "recap-trigger",
+    title: "Show where you left off",
+    to: "/settings/attention",
+    searchTerms: ["attention recap where was i left off summary break away return catch up"],
+  },
+  {
+    id: "agent-activity-detail",
+    title: "Agent activity",
+    to: "/settings/attention",
+    searchTerms: [
+      "attention summary live tool calls steps work log thinking timeline rail activity fold",
+    ],
+  },
+  {
+    id: "focus-holds-finished",
+    title: "Hold finished threads in focus mode",
+    to: "/settings/attention",
+    searchTerms: ["attention focus mode hold finished notifications digest quiet"],
+  },
+  {
+    id: "sidebar-elapsed-time",
+    title: "Elapsed time in the thread list",
+    to: "/settings/attention",
+    searchTerms: ["attention minutes age working duration sidebar time clock"],
+  },
+  {
+    id: "session-clock",
+    title: "Session clock",
+    to: "/settings/attention",
+    searchTerms: ["attention session time today open how long hours clock header"],
+  },
+  {
+    id: "break-reminder",
+    title: "Break reminder",
+    to: "/settings/attention",
+    searchTerms: ["attention break pause rest hyperfocus reminder session time header"],
+  },
+  {
     id: "color-scheme",
     title: "Color scheme",
     to: "/settings/appearance",
@@ -217,12 +309,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Effort display",
     to: "/settings/appearance",
     searchTerms: ["reasoning effort thinking bars graph word label level composer"],
-  },
-  {
-    id: "thinking-timeline",
-    title: "Show the thinking timeline",
-    to: "/settings/appearance",
-    searchTerms: ["work log steps rail tool calls duration diff reasoning thought activity"],
   },
   {
     id: "chat-width",
@@ -316,18 +402,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["thread timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
-  },
-  {
-    id: "thread-notifications",
-    title: "Thread notifications",
-    to: "/settings/general",
-    searchTerms: ["notification sound alert completion input approval desktop"],
-  },
-  {
-    id: "in-app-notifications",
-    title: "In-app notifications",
-    to: "/settings/general",
-    searchTerms: ["notification toast popup completion input approval failure"],
   },
   {
     id: "time-format",
@@ -848,6 +922,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/projects": "project",
   "/settings/general": null,
   "/settings/appearance": null,
+  "/settings/attention": null,
   "/settings/snap-shot": null,
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.

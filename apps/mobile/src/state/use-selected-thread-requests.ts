@@ -37,6 +37,9 @@ import { appAtomRegistry } from "./atom-registry";
 import { useSelectedThreadDetail } from "./use-thread-detail";
 import { useThreadSelection } from "./use-thread-selection";
 import { useAtomCommand } from "./use-atom-command";
+import { sendApprovalAnswer, useApprovalAnswers } from "./use-approval-answers";
+
+const APPROVAL_RESPONSE_LABEL = "thread approval response";
 
 const userInputDraftsByRequestKeyAtom = Atom.make<
   Record<string, Record<string, PendingUserInputDraftAnswer>>
@@ -81,10 +84,11 @@ function setUserInputDraftCustomAnswer(
 }
 
 export function useSelectedThreadRequests() {
-  const respondToApproval = useAtomCommand(
-    threadEnvironment.respondToApproval,
-    "thread approval response",
-  );
+  // Failures are reported by sendApprovalAnswer, which knows a refused second answer is none.
+  const respondToApproval = useAtomCommand(threadEnvironment.respondToApproval, {
+    label: APPROVAL_RESPONSE_LABEL,
+    reportFailure: false,
+  });
   const respondToUserInput = useAtomCommand(
     threadEnvironment.respondToUserInput,
     "thread user input response",
@@ -96,7 +100,6 @@ export function useSelectedThreadRequests() {
   const { selectedThread: selectedThreadShell } = useThreadSelection();
   const selectedThread = useSelectedThreadDetail();
   const userInputDraftsByRequestKey = useAtomValue(userInputDraftsByRequestKeyAtom);
-  const [respondingApprovalId, setRespondingApprovalId] = useState<ApprovalRequestId | null>(null);
   const userInputResponsesInFlight = useRef(new Set<string>());
   const [respondingUserInputId, setRespondingUserInputId] = useState<ApprovalRequestId | null>(
     null,
@@ -107,6 +110,20 @@ export function useSelectedThreadRequests() {
     [selectedThread?.activities],
   );
   const activePendingApproval = activePendingApprovals[0] ?? null;
+  const pendingApprovalIds = useMemo(
+    () => activePendingApprovals.map((approval) => approval.requestId),
+    [activePendingApprovals],
+  );
+  // Shared with Home and web: an answer sent anywhere on this client holds here too.
+  const { key: approvalAnswersKey, answers: approvalAnswers } = useApprovalAnswers({
+    environmentId: selectedThreadShell?.environmentId ?? null,
+    threadId: selectedThreadShell?.id ?? null,
+    pendingRequestIds: pendingApprovalIds,
+    pendingKnown: selectedThread != null,
+  });
+  const activeApprovalAnswerState = activePendingApproval
+    ? (approvalAnswers.get(activePendingApproval.requestId) ?? null)
+    : null;
   const subagentRequests = useMemo(
     () =>
       subagentUserRequests({
@@ -229,20 +246,19 @@ export function useSelectedThreadRequests() {
         return;
       }
 
-      setRespondingApprovalId(requestId);
-      const result = await respondToApproval({
-        environmentId: selectedThreadShell.environmentId,
-        input: {
-          threadId: selectedThreadShell.id,
-          requestId,
-          decision,
-          ...(feedback !== undefined ? { feedback } : {}),
-        },
-      });
-      setRespondingApprovalId((current) => (current === requestId ? null : current));
-      return result;
+      return sendApprovalAnswer(approvalAnswersKey, requestId, APPROVAL_RESPONSE_LABEL, () =>
+        respondToApproval({
+          environmentId: selectedThreadShell.environmentId,
+          input: {
+            threadId: selectedThreadShell.id,
+            requestId,
+            decision,
+            ...(feedback !== undefined ? { feedback } : {}),
+          },
+        }),
+      );
     },
-    [respondToApproval, selectedThreadShell],
+    [approvalAnswersKey, respondToApproval, selectedThreadShell],
   );
 
   const onSubmitUserInput = useCallback(async () => {
@@ -346,7 +362,7 @@ export function useSelectedThreadRequests() {
     activePendingUserInput,
     activePendingUserInputDrafts,
     activePendingUserInputAnswers,
-    respondingApprovalId,
+    activeApprovalAnswerState,
     respondingUserInputId,
     onRespondToApproval,
     onSelectUserInputOption,

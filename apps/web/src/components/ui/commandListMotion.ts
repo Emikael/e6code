@@ -1,5 +1,6 @@
 import {
   EASE_OUT,
+  isUserTyping,
   MOTION_MS,
   playTransient,
   prefersReducedMotion,
@@ -100,7 +101,8 @@ export function observeCommandListMotion(list: HTMLElement | null) {
     const toRect = next.getBoundingClientRect();
     const travel = fromRect.top - toRect.top;
     endGlide();
-    if (travel === 0 || Math.abs(travel) > MAX_GLIDE_PX) return;
+    // Filtering moves the highlight while the user types; it jumps then.
+    if (travel === 0 || Math.abs(travel) > MAX_GLIDE_PX || isUserTyping()) return;
     const overlay = highlightOverlay(list);
     if (!overlay) return;
 

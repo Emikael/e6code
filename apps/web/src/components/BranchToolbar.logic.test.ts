@@ -457,6 +457,21 @@ describe("shouldShowComposerContextStrip", () => {
     ).toBe(true);
   });
 
+  it("leaves the branch to the header on a server thread with compact controls", () => {
+    const serverThread = {
+      hasActiveProject: true,
+      isGitRepo: true,
+      showEnvironmentIndicator: true,
+      branchInHeader: true,
+    };
+    expect(
+      shouldShowComposerContextStrip({ ...serverThread, hostsRestingComposerControls: false }),
+    ).toBe(false);
+    expect(
+      shouldShowComposerContextStrip({ ...serverThread, hostsRestingComposerControls: true }),
+    ).toBe(true);
+  });
+
   it("shows Git controls without requiring an environment indicator", () => {
     expect(
       shouldShowComposerContextStrip({

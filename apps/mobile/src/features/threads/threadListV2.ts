@@ -4,6 +4,7 @@ import {
 } from "@e6tools/client-runtime/state/agent-state";
 import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
 import {
+  canSnooze,
   effectiveSnoozed,
   hasQueuedTurnStart,
   QUEUED_TURN_START_GRACE_MS,
@@ -14,13 +15,19 @@ import type { SnoozePreset } from "@e6tools/client-runtime/state/thread-settled"
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import { isPausedForUsageLimit } from "@e6tools/client-runtime/state/agent-state";
+import {
+  isThreadFailed,
+  selectThreadAttention,
+  type ThreadAttentionItem,
+} from "@e6tools/client-runtime/state/thread-attention";
+import { describePendingApprovalAsk } from "@e6tools/client-runtime/pending-requests";
 import { formatUpcomingTimestamp } from "../../lib/time";
 import {
   sortActiveThreadsByOrderKey,
   resolveSettledThreadTimestamp,
   sortPinnedThreadsByOrderKey,
 } from "@e6tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId } from "@e6tools/contracts";
+import { PROVIDER_DISPLAY_NAMES, type EnvironmentId, type ProjectId } from "@e6tools/contracts";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
@@ -141,7 +148,7 @@ export function resolveThreadListV2Enabled(input: {
 export function resolveThreadListV2Status(
   thread: Pick<
     EnvironmentThreadShell,
-    "hasPendingApprovals" | "hasPendingUserInput" | "session" | "agentState"
+    "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn" | "agentState"
   >,
 ): ThreadListV2Status {
   if (thread.hasPendingApprovals) {
@@ -157,7 +164,7 @@ export function resolveThreadListV2Status(
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
-  if (thread.session?.status === "error") {
+  if (isThreadFailed(thread)) {
     return "failed";
   }
   return "ready";
@@ -301,6 +308,8 @@ export interface ThreadListV2ThreadListItem {
   readonly item: ThreadListV2Item;
   /** Precomputed so recycled-list equality can see a minute-tick change. */
   readonly snoozeWakeLabelText: string | undefined;
+  /** Drawn as board 8's Working row: halo dot, title, step caption, minutes. */
+  readonly working: boolean;
 }
 
 export interface ThreadListV2PendingListItem {
@@ -325,18 +334,272 @@ export interface ThreadListV2SettledShelfListItem {
   readonly expanded: boolean;
 }
 
+/** "Needs you" above the list (F1): its label and the blocked count. */
+export interface ThreadListV2NeedsYouHeaderListItem {
+  readonly type: "v2-needs-you-header";
+  readonly key: "v2-needs-you-header";
+  readonly count: number;
+}
+
+/** "Earlier · 3": threads blocked over a day, folded into one row (F1). */
+export interface ThreadListV2NeedsYouEarlierListItem {
+  readonly type: "v2-needs-you-earlier";
+  readonly key: "v2-needs-you-earlier";
+  readonly count: number;
+  readonly expanded: boolean;
+}
+
+/** A heading inside the list: "To review", "Working", then "Other threads". */
+export interface ThreadListV2SectionHeaderListItem {
+  readonly type: "v2-section-header";
+  readonly key: string;
+  readonly label: ThreadListV2SectionLabel;
+}
+
+export type ThreadListV2SectionLabel = "To review" | "Working" | "Other threads";
+
+/** A plan ready or a finished turn you have not seen, under "To review" (F1). */
+export interface ThreadListV2ReviewListItem {
+  readonly type: "v2-review";
+  readonly key: string;
+  readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
+}
+
+/** One thread blocked on you, in the Needs you section. */
+export interface ThreadListV2NeedsYouListItem {
+  readonly type: "v2-needs-you";
+  readonly key: string;
+  readonly item: ThreadAttentionItem<EnvironmentThreadShell>;
+  /** The first approval opens with its actions (board 8); the rest are rows. */
+  readonly expanded: boolean;
+}
+
 export type ThreadListV2ListItem =
+  | ThreadListV2NeedsYouHeaderListItem
+  | ThreadListV2NeedsYouListItem
+  | ThreadListV2NeedsYouEarlierListItem
+  | ThreadListV2SectionHeaderListItem
+  | ThreadListV2ReviewListItem
   | ThreadListV2ThreadListItem
   | ThreadListV2PendingListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem;
 
 /**
- * Builds the shared mobile order: active → pending → snoozed shelf → settled.
+ * Needs you, split as F1 shows it: the last day's blocked threads, older
+ * ones, and the work to review.
+ */
+export interface ThreadListV2NeedsYou {
+  readonly blocked: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>;
+  readonly earlier: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>;
+  readonly review: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>;
+}
+
+export const NO_NEEDS_YOU: ThreadListV2NeedsYou = { blocked: [], earlier: [], review: [] };
+
+/**
+ * The Needs you section (F1, board 8): threads blocked on an approval, an
+ * answer or a failure, then work to review (a plan ready, or a finished turn
+ * you have not seen on this device), from the shared attention selector, so
+ * web and mobile agree on membership and order. Blocked rows older than a
+ * day are kept apart, for the "Earlier" row.
+ * `lastVisitedAt` reads this device's visits by scoped thread key; without
+ * it no turn counts as unseen. Follows the list's environment and project
+ * scope, and steps aside while searching.
+ */
+export function selectThreadListV2NeedsYou(input: {
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
+  readonly environmentId: EnvironmentId | null;
+  readonly projectRefs?: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }> | null;
+  readonly searchQuery: string;
+  readonly now: string;
+  readonly lastVisitedAt?: (key: string) => string | null | undefined;
+}): ThreadListV2NeedsYou {
+  if (input.searchQuery.trim().length > 0) return NO_NEEDS_YOU;
+  const projectKeys = input.projectRefs
+    ? new Set(input.projectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`))
+    : null;
+  const scoped = input.threads.filter(
+    (thread) =>
+      (input.environmentId === null || thread.environmentId === input.environmentId) &&
+      (projectKeys === null || projectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+  );
+  const attention = selectThreadAttention(scoped, {
+    now: input.now,
+    ...(input.lastVisitedAt ? { lastVisitedAt: input.lastVisitedAt } : {}),
+  });
+  return { blocked: attention.blocked, earlier: attention.earlier, review: attention.review };
+}
+
+/**
+ * The previous Needs you lists when nothing a row shows changed (each item's
+ * key, kind, since and thread are the same), so a minute tick that changes
+ * nothing does not rebuild the list.
+ */
+export function reuseThreadListV2NeedsYou(
+  previous: ThreadListV2NeedsYou,
+  next: ThreadListV2NeedsYou,
+): ThreadListV2NeedsYou {
+  const same = (
+    a: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>,
+    b: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>,
+  ) =>
+    a.length === b.length &&
+    a.every(
+      (item, index) =>
+        item.key === b[index]!.key &&
+        item.kind === b[index]!.kind &&
+        item.since === b[index]!.since &&
+        item.thread === b[index]!.thread,
+    );
+  return same(previous.blocked, next.blocked) &&
+    same(previous.earlier, next.earlier) &&
+    same(previous.review, next.review)
+    ? previous
+    : next;
+}
+
+/**
+ * When a working row's minutes start, by the web sidebar's rule: the open
+ * turn's start (or request), else the session's last change.
+ */
+export function resolveThreadListV2WorkingSince(
+  thread: Pick<EnvironmentThreadShell, "latestTurn" | "session">,
+): string | null {
+  const turn = thread.latestTurn;
+  const candidates =
+    turn && turn.completedAt === null
+      ? [turn.startedAt, turn.requestedAt, thread.session?.updatedAt]
+      : [thread.session?.updatedAt];
+  return candidates.find((value) => value && !Number.isNaN(Date.parse(value))) ?? null;
+}
+
+/** The agent's name for wording ("Codex"), as web's notifications and start screen say it. */
+export function threadAgentName(thread: Pick<EnvironmentThreadShell, "session">): string {
+  const providerName = thread.session?.providerName;
+  return (
+    (providerName &&
+      (PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[providerName]) ||
+    "The agent"
+  );
+}
+
+/**
+ * A Needs you row's caption, board 8's "Needs your answer · keep the spring
+ * animation, or cut to a fade?": the status word, then what is asked. The
+ * question rides on the shell's summary; without one the word stands alone.
+ */
+export function describeThreadListV2NeedsYou(
+  item: Pick<ThreadAttentionItem<EnvironmentThreadShell>, "kind" | "thread">,
+  provider: string,
+): { readonly status: string; readonly detail: string | null } {
+  switch (item.kind) {
+    case "approval":
+      return {
+        status: "Needs approval",
+        detail: describePendingApprovalAsk(provider, item.thread.pendingRequestSummary),
+      };
+    case "input":
+      return {
+        status: "Needs your answer",
+        detail: item.thread.pendingRequestSummary?.question ?? null,
+      };
+    default: {
+      const error = item.thread.session?.lastError?.split("\n", 1)[0]?.trim();
+      return { status: "Failed", detail: error ? error : null };
+    }
+  }
+}
+
+/** A thread an agent is running for: working, or paused on a usage limit. */
+export function isThreadListV2Working(
+  thread: Pick<
+    EnvironmentThreadShell,
+    "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn" | "agentState"
+  >,
+): boolean {
+  const status = resolveThreadListV2Status(thread);
+  return status === "working" || status === "paused";
+}
+
+/**
+ * What a working agent is doing, in one line (board 8): "Step 3 of 5 ·
+ * Updating the token map" when it reports a plan, otherwise its state
+ * ("Waiting for usage limit · resets 14:20", "Retrying · attempt 2 of 10")
+ * or plain "Working". OpenCode reports no plan and takes the fallback.
+ */
+export function formatThreadListV2WorkingCaption(
+  thread: Pick<EnvironmentThreadShell, "agentState" | "planProgress">,
+  formatResetTime: (resetsAt: string) => string = formatResetClockTime,
+): string {
+  const progress = thread.planProgress;
+  if (!thread.agentState && progress && progress.totalSteps > 0) {
+    const step = Math.min(progress.completedSteps + 1, progress.totalSteps);
+    return `Step ${step} of ${progress.totalSteps} · ${progress.step}`;
+  }
+  return joinThreadRowStatus(
+    formatRunningThreadStatus({
+      agentState: thread.agentState,
+      planProgress: null,
+      formatResetTime,
+    }),
+  );
+}
+
+/**
+ * "Snooze all" on the Earlier row: the folded threads that can be snoozed.
+ * Approvals and questions cannot be (an agent is waiting on them), so in
+ * practice these are the failed ones, and the button says so.
+ */
+export function selectThreadListV2SnoozableEarlier(
+  earlier: ReadonlyArray<ThreadAttentionItem<EnvironmentThreadShell>>,
+  options: { readonly now: string; readonly snoozeEnvironmentIds?: ReadonlySet<EnvironmentId> },
+): ReadonlyArray<EnvironmentThreadShell> {
+  return earlier.flatMap(({ thread }) =>
+    (options.snoozeEnvironmentIds?.has(thread.environmentId) ?? true) &&
+    canSnooze(thread, { now: options.now })
+      ? [thread]
+      : [],
+  );
+}
+
+/** The Earlier row's button: "Snooze 2 failed", naming what it snoozes; null with nothing to snooze. */
+export function describeThreadListV2SnoozeEarlier(
+  threads: ReadonlyArray<
+    Pick<
+      EnvironmentThreadShell,
+      "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn"
+    >
+  >,
+): string | null {
+  if (threads.length === 0) return null;
+  return threads.every((thread) => isThreadFailed(thread))
+    ? `Snooze ${threads.length} failed`
+    : `Snooze ${threads.length}`;
+}
+
+/**
+ * Builds the shared mobile order: needs you → to review → working → other
+ * threads → pending → snoozed shelf → settled.
  * Pending tasks are waiting rather than asking, and parked work remains
  * reachable without competing with either the inbox or settled history.
+ *
+ * With `sections` (Home, board 8) a thread is listed once: a thread in Needs
+ * you or To review leaves the list below, and working threads gather under
+ * "Working". Without it (the iPad sidebar, which stays a stable map like the
+ * web sidebar) the sections lead the unchanged list.
  */
 export function buildThreadListV2ListItems(input: {
+  /** Leads the list under a "Needs you" header; see `selectThreadListV2NeedsYou`. */
+  readonly needsYou?: ThreadListV2NeedsYou;
+  /** Opens the "Earlier" row into its threads. Collapsed by default. */
+  readonly needsYouEarlierExpanded?: boolean;
+  /** The first recent approval opens with its actions (Home). */
+  readonly expandFirstApproval?: boolean;
+  readonly sections?: boolean;
   readonly items: ReadonlyArray<ThreadListV2Item>;
   readonly pendingTasks: ReadonlyArray<PendingNewTask>;
   readonly snoozedCount?: number;
@@ -347,7 +610,7 @@ export function buildThreadListV2ListItems(input: {
   readonly settledShelfHeaderIndex?: number | null;
   readonly snoozeLabelNow?: string;
 }): ThreadListV2ListItem[] {
-  const threadItems = input.items.map((item): ThreadListV2ListItem => ({
+  const threadItems = input.items.map((item): ThreadListV2ThreadListItem => ({
     type: "v2-thread",
     key: `v2-thread:${item.thread.environmentId}:${item.thread.id}`,
     item,
@@ -355,6 +618,7 @@ export function buildThreadListV2ListItems(input: {
       item.snoozed && item.thread.snoozedUntil != null && input.snoozeLabelNow !== undefined
         ? snoozeWakeLabel(item.thread.snoozedUntil, { now: input.snoozeLabelNow })
         : undefined,
+    working: false,
   }));
   const pendingItems = input.pendingTasks.map((pendingTask, index): ThreadListV2ListItem => ({
     type: "v2-pending",
@@ -368,7 +632,75 @@ export function buildThreadListV2ListItems(input: {
   const settledShelfHeaderIndex = input.settledShelfHeaderIndex ?? null;
   const activeEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? threadItems.length;
   const snoozedEnd = settledShelfHeaderIndex ?? threadItems.length;
-  const result: ThreadListV2ListItem[] = [...threadItems.slice(0, activeEnd), ...pendingItems];
+  const { blocked, earlier, review } = input.needsYou ?? NO_NEEDS_YOU;
+  // The first recent approval opens with its actions; a day-old one does not.
+  const firstApproval =
+    input.expandFirstApproval === false
+      ? undefined
+      : blocked.find((item) => item.kind === "approval");
+  const needsYouRow = (
+    item: ThreadAttentionItem<EnvironmentThreadShell>,
+  ): ThreadListV2ListItem => ({
+    type: "v2-needs-you",
+    key: `v2-needs-you:${item.key}`,
+    item,
+    expanded: item === firstApproval,
+  });
+  const sectionHeader = (label: ThreadListV2SectionLabel): ThreadListV2ListItem => ({
+    type: "v2-section-header",
+    key: `v2-section-header:${label}`,
+    label,
+  });
+  const earlierExpanded = input.needsYouEarlierExpanded === true;
+  const result: ThreadListV2ListItem[] = [];
+  if (blocked.length + earlier.length > 0) {
+    result.push(
+      {
+        type: "v2-needs-you-header",
+        key: "v2-needs-you-header",
+        // Earlier threads are folded, still counted.
+        count: blocked.length + earlier.length,
+      },
+      ...blocked.map(needsYouRow),
+    );
+    if (earlier.length > 0) {
+      result.push({
+        type: "v2-needs-you-earlier",
+        key: "v2-needs-you-earlier",
+        count: earlier.length,
+        expanded: earlierExpanded,
+      });
+      if (earlierExpanded) result.push(...earlier.map(needsYouRow));
+    }
+  }
+  if (review.length > 0) {
+    result.push(
+      sectionHeader("To review"),
+      ...review.map((item): ThreadListV2ListItem => ({
+        type: "v2-review",
+        key: `v2-review:${item.key}`,
+        item,
+      })),
+    );
+  }
+  const activeItems = threadItems.slice(0, activeEnd);
+  if (input.sections === true) {
+    const listedAbove = new Set([...blocked, ...earlier, ...review].map((item) => item.key));
+    const remaining = activeItems.filter(
+      (row) => !listedAbove.has(`${row.item.thread.environmentId}:${row.item.thread.id}`),
+    );
+    const working = remaining.filter((row) => isThreadListV2Working(row.item.thread));
+    const others = remaining.filter((row) => !isThreadListV2Working(row.item.thread));
+    if (working.length > 0) {
+      result.push(sectionHeader("Working"), ...working.map((row) => ({ ...row, working: true })));
+    }
+    // A heading only where one came before, so a plain list stays plain.
+    if (others.length > 0 && result.length > 0) result.push(sectionHeader("Other threads"));
+    result.push(...others);
+  } else {
+    result.push(...activeItems);
+  }
+  result.push(...pendingItems);
   if (snoozedShelfHeaderIndex !== null && snoozedCount > 0) {
     result.push({
       type: "v2-snoozed-shelf",

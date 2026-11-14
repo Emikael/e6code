@@ -75,6 +75,9 @@ export function SettingsNotificationsRouteScreen() {
   return <ConfiguredSettingsNotificationsRouteScreen />;
 }
 
+const DEVICE_NOTIFICATIONS_SUBTITLE =
+  "When an agent is blocked or finishes. Approvals, questions and failures count as blocked.";
+
 function ConfiguredSettingsNotificationsRouteScreen() {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
@@ -436,7 +439,8 @@ function ConfiguredSettingsNotificationsRouteScreen() {
               notificationStatus === "checking" ||
               notificationStatus === "unsupported"
             }
-            subtitle={agentAwarenessSubtitle}
+            // Same terms as the web's Attention settings: what counts as blocked.
+            subtitle={agentAwarenessSubtitle ?? DEVICE_NOTIFICATIONS_SUBTITLE}
             // Only reads as on when this device is actually registered with the
             // relay; otherwise notifications cannot be delivered regardless of
             // the local iOS permission.

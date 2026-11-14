@@ -29,6 +29,13 @@ export const ProjectionPendingApproval = Schema.Struct({
   decision: ProjectionPendingApprovalDecision,
   createdAt: IsoDateTime,
   resolvedAt: Schema.NullOr(IsoDateTime),
+  /**
+   * What the request's `approval.requested` activity named, stored with the
+   * row so the shell summary reads it without scanning activities. Absent on
+   * a write that does not know it; the stored value is then kept.
+   */
+  requestKind: Schema.optional(Schema.NullOr(Schema.String)),
+  requestType: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type ProjectionPendingApproval = typeof ProjectionPendingApproval.Type;
 
@@ -64,10 +71,29 @@ export interface ProjectionPendingApprovalRepositoryShape {
     input: ListProjectionPendingApprovalsInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionPendingApproval>, ProjectionRepositoryError>;
 
-  /** Count pending approvals without loading resolved request history. */
-  readonly countPendingByThreadId: (
+  /**
+   * Count pending approvals and find when the oldest was requested, without
+   * loading resolved request history. `earliestCreatedAt` is null when none
+   * is pending.
+   */
+  readonly summarizePendingByThreadId: (
     input: ListProjectionPendingApprovalsInput,
-  ) => Effect.Effect<number, ProjectionRepositoryError>;
+  ) => Effect.Effect<
+    { readonly count: number; readonly earliestCreatedAt: string | null },
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * What each pending approval asks, oldest first: the `requestKind` and
+   * `requestType` its `approval.requested` activity carried, null when the
+   * activity is gone or named neither.
+   */
+  readonly listPendingKindsByThreadId: (
+    input: ListProjectionPendingApprovalsInput,
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly requestKind: string | null; readonly requestType: string | null }>,
+    ProjectionRepositoryError
+  >;
 
   /**
    * Read a pending approval row by request id.

@@ -26,5 +26,9 @@ export function projectFileEditorCacheKey(
   if (editorFile?.contents === contents && editorFile.cacheKey) {
     return editorFile.cacheKey;
   }
-  return `editor:${environmentId}:${projectFileCacheKey(cwd, relativePath, contents)}`;
+  const key = `editor:${environmentId}:${projectFileCacheKey(cwd, relativePath, contents)}`;
+  // Undo writes back the text the editor started from, whose key the editor's edited document
+  // still holds; the editor would restore the edit from it. Contents that differ from the editor's
+  // take a key of their own.
+  return editorFile?.cacheKey === key ? `${key}:${fileContentRevision(editorFile.contents)}` : key;
 }

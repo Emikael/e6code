@@ -1,9 +1,12 @@
-import type {
-  EnvironmentId,
-  OrchestrationProjectShell,
-  OrchestrationThreadShell,
-  ThreadId,
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type EnvironmentId,
+  type OrchestrationProjectShell,
+  type OrchestrationThreadShell,
+  type ThreadId,
 } from "@e6tools/contracts";
+
+import { formatDuration } from "./orchestrationTiming.ts";
 
 export type AgentAwarenessPhase =
   | "starting"
@@ -40,7 +43,8 @@ export interface ProjectThreadAwarenessInput {
     | "updatedAt"
     | "hasPendingApprovals"
     | "hasPendingUserInput"
-  >;
+  > &
+    Partial<Pick<OrchestrationThreadShell, "pendingRequestSummary">>;
 }
 
 function buildAgentAwarenessDeepLink(input: {
@@ -83,7 +87,10 @@ function resolveThreadAwarenessPhase(
   if (thread.hasPendingUserInput) {
     return "waiting_for_input";
   }
-  if (thread.session?.status === "error" || thread.latestTurn?.state === "error") {
+  // The clients' failed rule: a live session hides an older failure, because
+  // the agent is already trying again.
+  const live = thread.session?.status === "running" || thread.session?.status === "starting";
+  if (!live && (thread.session?.status === "error" || thread.latestTurn?.state === "error")) {
     return "failed";
   }
   if (thread.session?.status === "starting") {
@@ -116,6 +123,8 @@ function resolveThreadAwarenessPhase(
   return null;
 }
 
+// Blocked, failed and finished read like the web and desktop notifications,
+// so a push and a desktop alert for one event say the same thing.
 function headlineForPhase(phase: AgentAwarenessPhase): string {
   switch (phase) {
     case "starting":
@@ -125,25 +134,78 @@ function headlineForPhase(phase: AgentAwarenessPhase): string {
     case "waiting_for_approval":
       return "Approval needed";
     case "waiting_for_input":
-      return "Waiting for input";
+      return "Input needed";
     case "completed":
-      return "Agent finished";
+      return "Thread completed";
     case "failed":
-      return "Agent failed";
+      return "Thread failed";
     case "stale":
       return "Update delayed";
   }
 }
 
+// What a named request asks for, after the agent's name. Worded as the
+// clients word it (client-runtime `describePendingApprovalAsk`; a test there
+// keeps the two in step).
+const APPROVAL_PHRASE: Readonly<Record<string, string>> = {
+  "file-read": "wants to read a file",
+  "file-change": "wants to change files",
+  "mcp-elicitation": "wants app access",
+  permission: "wants an app permission",
+};
+
+const plural = (count: number, word: string) => `${count} ${count === 1 ? word : `${word}s`}`;
+
+/**
+ * The one fact a blocked push carries (F2): "Codex wants to run 1 command",
+ * "Claude asks 1 question". Never the question itself: a push can show on a
+ * lock screen, and no client puts it in a system notification.
+ */
+export function describeAwarenessAsk(
+  phase: "waiting_for_approval" | "waiting_for_input",
+  thread: Pick<OrchestrationThreadShell, "session"> &
+    Partial<Pick<OrchestrationThreadShell, "pendingRequestSummary">>,
+): string {
+  const providerName = thread.session?.providerName;
+  const agent =
+    (providerName &&
+      (PROVIDER_DISPLAY_NAMES as Record<string, string | undefined>)[providerName]) ||
+    "The agent";
+  const summary = thread.pendingRequestSummary;
+  if (phase === "waiting_for_input") {
+    return summary?.question
+      ? `${agent} asks ${plural(Math.max(1, summary.questionCount), "question")}`
+      : `${agent} asked you a question`;
+  }
+  const kind = summary?.approvalKind;
+  if (kind === "command") {
+    return `${agent} wants to run ${plural(summary?.approvalKindCount ?? 1, "command")}`;
+  }
+  const phrase = kind === undefined ? undefined : APPROVAL_PHRASE[kind];
+  return `${agent} ${phrase ?? "is waiting for your approval"}`;
+}
+
+/** How long the finished turn ran: "worked 3m 40s", or null without both times. */
+function workedFor(latestTurn: OrchestrationThreadShell["latestTurn"]): string | null {
+  const startedMs = Date.parse(latestTurn?.startedAt ?? "");
+  const completedMs = Date.parse(latestTurn?.completedAt ?? "");
+  if (Number.isNaN(startedMs) || Number.isNaN(completedMs) || completedMs < startedMs) return null;
+  return `worked ${formatDuration(completedMs - startedMs)}`;
+}
+
+// The body under the thread's title is one fact (F2), or nothing.
 function detailForPhase(
   phase: AgentAwarenessPhase,
   thread: ProjectThreadAwarenessInput["thread"],
 ): string | undefined {
+  if (phase === "waiting_for_approval" || phase === "waiting_for_input") {
+    return describeAwarenessAsk(phase, thread);
+  }
   if (phase === "failed") {
     return thread.session?.lastError ?? undefined;
   }
   if (phase === "completed") {
-    return "Review the completed task.";
+    return workedFor(thread.latestTurn) ?? undefined;
   }
   if (phase === "running" && thread.session?.providerName) {
     return `${thread.session.providerName} is active.`;

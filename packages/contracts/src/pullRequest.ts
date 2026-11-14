@@ -152,6 +152,8 @@ export const PullRequestCheck = Schema.Struct({
   status: PullRequestCheckStatus,
   description: Schema.NullOr(Schema.String),
   url: Schema.NullOr(Schema.String),
+  /** How long a finished run took, where the host reports when it started and ended. */
+  durationSeconds: Schema.optional(NonNegativeInt),
 });
 export type PullRequestCheck = typeof PullRequestCheck.Type;
 
@@ -820,6 +822,19 @@ export const PullRequestInvalidateInput = Schema.Struct({
 });
 export type PullRequestInvalidateInput = typeof PullRequestInvalidateInput.Type;
 
+/**
+ * What the host's own branch rules hold a merge on right now, read before anyone presses Merge.
+ * Counts are of required checks only: a failing check the rules do not require does not stop
+ * the host, and saying it does would disable a merge that would go.
+ */
+export const PullRequestMergeBlock = Schema.Struct({
+  failingRequiredChecks: NonNegativeInt,
+  pendingRequiredChecks: NonNegativeInt,
+  /** The rules want an approving review it lacks, or a reviewer asked for changes. */
+  review: Schema.NullOr(Schema.Literals(["required", "changes-requested"])),
+});
+export type PullRequestMergeBlock = typeof PullRequestMergeBlock.Type;
+
 export const PullRequestDetail = Schema.Struct({
   provider: SourceControlProviderKind,
   capabilities: PullRequestCapabilities,
@@ -878,6 +893,11 @@ export const PullRequestDetail = Schema.Struct({
   autoMergeMethod: Schema.optional(PullRequestMergeMethod),
   /** GitHub Actions runs on this head commit that are waiting for a maintainer's approval. */
   workflowApprovalsRequired: Schema.optional(NonNegativeInt),
+  /**
+   * Absent where the host does not report its branch rules (every host but GitHub) and where
+   * they hold nothing. The page then leaves the verdict to the host's refusal, as it always did.
+   */
+  mergeBlock: Schema.optional(PullRequestMergeBlock),
 });
 export type PullRequestDetail = typeof PullRequestDetail.Type;
 

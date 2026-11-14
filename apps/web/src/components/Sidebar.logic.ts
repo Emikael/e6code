@@ -1,4 +1,4 @@
-import { threadPullRequestSearchTerms } from "@e6tools/shared/threadPullRequests";
+import { isThreadFailed } from "@e6tools/client-runtime/state/thread-attention";
 import * as React from "react";
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import {
@@ -10,8 +10,7 @@ import {
   isPausedForUsageLimit,
 } from "@e6tools/client-runtime/state/agent-state";
 import { isLoopbackHost } from "@e6tools/shared/preview";
-import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
-import type { ContextMenuItem, EnvironmentId, ThreadId } from "@e6tools/contracts";
+import type { ContextMenuItem } from "@e6tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@e6tools/contracts/settings";
 import type { AsyncResult } from "effect/unstable/reactivity";
 import { planPinnedReorder } from "@e6tools/client-runtime/state/thread-sort";
@@ -521,15 +520,17 @@ export interface ThreadStatusPill {
     | "Needs approval"
     | "Needs your answer"
     | "Paused"
-    | "Plan Ready";
+    | "Plan ready";
   colorClass: string;
   /** Static fill. Live work adds a ring instead of animating. */
   dotClass: string;
+  /** Drawn instead of the dot: the question bubble for an answer, the pause bars for a usage limit. */
+  glyph?: "question" | "pause";
 }
 
 // Rollup order mirrors the per-thread resolver exactly: attention states,
 // then active work, then the actionable plan prompt, then passive
-// monitoring. A Monitoring sibling must never hide a Plan Ready thread. A
+// monitoring. A Monitoring sibling must never hide a plan-ready thread. A
 // usage-limit pause outranks Working so a stalled sibling is not hidden.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Needs approval": 7,
@@ -537,7 +538,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Paused: 5,
   Working: 4,
   Connecting: 4,
-  "Plan Ready": 3,
+  "Plan ready": 3,
   Monitoring: 2,
   Completed: 1,
 };
@@ -818,10 +819,12 @@ export function resolveThreadRowClassName(input: {
 }
 
 // ── Sidebar thread status model ─────────────────────────────────────
-// Five visual states, three colors: color is reserved for "act now"
-// (approval), "in motion" (working), and "broken" (failed). Ready is the
-// unlabeled resting state — the agent stopped and is waiting on the user,
-// whether it finished, asked a question, or proposed a plan.
+// Color means one of three things: blocked on you (approval and answer, both
+// `warning`), in motion (working, the accent) or broken (failed, `error`).
+// Done takes `success`; everything else, plan ready included, is neutral.
+// Shapes differ as well as hues (diamond for approval, question bubble
+// for answer, circled exclamation for failed, haloed dot for working, tick for
+// done), and every marker keeps a word beside it.
 // Unread completion is tracked separately: it describes whether a ready
 // thread needs attention, not what the thread is currently doing.
 export type SidebarThreadStatus =
@@ -833,50 +836,28 @@ export type SidebarThreadStatus =
   | "failed"
   | "ready";
 
-export function shouldRecedeSidebarThread(input: {
-  status: SidebarThreadStatus;
-  isUnread: boolean;
-  isWoke: boolean;
-  isActive: boolean;
-  isSelected: boolean;
-}): boolean {
-  if (input.isActive || input.isSelected || input.status === "input") return false;
-  // A usage-limit pause waits on the clock, not the user, so it recedes too.
-  if (input.status === "working" || input.status === "monitoring" || input.status === "paused")
-    return true;
-  if (input.status === "ready" || input.status === "approval") {
-    return !input.isUnread && !input.isWoke;
-  }
-  return false;
-}
-
 /**
- * How strongly a sidebar row draws its title. Unread is carried by weight
- * (plus the row's accessible name), never by fading read titles: read titles
- * sit on the plain muted role so they keep 4.5:1 contrast.
+ * How strongly a sidebar row draws its title. Cards in the thread list draw
+ * every title at full strength (board 1): status and age carry the state, not
+ * a fading title. Slim history rows in the shelves sit on the plain muted role
+ * (no alpha, so they keep 4.5:1) unless they need you or are open.
  */
-export type SidebarThreadTitleTone = "unread" | "emphasis" | "read";
+export type SidebarThreadTitleTone = "emphasis" | "read";
 
 export function resolveSidebarThreadTitleTone(input: {
   variant: "card" | "slim";
-  recedes: boolean;
   status: SidebarThreadStatus;
-  isUnread: boolean;
   isWoke: boolean;
   isActive: boolean;
 }): SidebarThreadTitleTone {
-  // Receded background work stays quiet even with an unseen earlier completion.
-  if (input.recedes) return "read";
-  if (input.isUnread) return "unread";
-  if (input.isActive || input.isWoke || input.status === "input") return "emphasis";
-  // Remaining cards (failed, or selected) keep a strong title; slim rows are history.
-  return input.variant === "card" ? "emphasis" : "read";
+  if (input.variant === "card") return "emphasis";
+  return input.isActive || input.isWoke || input.status === "input" ? "emphasis" : "read";
 }
 
 type SidebarThreadStatusInput = Pick<
   SidebarThreadSummary,
   "hasPendingApprovals" | "hasPendingUserInput" | "session" | "backgroundLiveness" | "agentState"
->;
+> & { readonly latestTurn?: SidebarThreadSummary["latestTurn"] };
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
   if (thread.hasPendingApprovals) {
@@ -891,9 +872,9 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
   }
-  // A failed session outranks lingering background liveness: the user must
-  // see the failure, not a stale Working (review finding).
-  if (thread.session?.status === "error") {
+  // A failure outranks lingering background liveness: the user must see the
+  // failure, not a stale Working (review finding). The one shared failed rule.
+  if (isThreadFailed(thread)) {
     return "failed";
   }
   // Background work outlives the turn: fleets read as working; monitoring
@@ -908,37 +889,112 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
 }
 
 /**
+ * A proposed plan waits for the user: the same rule as the Needs you "plan"
+ * kind, so a thread's own row and its To review row agree.
+ */
+export function isSidebarThreadPlanReady(
+  thread: Pick<
+    SidebarThreadSummary,
+    "hasActionableProposedPlan" | "interactionMode" | "session"
+  > & {
+    readonly latestTurn?: SidebarThreadSummary["latestTurn"];
+  },
+): boolean {
+  return (
+    thread.hasActionableProposedPlan === true &&
+    thread.interactionMode === "plan" &&
+    isLatestTurnSettled(thread.latestTurn ?? null, thread.session ?? null)
+  );
+}
+
+/**
  * The status line under a sidebar thread title. `label` is the leading word
  * the row keeps whole, `detail` may truncate, and `fullLabel` replaces both
  * for screen readers and the hover card when the row abbreviates. The marker
  * always sits beside words, so no status is told by colour alone.
  */
-export interface SidebarRowStatus {
-  readonly kind:
-    | "working"
-    | "retrying"
-    | "paused"
-    | "monitoring"
-    | "approval"
-    | "input"
-    | "failed"
-    | "woke"
-    | "done";
+export type ThreadStatusMarkKind =
+  | "working"
+  | "retrying"
+  | "paused"
+  | "monitoring"
+  | "approval"
+  | "input"
+  | "failed"
+  | "woke"
+  | "plan"
+  | "done";
+
+export interface ThreadStatusMark {
+  /** `live` is the primary dot with a halo, `diamond` the blocked-on-you
+      square, `ring` a hollow dot; plain marks take the tone's colour. */
+  readonly marker: "live" | "diamond" | "dot" | "ring" | "check" | "icon";
+  /** Semantic role for the words; the marker takes the matching fill. */
+  readonly tone: "live" | "warning" | "muted" | "success" | "failed";
+}
+
+/**
+ * The one status table: how every surface that names a thread's state (the
+ * sidebar, the thread header and focus bar, the start screen, Wrap up) draws
+ * it. Amber is blocked on you only; waiting on the clock (a usage limit) or
+ * on the provider (a retry) is neutral; only a live agent takes the accent.
+ * `ThreadStatusMarker` draws the marker.
+ */
+export const THREAD_STATUS_MARKS = {
+  working: { marker: "live", tone: "live" },
+  retrying: { marker: "ring", tone: "muted" },
+  paused: { marker: "icon", tone: "muted" },
+  monitoring: { marker: "icon", tone: "muted" },
+  approval: { marker: "diamond", tone: "warning" },
+  input: { marker: "icon", tone: "warning" },
+  failed: { marker: "icon", tone: "failed" },
+  // A woken snooze does not block the agent, so it stays neutral: amber is blocked on you only.
+  woke: { marker: "icon", tone: "muted" },
+  plan: { marker: "icon", tone: "muted" },
+  done: { marker: "check", tone: "success" },
+} as const satisfies Record<ThreadStatusMarkKind, ThreadStatusMark>;
+
+/** Which running state a working or paused thread is in: live, retrying, or waiting on a usage limit. */
+export function runningStatusMarkKind(
+  status: "working" | "paused",
+  agentState: SidebarThreadSummary["agentState"],
+): "working" | "retrying" | "paused" {
+  if (status === "paused") return "paused";
+  return agentState?.kind === "retrying" ? "retrying" : "working";
+}
+
+/** The mark of a thread that is running (session running or starting), from the status table. */
+export function runningThreadMarkKind(
+  thread: Parameters<typeof resolveSidebarThreadStatus>[0],
+): "working" | "retrying" | "paused" {
+  return runningStatusMarkKind(
+    resolveSidebarThreadStatus(thread) === "paused" ? "paused" : "working",
+    thread.agentState,
+  );
+}
+
+export interface SidebarRowStatus extends ThreadStatusMark {
+  readonly kind: ThreadStatusMarkKind;
   readonly label: string;
   readonly detail: string | null;
   readonly fullLabel?: string;
-  /** `live` is the primary dot with a wash, `ring` a hollow warning dot. */
-  readonly marker: "live" | "dot" | "ring" | "check" | "icon";
-  /** Semantic role for the words; the marker takes the matching fill. */
-  readonly tone: "live" | "warning" | "muted" | "success" | "input" | "failed";
+}
+
+function markedStatus(
+  kind: ThreadStatusMarkKind,
+  label: string,
+  detail: string | null = null,
+): SidebarRowStatus {
+  return { kind, label, detail, ...THREAD_STATUS_MARKS[kind] };
 }
 
 /**
  * Row status in the thread list's wording: "Working · step 4 of 6",
- * "Needs approval", "Retrying · attempt 2 of 10", "Done · 3h",
- * "Waiting for usage limit · resets 14:20". A resting thread reads Done after
- * a completed turn (or an unseen completion); otherwise it has no status and
- * the row shows its age instead.
+ * "Needs approval", "Retrying · attempt 2 of 10", "Plan ready", "Done",
+ * "Waiting for usage limit · resets 14:20". A resting thread reads Plan ready
+ * while a proposed plan waits for a decision, Done after a completed turn (or
+ * an unseen completion); otherwise it has no status and the row shows its age
+ * instead. The row draws the time beside the words itself.
  */
 export function resolveSidebarRowStatus(input: {
   readonly status: SidebarThreadStatus;
@@ -948,8 +1004,8 @@ export function resolveSidebarRowStatus(input: {
   readonly isWoke: boolean;
   readonly isUnread: boolean;
   readonly latestTurnCompleted: boolean;
-  /** Compact age for the Done detail, such as "3h". */
-  readonly timeLabel: string;
+  /** A proposed plan waits for the user's decision (the Needs you "plan" kind). */
+  readonly isPlanReady: boolean;
 }): SidebarRowStatus | null {
   switch (input.status) {
     case "working":
@@ -959,55 +1015,24 @@ export function resolveSidebarRowStatus(input: {
         planProgress: input.planProgress,
         formatResetTime: input.formatResetTime,
       });
-      if (input.status === "paused") {
-        return { kind: "paused", ...running, marker: "dot", tone: "warning" };
-      }
-      if (input.agentState?.kind === "retrying") {
-        return { kind: "retrying", ...running, marker: "ring", tone: "muted" };
-      }
-      return { kind: "working", ...running, marker: "live", tone: "live" };
+      // Waiting on the clock or on a retry, not on you: neutral, never amber.
+      const kind = runningStatusMarkKind(input.status, input.agentState);
+      return { kind, ...running, ...THREAD_STATUS_MARKS[kind] };
     }
     case "monitoring":
-      return {
-        kind: "monitoring",
-        label: "Monitoring",
-        detail: null,
-        marker: "icon",
-        tone: "muted",
-      };
+      return markedStatus("monitoring", "Monitoring");
     case "approval":
-      return {
-        kind: "approval",
-        label: "Needs approval",
-        detail: null,
-        marker: "dot",
-        tone: "warning",
-      };
+      return markedStatus("approval", "Needs approval");
     case "input":
-      return {
-        kind: "input",
-        label: "Needs your answer",
-        detail: null,
-        marker: "icon",
-        tone: "input",
-      };
+      return markedStatus("input", "Needs your answer");
     case "failed":
-      return { kind: "failed", label: "Failed", detail: null, marker: "icon", tone: "failed" };
+      return markedStatus("failed", "Failed");
     case "ready":
       break;
   }
-  if (input.isWoke) {
-    return { kind: "woke", label: "Woke", detail: null, marker: "icon", tone: "warning" };
-  }
-  if (input.isUnread || input.latestTurnCompleted) {
-    return {
-      kind: "done",
-      label: "Done",
-      detail: input.timeLabel === "" ? null : input.timeLabel,
-      marker: "check",
-      tone: "success",
-    };
-  }
+  if (input.isWoke) return markedStatus("woke", "Woke");
+  if (input.isPlanReady) return markedStatus("plan", "Plan ready");
+  if (input.isUnread || input.latestTurnCompleted) return markedStatus("done", "Done");
   return null;
 }
 
@@ -1065,81 +1090,6 @@ export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@e6tools/c
 export { pinOrderKeyBetween, planPinnedReorder } from "@e6tools/client-runtime/state/thread-sort";
 export { sortPinnedThreadsByOrderKey as sortPinnedThreadsForSidebar } from "@e6tools/client-runtime/state/thread-sort";
 
-const EMPTY_CONTENT_MATCH_KEYS: ReadonlySet<string> = new Set<string>();
-
-/**
- * Search the already-ordered sidebar thread collection by title or linked PR,
- * plus any thread whose messages the server matched (`contentMatchKeys`, keyed
- * by `threadSearchMatchKey`). Keeping the input order means lifecycle ordering
- * (active, snoozed, settled) remains stable while the user narrows the list.
- */
-export function searchSidebarThreads<
-  T extends {
-    readonly environmentId: EnvironmentId;
-    readonly id: ThreadId;
-    readonly title: string;
-  } & Parameters<typeof threadPullRequestSearchTerms>[0],
->(
-  threads: readonly T[],
-  query: string,
-  contentMatchKeys: ReadonlySet<string> = EMPTY_CONTENT_MATCH_KEYS,
-): T[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (normalizedQuery.length === 0) return [];
-  const titleMatches: T[] = [];
-  const contentMatches: T[] = [];
-  for (const thread of threads) {
-    const matchesTitle = [thread.title, ...threadPullRequestSearchTerms(thread)].some((term) =>
-      term.toLowerCase().includes(normalizedQuery),
-    );
-    if (matchesTitle) {
-      titleMatches.push(thread);
-    } else if (
-      contentMatchKeys.size > 0 &&
-      contentMatchKeys.has(
-        threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id }),
-      )
-    ) {
-      contentMatches.push(thread);
-    }
-  }
-  return [...titleMatches, ...contentMatches];
-}
-
-export function filterSidebarProjectScopeItems<TItem extends { readonly value: string }>(input: {
-  items: readonly TItem[];
-  query: string;
-  matches: (item: TItem, query: string) => boolean;
-}): readonly TItem[] {
-  const query = input.query.trim();
-  if (query.length === 0) return input.items;
-  return input.items.filter((item) => item.value !== "all" && input.matches(item, query));
-}
-
-export interface SidebarProjectScopeMenuState {
-  readonly open: boolean;
-  readonly query: string;
-}
-
-export type SidebarProjectScopeMenuAction =
-  | { readonly type: "query-changed"; readonly query: string }
-  | { readonly type: "open-changed"; readonly open: boolean }
-  | { readonly type: "project-settings-opened" };
-
-export function reduceSidebarProjectScopeMenuState(
-  state: SidebarProjectScopeMenuState,
-  action: SidebarProjectScopeMenuAction,
-): SidebarProjectScopeMenuState {
-  switch (action.type) {
-    case "query-changed":
-      return { ...state, query: action.query };
-    case "open-changed":
-      return { open: action.open, query: "" };
-    case "project-settings-opened":
-      return { open: false, query: "" };
-  }
-}
-
 // Settled rows are history, so they order by when the work ENDED, not when
 // the thread was created or last touched.
 export function sortSettledThreadsForSidebar<
@@ -1168,21 +1118,16 @@ export function resolveWorkingStartedAt(
   return firstValidTimestamp(thread.session?.updatedAt);
 }
 
-export function formatWorkingDurationLabel(elapsedMs: number): string {
-  const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
-const LIVE_STATUS_DOT_CLASS = "bg-primary ring-2 ring-primary-surface";
+const LIVE_STATUS_DOT_CLASS = "rounded-full bg-primary ring-2 ring-primary-surface";
+/** Blocked on you: a small rotated square, as on the newer sidebar. */
+const BLOCKED_STATUS_DOT_CLASS = "rounded-[1px] rotate-45 scale-[0.8] bg-warning-foreground";
 
 /** Legacy sidebar pill. Colors go through semantic roles so themes recolor
-    them, matching the newer sidebar's status hues: warning for approval and
-    pauses, primary for input and plan ready, primary with a static ring for
-    a live agent, info for connecting, muted for monitoring, success for an
-    unseen completion. */
+    them, matching the newer sidebar's status hues: a warning diamond for
+    approval and answer, primary with a static ring for a live agent, info for
+    connecting, muted for pauses, plan ready and monitoring, success for an
+    unseen completion. Glyphs take the `*-foreground` roles, which stay legible
+    on every sidebar ground; `dotClass` carries the shape as well as the fill. */
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
@@ -1192,23 +1137,25 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Needs approval",
       colorClass: "text-warning-foreground",
-      dotClass: "bg-warning",
+      dotClass: BLOCKED_STATUS_DOT_CLASS,
     };
   }
 
   if (thread.hasPendingUserInput) {
     return {
       label: "Needs your answer",
-      colorClass: "text-primary-text",
-      dotClass: "bg-primary",
+      colorClass: "text-warning-foreground",
+      dotClass: BLOCKED_STATUS_DOT_CLASS,
+      glyph: "question",
     };
   }
 
   if (isPausedForUsageLimit(thread)) {
     return {
       label: "Paused",
-      colorClass: "text-warning-foreground",
-      dotClass: "bg-warning",
+      colorClass: "text-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
+      glyph: "pause",
     };
   }
 
@@ -1224,7 +1171,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Connecting",
       colorClass: "text-info-foreground",
-      dotClass: "bg-info",
+      dotClass: "rounded-full bg-info-foreground",
     };
   }
 
@@ -1237,9 +1184,9 @@ export function resolveThreadStatusPill(input: {
     thread.hasActionableProposedPlan;
   if (hasPlanReadyPrompt) {
     return {
-      label: "Plan Ready",
-      colorClass: "text-primary-text",
-      dotClass: "bg-primary",
+      label: "Plan ready",
+      colorClass: "text-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
     };
   }
 
@@ -1259,7 +1206,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Monitoring",
       colorClass: "text-muted-foreground",
-      dotClass: "bg-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
     };
   }
 
@@ -1267,7 +1214,7 @@ export function resolveThreadStatusPill(input: {
     return {
       label: "Completed",
       colorClass: "text-success-foreground",
-      dotClass: "bg-success",
+      dotClass: "rounded-full bg-success-foreground",
     };
   }
 

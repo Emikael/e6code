@@ -27,6 +27,7 @@ export * from "./vcs.ts";
 export * from "./sourceControl.ts";
 export * from "./projectClone.ts";
 export * from "./pullRequest.ts";
+export * from "./parked.ts";
 export * from "./orchestration.ts";
 export * from "./e6ProjectFile.ts";
 export * from "./editor.ts";

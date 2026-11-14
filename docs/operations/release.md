@@ -170,8 +170,10 @@ The job needs `CLOUDFLARE_API_TOKEN` (secret) and `CLOUDFLARE_ACCOUNT_ID`
 domains, so deploy provisions their DNS records and certificates. Delete any
 existing CNAME on those hostnames first; a custom domain cannot replace one.
 Headers and the `/app` redirect live in `apps/marketing/public/_headers` and
-`_redirects`, which Astro copies into `dist/` at build time. `/app` and
-`/app/` redirect to `https://latest.app.e6code.com`. Workers static assets
+`_redirects`, which Astro copies into `dist/` at build time. Hashed assets under
+`/_astro/` are cached for a year as immutable; the install scripts stay at five
+minutes. `astro preview` ignores `_headers`, so check header changes with
+`wrangler dev`. `/app` and `/app/` redirect to `https://latest.app.e6code.com`. Workers static assets
 `_redirects` only allow relative source paths, so the www to apex redirect
 must be configured as a Cloudflare Redirect Rule on the e6code.com zone
 (`www.e6code.com/*` -> `https://e6code.com/${1}`, 301). Unknown paths serve

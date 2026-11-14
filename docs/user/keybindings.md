@@ -19,8 +19,10 @@ Use `mod+shift+e` for effort, `mod+shift+a` for permissions, `mod+shift+x` for t
 workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
-`mod+/` steps effort through Fast, Balanced and Deep, the same steps shown next to the model on
-wider screens and in the model picker. The effort menu keeps every level the model offers.
+`mod+/` steps effort through Fast, Balanced and Deep, the same steps shown in the model picker
+and, with **Settings → Attention → Composer controls** set to Full, next to the model on wider
+screens. The effort menu keeps every level the model offers. While Composer controls is Compact,
+the effort, permissions and mode shortcuts open the one controls chip.
 
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
@@ -90,9 +92,9 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `editableFocus`, `isWeb`, and `isDesktop`.
+`previewOpen`, `diffFocus`, `modelPickerOpen`, `editableFocus`, `isWeb`, and `isDesktop`.
 `editableFocus` is true while a text field, the composer, or another editor has
-the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
+the keyboard. `diffFocus` is true while the Diff tab or a pull request's Code tab has it. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
@@ -124,6 +126,23 @@ shortcut; assign one in **Settings → Keybindings**.
 still offering **Undo** in a notification, such as an unpin, settle, snooze, or
 archive. Its default rule skips text fields and terminals so native undo keeps
 working there.
+
+`thread.nextNeedsYou` (`mod+alt+n` by default) opens the next thread that needs you:
+blocked threads first, then those to review.
+
+`focus.toggle` (`mod+alt+z` by default) enters focus mode on an open thread and leaves it
+from anywhere, Settings included. Escape does not leave focus mode.
+
+`capture.park` (`mod+alt+p` by default) parks a thought from any screen without leaving it.
+Inside the composer, `mod+s` parks the draft you are writing instead.
+
+`diff.nextChange` (`v`), `diff.nextFile` (`j`), and `diff.previousFile` (`k`) page through a
+diff while it has focus and you are not typing. After a file's last change, `diff.nextChange`
+marks it reviewed and moves to the next file you have not reviewed; see
+[Source control](./source-control.md#review-changes-in-the-diff-tab).
+
+On some Windows keyboard layouts `ctrl+alt` acts as AltGr; if one of these shortcuts types a
+character instead, choose another binding in Settings.
 
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your

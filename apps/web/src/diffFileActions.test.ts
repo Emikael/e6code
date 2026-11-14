@@ -29,7 +29,8 @@ describe("openDiffFilePrimaryAction", () => {
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
     ).toMatchObject({
       isOpen: true,
-      activeSurfaceId: "file:apps/web/src/components/DiffPanel.tsx",
+      activeSurfaceId: "files",
+      surfaces: [{ id: "files", relativePath: "apps/web/src/components/DiffPanel.tsx" }],
     });
     expect(openInEditor).not.toHaveBeenCalled();
   });
@@ -64,7 +65,8 @@ describe("openDiffFilePrimaryAction", () => {
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, THREAD_REF),
     ).toMatchObject({
       isOpen: true,
-      activeSurfaceId: "file:Dockerfile",
+      activeSurfaceId: "files",
+      surfaces: [{ id: "files", relativePath: "Dockerfile" }],
     });
     expect(openInEditor).not.toHaveBeenCalled();
   });

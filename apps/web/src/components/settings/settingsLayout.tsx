@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/motion";
 import { SettingsGroup } from "./SettingsGroup";
 import { InfoIcon, Undo2Icon } from "lucide-react";
 import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@e6tools/contracts";
@@ -77,7 +78,7 @@ function SettingsSearchTargetProvider({
 }
 
 function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): void {
-  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reducedMotion = prefersReducedMotion();
   const markedScrollTarget =
     typeof target.querySelector === "function"
       ? target.querySelector<HTMLElement>(":scope > [data-settings-scroll-target]")
@@ -89,12 +90,12 @@ function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): vo
       : target);
 
   scrollTarget.scrollIntoView({
-    behavior: prefersReducedMotion ? "auto" : "smooth",
+    behavior: reducedMotion ? "auto" : "smooth",
     block: "center",
   });
   target.focus({ preventScroll: true });
   target.classList.remove("settings-search-target-pulse");
-  if (!highlight || prefersReducedMotion) return;
+  if (!highlight || reducedMotion) return;
   void target.offsetWidth;
   target.classList.add("settings-search-target-pulse");
   // The class also suppresses the focus outline (the pulse is the destination
@@ -268,8 +269,11 @@ export function SettingsRow({
   mixed: mixedOverride,
   children,
   className,
+  compact = false,
   ...rowProps
 }: Omit<ComponentPropsWithoutRef<"div">, "title"> & {
+  /** Puts the control beside the text from a 20rem row up, for half-width cards (board 6). */
+  compact?: boolean;
   title: ReactNode;
   description?: ReactNode;
   status?: ReactNode;
@@ -436,8 +440,15 @@ export function SettingsRow({
         className,
       )}
     >
-      <div className="flex flex-col gap-3 @min-[32rem]/settings-row:grid @min-[32rem]/settings-row:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[32rem]/settings-row:items-center @min-[32rem]/settings-row:gap-8">
-        <div className="min-w-0 flex-1 space-y-1">
+      <div
+        className={cn(
+          "flex flex-col gap-3",
+          compact
+            ? "@min-[20rem]/settings-row:grid @min-[20rem]/settings-row:grid-cols-[minmax(0,1fr)_auto] @min-[20rem]/settings-row:items-center @min-[20rem]/settings-row:gap-3"
+            : "@min-[32rem]/settings-row:grid @min-[32rem]/settings-row:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)] @min-[32rem]/settings-row:items-center @min-[32rem]/settings-row:gap-8",
+        )}
+      >
+        <div data-slot="settings-row-text" className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 items-center gap-1.5">
             <h3 className="text-sm font-medium tracking-[-0.005em] text-foreground">{title}</h3>
             {renderedInheritance ? (
@@ -459,7 +470,14 @@ export function SettingsRow({
           ) : null}
         </div>
         {renderedControl ? (
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-2 @min-[32rem]/settings-row:w-auto @min-[32rem]/settings-row:justify-end">
+          <div
+            className={cn(
+              "flex w-full min-w-0 shrink-0 items-center gap-2",
+              compact
+                ? "@min-[20rem]/settings-row:w-auto @min-[20rem]/settings-row:justify-end"
+                : "@min-[32rem]/settings-row:w-auto @min-[32rem]/settings-row:justify-end",
+            )}
+          >
             {renderedControl}
           </div>
         ) : null}
@@ -546,7 +564,11 @@ export function SettingsPageContainer({
         className="topbar-scroll-fade scrollbar-gutter-both flex-1 overflow-y-auto"
         data-settings-page-scroll
       >
-        <WorkspacePageContainer width={width} className={cn("gap-8 sm:pt-10", className)}>
+        {/* Without a top bar above it (the web hides an empty one), the page keeps board 6's 32px. */}
+        <WorkspacePageContainer
+          width={width}
+          className={cn("gap-6 sm:pt-2 sm:[[data-top-bar-hidden]_&]:pt-8", className)}
+        >
           {heading ? <SettingsPageHeader {...heading} /> : null}
           {children}
         </WorkspacePageContainer>
@@ -567,12 +589,11 @@ export function SettingsPageNotice({ children }: { children: ReactNode }) {
   );
 }
 
-/** `Settings / <group>`, the page title, and one line on what the page is for. */
-function SettingsPageHeader({ group, title, description }: SettingsPageHeading) {
+/** Board 6: the page title and one line on what the page is for. The nav names the group. */
+function SettingsPageHeader({ title, description }: SettingsPageHeading) {
   return (
     <header className="flex flex-col gap-1.5">
-      <span className="font-mono text-[11px] text-muted-foreground">Settings / {group}</span>
-      <h1 className="text-[28px] leading-8 font-semibold tracking-[-0.03em] text-foreground">
+      <h1 className="text-[32px] leading-9 font-semibold tracking-[-0.03em] text-foreground">
         {title}
       </h1>
       <p className="text-sm leading-[22px] text-muted-foreground">{description}</p>

@@ -1,6 +1,8 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@e6tools/contracts";
+import type { AgentActivityDetail } from "@e6tools/contracts/settings";
 import { create } from "zustand";
+import { recordFocusOpenedPanel, recordFocusReplacedSurface } from "./focusMode";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 
 export const PERSISTED_STATE_KEY = "e6code:ui-state:v1";
@@ -31,7 +33,39 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  runDetailsSectionOpen?: Record<string, boolean>;
+  focusMode?: boolean;
+  recentFilesByThreadKey?: Record<string, RecentFile[]>;
+  filesFilterByThreadKey?: Record<string, FilesFilterChoice>;
+  focusOpenedPanelKeys?: string[];
+  focusReplacedSurfaceByThreadKey?: Record<string, string>;
+  agentActivityDetailByThreadKey?: Record<string, string>;
 }
+
+/** A file opened in a thread's Files tab, with the line it was left at. */
+export interface RecentFile {
+  readonly path: string;
+  readonly line: number | null;
+}
+
+export type FilesFilterChoice = "all" | "changed";
+
+/** Files tab state kept per thread on this device (F18). */
+export interface UiFilesState {
+  /**
+   * The last files opened in each thread, newest first, at most RECENT_FILES_STORED_LIMIT: more
+   * than "Recently opened" shows, since the ones among Changed are filtered out before it cuts.
+   */
+  recentFilesByThreadKey: Record<string, RecentFile[]>;
+  /** The explorer filter each thread was left on; absent until the reader picks one. */
+  filesFilterByThreadKey: Record<string, FilesFilterChoice>;
+}
+
+/** How many "Recently opened" shows. */
+export const RECENT_FILES_LIMIT = 5;
+export const RECENT_FILES_STORED_LIMIT = 30;
+/** Threads whose Files tab state is kept; the oldest are forgotten first. */
+const FILES_STATE_THREAD_LIMIT = 200;
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
@@ -55,8 +89,55 @@ export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
+/** The collapsible sections of Run details, in the order they render. */
+const RUN_DETAILS_SECTIONS = ["plan", "changes", "subagents", "usage"] as const;
+export type RunDetailsSectionId = (typeof RUN_DETAILS_SECTIONS)[number];
+
+export interface UiRunDetailsState {
+  /** Sections the user opened or closed on this device; absent ones use their default. */
+  runDetailsSectionOpen: Partial<Record<RunDetailsSectionId, boolean>>;
+}
+
+/**
+ * Focus mode (F6): one thread, no periphery. A render-time override: while on,
+ * the sidebar, right panel and terminal drawer render closed without writing
+ * their own state, so leaving focus shows them exactly as they were.
+ */
+export interface UiFocusState {
+  /** Persisted, so a reload stays in focus. */
+  focusMode: boolean;
+  /**
+   * The right panel was opened during focus (Mod+D, Review diff), so it shows
+   * until closed. Not persisted: a reload in focus starts with it closed.
+   */
+  focusPanelPeek: boolean;
+  /**
+   * Threads whose right panel focus opened from closed. Persisted, so a
+   * reload in focus still closes them again; see `focusOpenedPanelsToClose`.
+   */
+  focusOpenedPanelKeys: ReadonlyArray<string>;
+  /**
+   * The surface each open panel showed before focus switched it, restored when
+   * focus exits. Persisted for the same reason as `focusOpenedPanelKeys`.
+   */
+  focusReplacedSurfaceByThreadKey: Readonly<Record<string, string>>;
+}
+
+/** "Agent activity" chosen for one thread from its More menu, over the setting (F11). */
+export interface UiAgentActivityState {
+  agentActivityDetailByThreadKey: Record<string, AgentActivityDetail>;
+}
+
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends
+    UiProjectState,
+    UiThreadState,
+    UiEndpointState,
+    UiPullRequestState,
+    UiRunDetailsState,
+    UiFocusState,
+    UiFilesState,
+    UiAgentActivityState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -66,6 +147,14 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
+  runDetailsSectionOpen: {},
+  focusMode: false,
+  focusPanelPeek: false,
+  recentFilesByThreadKey: {},
+  filesFilterByThreadKey: {},
+  focusOpenedPanelKeys: [],
+  focusReplacedSurfaceByThreadKey: {},
+  agentActivityDetailByThreadKey: {},
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -117,6 +206,100 @@ function sanitizeTimestampRecord(value: unknown): Record<string, string> {
   );
 }
 
+function sanitizeRunDetailsSectionOpen(
+  value: unknown,
+): Partial<Record<RunDetailsSectionId, boolean>> {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  const next: Partial<Record<RunDetailsSectionId, boolean>> = {};
+  for (const section of RUN_DETAILS_SECTIONS) {
+    const open = record[section];
+    if (typeof open === "boolean") next[section] = open;
+  }
+  return next;
+}
+
+function sanitizeRecentFiles(value: unknown): Record<string, RecentFile[]> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([threadKey, files]) => {
+      if (!Array.isArray(files)) return [];
+      const valid = files
+        .filter(
+          (file): file is RecentFile =>
+            !!file &&
+            typeof file === "object" &&
+            typeof file.path === "string" &&
+            file.path.length > 0 &&
+            (file.line === null || (Number.isSafeInteger(file.line) && file.line > 0)),
+        )
+        .slice(0, RECENT_FILES_STORED_LIMIT)
+        .map((file) => ({ path: file.path, line: file.line }));
+      return valid.length > 0 ? [[threadKey, valid]] : [];
+    }),
+  );
+}
+
+function sanitizeFilesFilters(value: unknown): Record<string, FilesFilterChoice> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, FilesFilterChoice] => entry[1] === "all" || entry[1] === "changed",
+    ),
+  );
+}
+
+/** Keeps the newest `limit` keys of a record whose keys are inserted oldest first. */
+function keepNewestKeys<T>(record: Record<string, T>, limit: number): Record<string, T> {
+  const keys = Object.keys(record);
+  if (keys.length <= limit) return record;
+  return Object.fromEntries(keys.slice(keys.length - limit).map((key) => [key, record[key]!]));
+}
+
+/**
+ * A file was opened (line null) or left at a line in a thread's Files tab. It moves to the front
+ * of that thread's recent files; a known line is kept when the file is opened again without one.
+ */
+export function recordRecentFile(
+  state: UiState,
+  threadKey: string,
+  path: string,
+  line: number | null,
+): UiState {
+  const current = state.recentFilesByThreadKey[threadKey] ?? [];
+  const previous = current.find((file) => file.path === path);
+  const nextLine = line ?? (previous ? previous.line : null);
+  if (current[0]?.path === path && current[0].line === nextLine) return state;
+  const files = [{ path, line: nextLine }, ...current.filter((file) => file.path !== path)].slice(
+    0,
+    RECENT_FILES_STORED_LIMIT,
+  );
+  const { [threadKey]: _previous, ...rest } = state.recentFilesByThreadKey;
+  return {
+    ...state,
+    recentFilesByThreadKey: keepNewestKeys(
+      { ...rest, [threadKey]: files },
+      FILES_STATE_THREAD_LIMIT,
+    ),
+  };
+}
+
+export function setFilesFilter(
+  state: UiState,
+  threadKey: string,
+  filter: FilesFilterChoice,
+): UiState {
+  if (state.filesFilterByThreadKey[threadKey] === filter) return state;
+  const { [threadKey]: _previous, ...rest } = state.filesFilterByThreadKey;
+  return {
+    ...state,
+    filesFilterByThreadKey: keepNewestKeys(
+      { ...rest, [threadKey]: filter },
+      FILES_STATE_THREAD_LIMIT,
+    ),
+  };
+}
+
 function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMethod {
   return value === "merge" || value === "squash" || value === "rebase";
 }
@@ -158,6 +341,18 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
+    runDetailsSectionOpen: sanitizeRunDetailsSectionOpen(parsed.runDetailsSectionOpen),
+    focusMode: parsed.focusMode === true,
+    focusPanelPeek: false,
+    recentFilesByThreadKey: sanitizeRecentFiles(parsed.recentFilesByThreadKey),
+    filesFilterByThreadKey: sanitizeFilesFilters(parsed.filesFilterByThreadKey),
+    focusOpenedPanelKeys: Array.isArray(parsed.focusOpenedPanelKeys)
+      ? parsed.focusOpenedPanelKeys.filter((key): key is string => typeof key === "string")
+      : [],
+    focusReplacedSurfaceByThreadKey: sanitizeStringRecord(parsed.focusReplacedSurfaceByThreadKey),
+    agentActivityDetailByThreadKey: sanitizeAgentActivityDetailByThreadKey(
+      parsed.agentActivityDetailByThreadKey,
+    ),
   };
 }
 
@@ -232,6 +427,13 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
+        runDetailsSectionOpen: state.runDetailsSectionOpen,
+        focusMode: state.focusMode,
+        recentFilesByThreadKey: state.recentFilesByThreadKey,
+        filesFilterByThreadKey: state.filesFilterByThreadKey,
+        focusOpenedPanelKeys: [...state.focusOpenedPanelKeys],
+        focusReplacedSurfaceByThreadKey: { ...state.focusReplacedSurfaceByThreadKey },
+        agentActivityDetailByThreadKey: state.agentActivityDetailByThreadKey,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -340,10 +542,115 @@ export function setSidebarProjectScopeKey(state: UiState, projectKey: string | n
   };
 }
 
+export function setRunDetailsSectionOpen(
+  state: UiState,
+  section: RunDetailsSectionId,
+  open: boolean,
+): UiState {
+  if (state.runDetailsSectionOpen[section] === open) return state;
+  return {
+    ...state,
+    runDetailsSectionOpen: { ...state.runDetailsSectionOpen, [section]: open },
+  };
+}
+
 function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMethod): UiState {
   return state.pullRequestMergeMethod === method
     ? state
     : { ...state, pullRequestMergeMethod: method };
+}
+
+/** Entering or leaving focus starts with the right panel hidden again. */
+export function setFocusMode(state: UiState, focusMode: boolean): UiState {
+  if (state.focusMode === focusMode && !state.focusPanelPeek) return state;
+  return { ...state, focusMode, focusPanelPeek: false };
+}
+
+export function setFocusPanelPeek(state: UiState, peek: boolean): UiState {
+  if (!state.focusMode || state.focusPanelPeek === peek) return state;
+  return { ...state, focusPanelPeek: peek };
+}
+
+function sanitizeStringRecord(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string") result[key] = entry;
+  }
+  return result;
+}
+
+function sanitizeAgentActivityDetailByThreadKey(
+  value: unknown,
+): Record<string, AgentActivityDetail> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const result: Record<string, AgentActivityDetail> = {};
+  for (const [key, detail] of Object.entries(value)) {
+    if (detail === "summary" || detail === "live") result[key] = detail;
+  }
+  return result;
+}
+
+/**
+ * Sets this thread's "Agent activity", or clears it (null) so the thread
+ * follows the setting again.
+ */
+export function setThreadAgentActivityDetail(
+  state: UiState,
+  threadKey: string,
+  detail: AgentActivityDetail | null,
+): UiState {
+  const current = state.agentActivityDetailByThreadKey[threadKey] ?? null;
+  if (current === detail) return state;
+  const { [threadKey]: _previous, ...rest } = state.agentActivityDetailByThreadKey;
+  return {
+    ...state,
+    agentActivityDetailByThreadKey: detail === null ? rest : { ...rest, [threadKey]: detail },
+  };
+}
+
+/** The panel was closed until focus opened it: show it, and close it again afterwards. */
+export function noteFocusOpenedPanel(state: UiState, threadKey: string): UiState {
+  if (!state.focusMode) return state;
+  const focusOpenedPanelKeys = recordFocusOpenedPanel(state.focusOpenedPanelKeys, threadKey);
+  if (state.focusPanelPeek && focusOpenedPanelKeys === state.focusOpenedPanelKeys) return state;
+  return { ...state, focusPanelPeek: true, focusOpenedPanelKeys };
+}
+
+/** Focus switched this thread's open panel away from `surfaceId`; show it again on exit. */
+export function noteFocusReplacedSurface(
+  state: UiState,
+  threadKey: string,
+  surfaceId: string,
+): UiState {
+  if (!state.focusMode) return state;
+  const focusReplacedSurfaceByThreadKey = recordFocusReplacedSurface(
+    state.focusReplacedSurfaceByThreadKey,
+    threadKey,
+    surfaceId,
+  );
+  if (focusReplacedSurfaceByThreadKey === state.focusReplacedSurfaceByThreadKey) return state;
+  return { ...state, focusReplacedSurfaceByThreadKey };
+}
+
+/** The surfaces for `restored` were shown again, so they leave the record. */
+export function clearFocusReplacedSurfaces(
+  state: UiState,
+  restored: ReadonlyArray<string>,
+): UiState {
+  if (restored.length === 0) return state;
+  const next = { ...state.focusReplacedSurfaceByThreadKey };
+  for (const key of restored) delete next[key];
+  return { ...state, focusReplacedSurfaceByThreadKey: next };
+}
+
+/** The panels in `closed` are closed again, so they leave the list. */
+export function clearFocusOpenedPanels(state: UiState, closed: ReadonlyArray<string>): UiState {
+  if (closed.length === 0) return state;
+  return {
+    ...state,
+    focusOpenedPanelKeys: state.focusOpenedPanelKeys.filter((key) => !closed.includes(key)),
+  };
 }
 
 export function resolveProjectExpanded(
@@ -430,7 +737,18 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
+  setRunDetailsSectionOpen: (section: RunDetailsSectionId, open: boolean) => void;
+  setFocusMode: (focusMode: boolean) => void;
+  noteFocusOpenedPanel: (threadKey: string) => void;
+  setThreadAgentActivityDetail: (threadKey: string, detail: AgentActivityDetail | null) => void;
+  clearFocusOpenedPanels: (closed: ReadonlyArray<string>) => void;
+  noteFocusReplacedSurface: (threadKey: string, surfaceId: string) => void;
+  clearFocusReplacedSurfaces: (restored: ReadonlyArray<string>) => void;
+  toggleFocusMode: () => void;
+  setFocusPanelPeek: (peek: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
+  recordRecentFile: (threadKey: string, path: string, line: number | null) => void;
+  setFilesFilter: (threadKey: string, filter: FilesFilterChoice) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
     draggedProjectIds: readonly string[],
@@ -451,8 +769,24 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
+  setRunDetailsSectionOpen: (section, open) =>
+    set((state) => setRunDetailsSectionOpen(state, section, open)),
+  setFocusMode: (focusMode) => set((state) => setFocusMode(state, focusMode)),
+  noteFocusOpenedPanel: (threadKey) => set((state) => noteFocusOpenedPanel(state, threadKey)),
+  setThreadAgentActivityDetail: (threadKey, detail) =>
+    set((state) => setThreadAgentActivityDetail(state, threadKey, detail)),
+  clearFocusOpenedPanels: (closed) => set((state) => clearFocusOpenedPanels(state, closed)),
+  noteFocusReplacedSurface: (threadKey, surfaceId) =>
+    set((state) => noteFocusReplacedSurface(state, threadKey, surfaceId)),
+  clearFocusReplacedSurfaces: (restored) =>
+    set((state) => clearFocusReplacedSurfaces(state, restored)),
+  toggleFocusMode: () => set((state) => setFocusMode(state, !state.focusMode)),
+  setFocusPanelPeek: (peek) => set((state) => setFocusPanelPeek(state, peek)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
+  recordRecentFile: (threadKey, path, line) =>
+    set((state) => recordRecentFile(state, threadKey, path, line)),
+  setFilesFilter: (threadKey, filter) => set((state) => setFilesFilter(state, threadKey, filter)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
     set((state) =>
       reorderProjects(state, currentProjectOrder, draggedProjectIds, targetProjectIds),

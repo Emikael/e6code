@@ -130,8 +130,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
           base,
         );
       }
-      // The registered Uniwind themes carry Iris; ScopedVariables below lays
-      // the chosen accent over them at runtime.
+      // The registered Uniwind themes carry the default accent (Graphite);
+      // ScopedVariables below lays any other chosen accent over them at runtime.
       return {
         ...base,
         ...getStockAccentVariableOverrides(themeIds[appearance], stockAccent, appearance),

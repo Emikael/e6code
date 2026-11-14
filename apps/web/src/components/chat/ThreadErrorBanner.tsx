@@ -3,6 +3,7 @@ import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { CircleAlertIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { failureRemedy } from "./ThreadErrorBanner.logic";
 
 export function getThreadErrorBannerKey(threadKey: string, error: string | null): string | null {
   return error === null ? null : `${threadKey}\u0000${error}`;
@@ -43,13 +44,73 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   onDismiss,
   onContinue,
   inline = false,
+  failure,
+  onRetry,
+  onOpenTerminal,
+  checkpointed = false,
+  providerMessage = null,
 }: {
   error: string | null;
   onDismiss?: () => void;
   onContinue?: () => void;
   inline?: boolean;
+  /** "Codex stopped: the CLI is not signed in" (the now bar's sentence), when the turn failed. */
+  failure?: string | null;
+  /** Resends the last message; absent when it cannot be resent as it was. */
+  onRetry?: (() => void) | null;
+  onOpenTerminal?: () => void;
+  /** A checkpoint exists, so the card can say the changes are safe. */
+  checkpointed?: boolean;
+  /** The failed provider's status message, which may name the fix. */
+  providerMessage?: string | null;
 }) {
   if (!error) return null;
+  if (inline && failure) {
+    // Board 7's failure card: what stopped, that the work is safe, the fix, and the ways forward.
+    const remedy = failureRemedy({ error, providerMessage, canRetry: Boolean(onRetry) });
+    return (
+      <article
+        role="alert"
+        className="flex w-full flex-col gap-2 rounded-xl border border-destructive-foreground bg-surface-raised px-4 py-3.5"
+      >
+        <span className="flex items-center gap-1.5 text-xs leading-4 font-medium text-destructive-foreground">
+          <CircleAlertIcon aria-hidden className="size-3.5 shrink-0" />
+          Failed
+        </span>
+        <p className="text-sm leading-[22px] text-foreground">
+          {failure.endsWith(".") ? failure : `${failure}.`}
+          {checkpointed ? " Your changes are safe in the last checkpoint." : null}
+          {remedy?.kind === "command" ? (
+            <>
+              {" Run "}
+              <code className="rounded-sm bg-surface-well px-[5px] py-px font-mono text-[12.5px] leading-5">
+                {remedy.command}
+              </code>
+              , then retry.
+            </>
+          ) : remedy?.kind === "retry" ? (
+            " Retry sends your last message again."
+          ) : null}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {onRetry ? (
+            <Button size="sm" variant="outline" className="sm:text-xs" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : onContinue ? (
+            <Button size="sm" variant="outline" className="sm:text-xs" onClick={onContinue}>
+              Write a follow-up
+            </Button>
+          ) : null}
+          {onOpenTerminal ? (
+            <Button size="sm" variant="ghost" className="sm:text-xs" onClick={onOpenTerminal}>
+              Open terminal
+            </Button>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
   return (
     <div
       className={

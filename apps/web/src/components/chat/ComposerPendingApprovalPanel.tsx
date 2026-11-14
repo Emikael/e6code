@@ -1,4 +1,4 @@
-import { SUBAGENT_APPROVAL_PHRASE } from "@e6tools/client-runtime/pending-requests";
+import { approvalPhrase, approvalWordingKind } from "@e6tools/client-runtime/pending-requests";
 import type { DestructiveCommand } from "@e6tools/client-runtime/destructive-commands";
 import { TriangleAlertIcon } from "lucide-react";
 import { memo } from "react";
@@ -23,8 +23,9 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
   className,
 }: ComposerPendingApprovalPanelProps) {
   const Detail = approval.requestKind === "mcp-elicitation" ? "span" : "code";
-  const fallbackLabel =
-    approval.requestKind === "mcp-elicitation"
+  const fallbackLabel = approval.unnamedKind
+    ? "Approval request"
+    : approval.requestKind === "mcp-elicitation"
       ? "App access approval"
       : approval.requestKind === "command"
         ? "Command approval"
@@ -44,7 +45,7 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
             ? "Permission request"
             : "File change";
 
-  const subagentVerb = agentTitle ? SUBAGENT_APPROVAL_PHRASE[approval.requestKind] : null;
+  const subagentVerb = agentTitle ? approvalPhrase(approvalWordingKind(approval)) : null;
 
   return (
     <span

@@ -9,6 +9,11 @@ within each theme. Appearance preferences are saved separately on each device or
 Cobalt, Rose, or Graphite. It applies to the stock E6 Code theme only; other themes bring their
 own accent. On mobile, choose it under **Settings → Appearance**, separately on each device.
 
+New profiles start with Graphite at contrast 120. Graphite has no hue, so color in the app is left
+to status, such as an agent blocked on you or a failure. A profile that already had an accent or
+contrast keeps it. To switch, pick **Graphite** under **Accent** and set **Contrast** under
+**Advanced** to 120.
+
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
 Use **Change appearance** in the command palette to choose System, Light, or Dark independently of
@@ -18,15 +23,13 @@ those modes. Customize these shortcuts under **Settings → Keybindings**.
 On wide screens, **Chat width** in **Settings → Appearance** lets messages and the composer grow
 beyond the default column: choose Wide or Full.
 **Effort display** in the same section shows a model's reasoning effort in the composer as
-its name, such as High, or as bars.
-**Show the thinking timeline** draws an opened work log as a timeline of steps, with how long each
-tool call took and the lines a file edit changed when the provider reports them. Turn it off for
-the plain list.
+its name, such as High, or as bars. Whether a working agent's steps open by themselves is
+[**Settings → Attention → Agent activity**](./attention.md#work-without-interruptions).
 
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.
-**Thinking timeline** under **Work log** in the same screen is the mobile switch for the timeline,
-set on each device.
+**Thinking timeline** under **Work log** in the same screen shows an opened work log as a
+timeline, with each step's duration, on that device.
 
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
@@ -39,7 +42,7 @@ of the selected theme.
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
 **Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
-in your operating system. Moving between threads always snaps to the selected thread's panel state
+in your operating system or **Settings → Attention → Motion** is set to **Reduced**. Moving between threads always snaps to the selected thread's panel state
 without replaying its transitions.
 
 ## Custom themes

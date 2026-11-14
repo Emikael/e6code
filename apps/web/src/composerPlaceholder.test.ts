@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  DISCONNECTED_COMPOSER_PLACEHOLDER,
-  resolveComposerPlaceholder,
-} from "./composerPlaceholder";
+import { resolveComposerPlaceholder } from "./composerPlaceholder";
 
 const idle = {
   approval: null,
@@ -23,7 +20,16 @@ describe("resolveComposerPlaceholder", () => {
       "Ask anything, @tag files/folders, $use skills, or / for commands",
     );
     expect(resolveComposerPlaceholder({ ...idle, phase: "disconnected" })).toBe(
-      DISCONNECTED_COMPOSER_PLACEHOLDER,
+      "Ask anything, @tag files/folders, $use skills, or / for commands",
+    );
+  });
+
+  it("invites a reply or a parked thought in focus mode, unless a turn runs", () => {
+    expect(resolveComposerPlaceholder({ ...idle, focusMode: true })).toBe(
+      "Reply, or park a thought for later",
+    );
+    expect(resolveComposerPlaceholder({ ...idle, phase: "running", focusMode: true })).toBe(
+      "Queue a follow-up while it works",
     );
   });
 

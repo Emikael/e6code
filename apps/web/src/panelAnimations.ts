@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { type PanelAnimationDurationMs } from "@e6tools/contracts/settings";
 
-import { useMediaQuery } from "./hooks/useMediaQuery";
+import { useReducedMotion } from "./hooks/useReducedMotion";
 import { useClientSettings } from "./hooks/useSettings";
 
 const PanelAnimationSuppressionContext = createContext(false);
@@ -36,7 +36,7 @@ export function usePanelAnimationSettings(): {
   durationMs: PanelAnimationDurationMs;
 } {
   const durationMs = useClientSettings((settings) => settings.panelAnimationDurationMs);
-  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const prefersReducedMotion = useReducedMotion();
   const suppressed = useContext(PanelAnimationSuppressionContext);
   return { active: durationMs > 0 && !prefersReducedMotion && !suppressed, durationMs };
 }

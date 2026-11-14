@@ -15,6 +15,7 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadLinkedPullRequest,
+  ThreadPendingRequestSummary,
   ThreadTitleState,
   ThreadId,
   TurnId,
@@ -57,6 +58,10 @@ export const ProjectionThread = Schema.Struct({
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
+  /** When the oldest unresolved approval or user-input request was asked. */
+  pendingRequestSince: Schema.optional(Schema.NullOr(IsoDateTime)),
+  /** What the open requests ask; null when nothing is pending. */
+  pendingRequestSummary: Schema.optional(Schema.NullOr(ThreadPendingRequestSummary)),
   hasActionableProposedPlan: NonNegativeInt,
   deletedAt: Schema.NullOr(IsoDateTime),
 });

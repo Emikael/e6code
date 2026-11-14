@@ -1,4 +1,8 @@
-import { ClientSettingsSchema, type ClientSettings } from "@e6tools/contracts";
+import {
+  carryRetiredClientSettings,
+  ClientSettingsSchema,
+  type ClientSettings,
+} from "@e6tools/contracts";
 import { fromLenientJson } from "@e6tools/shared/schemaJson";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -21,7 +25,7 @@ const decodeClientSettingsJson = Effect.fnUntraced(function* (raw: string) {
   const document = yield* decodeClientSettingsDocument(raw);
   // Select the shape before validation so invalid legacy settings cannot become defaults.
   return yield* decodeClientSettingsValue(
-    Object.hasOwn(document, "settings") ? document.settings : document,
+    carryRetiredClientSettings(Object.hasOwn(document, "settings") ? document.settings : document),
   );
 });
 const encodeClientSettingsJson = Schema.encodeEffect(ClientSettingsJson);

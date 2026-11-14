@@ -15,6 +15,7 @@ import {
   OrchestrationShellSnapshot,
   OrchestrationThread,
   OrchestrationThreadDetailSnapshot,
+  ProjectionPendingApprovalStatus,
   ProjectScript,
   ProjectIconOverride,
   TurnId,
@@ -31,6 +32,7 @@ import {
   ModelSelection,
   ProjectId,
   ThreadLinkedPullRequest,
+  ThreadPendingRequestSummary,
   ThreadTitleState,
   ThreadId,
   ThreadPullRequestSnapshot,
@@ -63,6 +65,7 @@ import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionT
 import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadPullRequest } from "../../persistence/ProjectionThreadPullRequests.ts";
+import * as ProjectionParkedEntries from "../../persistence/ProjectionParkedEntries.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
 import {
@@ -169,6 +172,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    pendingRequestSummary: Schema.NullOr(Schema.fromJsonString(ThreadPendingRequestSummary)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -534,6 +538,7 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 }
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
+  const parkedEntries = yield* ProjectionParkedEntries.make;
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
   const threadPlanProgress = yield* ThreadPlanProgressService;
   const threadAgentState = yield* ThreadAgentStateService;
@@ -655,6 +660,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -697,6 +704,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -771,6 +780,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -1377,6 +1388,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           latest_user_message_at AS "latestUserMessageAt",
           pending_approval_count AS "pendingApprovalCount",
           pending_user_input_count AS "pendingUserInputCount",
+          pending_request_since AS "pendingRequestSince",
+          pending_request_summary_json AS "pendingRequestSummary",
           has_actionable_proposed_plan AS "hasActionableProposedPlan",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -1595,11 +1608,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
-  const getApprovalRequestTurnIdRow = SqlSchema.findOneOption({
+  const getApprovalRequestRow = SqlSchema.findOneOption({
     Request: Schema.Struct({ threadId: ThreadId, requestId: ApprovalRequestId }),
-    Result: Schema.Struct({ turnId: Schema.NullOr(TurnId) }),
+    Result: Schema.Struct({
+      turnId: Schema.NullOr(TurnId),
+      status: ProjectionPendingApprovalStatus,
+    }),
     execute: ({ threadId, requestId }) => sql`
-      SELECT turn_id AS "turnId"
+      SELECT turn_id AS "turnId", status
       FROM projection_pending_approvals
       WHERE thread_id = ${threadId} AND request_id = ${requestId}
     `,
@@ -1608,12 +1624,25 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const getApprovalRequestTurnId: ProjectionSnapshotQueryShape["getApprovalRequestTurnId"] = (
     input,
   ) =>
-    getApprovalRequestTurnIdRow(input).pipe(
+    getApprovalRequestRow(input).pipe(
       Effect.map(Option.flatMap((row) => Option.fromNullishOr(row.turnId))),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProjectionSnapshotQuery.getApprovalRequestTurnId:query",
           "ProjectionSnapshotQuery.getApprovalRequestTurnId:decodeRow",
+        ),
+      ),
+    );
+
+  const getApprovalRequestStatus: ProjectionSnapshotQueryShape["getApprovalRequestStatus"] = (
+    input,
+  ) =>
+    getApprovalRequestRow(input).pipe(
+      Effect.map(Option.map((row) => row.status)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getApprovalRequestStatus:query",
+          "ProjectionSnapshotQuery.getApprovalRequestStatus:decodeRow",
         ),
       ),
     );
@@ -2481,6 +2510,40 @@ pending_approval_requests AS (
         }),
       );
 
+  const readLatestEventSequence = SqlSchema.findOne({
+    Request: Schema.Void,
+    Result: Schema.Struct({ sequence: Schema.Number }),
+    execute: () => sql`
+      SELECT COALESCE(MAX(sequence), 0) AS "sequence" FROM orchestration_events
+    `,
+  });
+
+  // Events are appended and projected in one transaction, so reading both in
+  // one transaction gives a state that holds exactly the events up to `sequence`.
+  const getParkedState: ProjectionSnapshotQueryShape["getParkedState"] = () =>
+    sql
+      .withTransaction(
+        Effect.all([
+          parkedEntries.getState(),
+          readLatestEventSequence(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getParkedState:latestSequence:query",
+                "ProjectionSnapshotQuery.getParkedState:latestSequence:decodeRow",
+              ),
+            ),
+          ),
+        ]),
+      )
+      .pipe(
+        Effect.map(([state, { sequence }]) => ({ state, sequence })),
+        Effect.mapError((error) =>
+          isPersistenceError(error)
+            ? error
+            : toPersistenceSqlError("ProjectionSnapshotQuery.getParkedState:query")(error),
+        ),
+      );
+
   const getCommandReadModel: ProjectionSnapshotQueryShape["getCommandReadModel"] = () =>
     sql
       .withTransaction(
@@ -2541,6 +2604,7 @@ pending_approval_requests AS (
               ),
             ),
           ),
+          parkedEntries.getState(),
         ]),
       )
       .pipe(
@@ -2553,6 +2617,7 @@ pending_approval_requests AS (
             sessionRows,
             latestTurnRows,
             stateRows,
+            parked,
           ]) =>
             Effect.gen(function* () {
               const linkedThreadIds = new Set(pullRequestRows.map((row) => row.threadId));
@@ -2709,6 +2774,7 @@ pending_approval_requests AS (
                 snapshotSequence: computeSnapshotSequence(stateRows),
                 projects,
                 threads,
+                parked,
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
               } satisfies OrchestrationReadModel;
             }),
@@ -2876,6 +2942,12 @@ pending_approval_requests AS (
                         latestUserMessageAt: row.latestUserMessageAt,
                         hasPendingApprovals: row.pendingApprovalCount > 0,
                         hasPendingUserInput: row.pendingUserInputCount > 0,
+                        ...(row.pendingRequestSince
+                          ? { pendingRequestSince: row.pendingRequestSince }
+                          : {}),
+                        ...(row.pendingRequestSummary
+                          ? { pendingRequestSummary: row.pendingRequestSummary }
+                          : {}),
                         hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
                         backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(
                           row.threadId,
@@ -3061,6 +3133,12 @@ pending_approval_requests AS (
                   latestUserMessageAt: row.latestUserMessageAt,
                   hasPendingApprovals: row.pendingApprovalCount > 0,
                   hasPendingUserInput: row.pendingUserInputCount > 0,
+                  ...(row.pendingRequestSince
+                    ? { pendingRequestSince: row.pendingRequestSince }
+                    : {}),
+                  ...(row.pendingRequestSummary
+                    ? { pendingRequestSummary: row.pendingRequestSummary }
+                    : {}),
                   hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
                   backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(
                     row.threadId,
@@ -3432,6 +3510,12 @@ pending_approval_requests AS (
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
         hasPendingUserInput: threadRow.value.pendingUserInputCount > 0,
+        ...(threadRow.value.pendingRequestSince
+          ? { pendingRequestSince: threadRow.value.pendingRequestSince }
+          : {}),
+        ...(threadRow.value.pendingRequestSummary
+          ? { pendingRequestSummary: threadRow.value.pendingRequestSummary }
+          : {}),
         hasActionableProposedPlan: threadRow.value.hasActionableProposedPlan > 0,
         backgroundLiveness: threadBackgroundLiveness.getThreadBackgroundLiveness(
           threadRow.value.threadId,
@@ -3933,6 +4017,7 @@ pending_approval_requests AS (
     getCommandReadModel,
     getUserInputActivity,
     getApprovalRequestTurnId,
+    getApprovalRequestStatus,
     listActivitiesByKind,
     getSnapshot,
     getShellSnapshot,
@@ -3954,6 +4039,7 @@ pending_approval_requests AS (
     getTurnStartMessage,
     getThreadDetailById,
     getThreadDetailSnapshot,
+    getParkedState,
   } satisfies ProjectionSnapshotQueryShape;
 });
 

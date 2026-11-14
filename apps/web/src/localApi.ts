@@ -2,7 +2,11 @@ import type { ConfirmDialogOptions, ContextMenuItem, LocalApi } from "@e6tools/c
 
 import { requestConfirmDialog } from "./confirmDialog";
 import { dismissContextMenu, showContextMenuFallback } from "./contextMenuFallback";
-import { readBrowserClientSettings, writeBrowserClientSettings } from "./clientPersistenceStorage";
+import {
+  mirrorBootAppearance,
+  readBrowserClientSettings,
+  writeBrowserClientSettings,
+} from "./clientPersistenceStorage";
 
 let cachedApi: LocalApi | undefined;
 
@@ -62,12 +66,14 @@ function createBrowserLocalApi(): LocalApi {
     },
     persistence: {
       getClientSettings: async () => {
-        if (window.desktopBridge) {
-          return window.desktopBridge.getClientSettings();
-        }
-        return readBrowserClientSettings();
+        const settings = window.desktopBridge
+          ? await window.desktopBridge.getClientSettings()
+          : readBrowserClientSettings();
+        mirrorBootAppearance(settings);
+        return settings;
       },
       setClientSettings: async (settings) => {
+        mirrorBootAppearance(settings);
         if (window.desktopBridge) {
           return window.desktopBridge.setClientSettings(settings);
         }

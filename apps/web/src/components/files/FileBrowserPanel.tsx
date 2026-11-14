@@ -6,11 +6,11 @@ import type {
 import type { EnvironmentId, ProjectEntry } from "@e6tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@e6tools/shared/composerTrigger";
-import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon, SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useComposerHandleContext } from "~/composerHandleContext";
@@ -27,6 +27,12 @@ import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTree
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
+import { cn } from "~/lib/utils";
+import type { RecentFile } from "~/uiStateStore";
+
+import { PanelErrorCard } from "../panel/PanelErrorCard";
+import { BrowseAllFilesRow, ChangedFileLists, FilesFilterSwitch } from "./FileExplorerLists";
+import type { FilesFilter, ThreadChangedFile } from "./threadChangedFiles";
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -39,6 +45,23 @@ interface FileBrowserPanelProps {
   onOpenFile: (relativePath: string) => void;
   onRefreshSelectedFile?: () => void;
   workspaceMutationId: string | null;
+  /** The Changed filter and its lists, where the explorer sits beside a thread. */
+  lists?: FileExplorerListsProps | undefined;
+  /** Files whose edit is held, unsaved, behind the agent's change: their rows say "unsaved". */
+  unsavedPaths?: ReadonlySet<string> | undefined;
+}
+
+const NO_UNSAVED_PATHS: ReadonlySet<string> = new Set();
+
+export interface FileExplorerListsProps {
+  readonly filter: FilesFilter;
+  readonly changed: ReadonlyArray<ThreadChangedFile>;
+  /** Recently opened files outside the changed set. */
+  readonly recent: ReadonlyArray<RecentFile>;
+  readonly onFilterChange: (filter: FilesFilter) => void;
+  readonly onOpenFile: (path: string, line: number | null) => void;
+  readonly browseShortcut: string | null;
+  readonly onBrowseAll: () => void;
 }
 
 function treePath(entry: ProjectEntry): string {
@@ -73,8 +96,12 @@ function FileSearchField(props: {
   onValueChange: (value: string) => void;
   value: string;
 }) {
+  // Board 15: a 32px field with a visible hairline, so the input reads as one at a glance.
   return (
-    <InputGroup variant="ghost" className="h-7 min-w-0 flex-1">
+    <InputGroup className="h-8 min-w-0 flex-1 rounded-lg border-muted-foreground bg-card">
+      <InputGroupAddon>
+        <SearchIcon aria-hidden className="size-3.5 text-muted-foreground" />
+      </InputGroupAddon>
       <InputGroupInput
         type="search"
         name={props.name}
@@ -103,6 +130,8 @@ export default function FileBrowserPanel({
   onOpenFile,
   onRefreshSelectedFile,
   workspaceMutationId,
+  lists,
+  unsavedPaths = NO_UNSAVED_PATHS,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
@@ -239,6 +268,8 @@ export default function FileBrowserPanel({
   });
 
   const treeModelRef = useRef<ReturnType<typeof useFileTree>["model"] | null>(null);
+  // Read by the tree's row renderer, which is fixed when the tree is created.
+  const unsavedPathsRef = useRef(unsavedPaths);
   const dragMention = useMemo(
     () =>
       createFileTreeDragMentionController({
@@ -263,6 +294,10 @@ export default function FileBrowserPanel({
     flattenEmptyDirectories: true,
     initialExpansion: "closed",
     icons: E6_PIERRE_ICONS,
+    renderRowDecoration: ({ item }) =>
+      unsavedPathsRef.current.has(item.path.replace(/\/$/, ""))
+        ? { text: "unsaved", title: "Your edit is not saved yet" }
+        : null,
     onSelectionChange: (selectedPaths) => {
       // The drag controller's selection cache must track every change,
       // including reveal-driven ones, or drags act on a stale selection.
@@ -346,6 +381,7 @@ export default function FileBrowserPanel({
       controller.abort();
     };
   }, [load, selectedPath]);
+  const showsLists = lists !== undefined && lists.filter === "changed" && query.trim().length === 0;
   const handleSearchValueChange = (value: string) => {
     setQuery(value);
     if (value.trim().length === 0) {
@@ -467,6 +503,12 @@ export default function FileBrowserPanel({
     treeModelRef.current = model;
   }, [model]);
   useEffect(() => {
+    if (unsavedPathsRef.current === unsavedPaths) return;
+    unsavedPathsRef.current = unsavedPaths;
+    // Redraws the rows; the tree has no git status of its own to keep.
+    model.setGitStatus(undefined);
+  }, [model, unsavedPaths]);
+  useEffect(() => {
     const panel = panelRef.current;
     if (panel === null) {
       return;
@@ -484,14 +526,10 @@ export default function FileBrowserPanel({
   return (
     <div
       ref={panelRef}
-      className="flex min-h-0 flex-1 flex-col bg-background"
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
-      <div
-        className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
-        data-surface-subheader
-      >
-        <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />
+      <div className="flex shrink-0 items-center gap-1 px-2 pt-2.5 pb-2.5">
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
@@ -499,7 +537,8 @@ export default function FileBrowserPanel({
           onValueChange={handleSearchValueChange}
           onClose={closeSearch}
         />
-        {directoryPaths.length > 0 ? (
+        {/* Refresh and expand-all act on the tree, so they show only while it does. */}
+        {!showsLists && directoryPaths.length > 0 ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -527,15 +566,52 @@ export default function FileBrowserPanel({
             </TooltipPopup>
           </Tooltip>
         ) : null}
+        {showsLists ? null : <RefreshFilesButton isPending={isPending} onRefresh={handleRefresh} />}
       </div>
+      {lists && lists.changed.length > 0 ? (
+        <div className="flex shrink-0 px-2 pb-2.5">
+          <FilesFilterSwitch
+            filter={lists.filter}
+            changedCount={lists.changed.length}
+            onChange={lists.onFilterChange}
+          />
+        </div>
+      ) : null}
+      {showsLists && lists ? (
+        // Search always covers every file, so a query shows the tree whatever the filter.
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-2 pb-2.5">
+          <ChangedFileLists
+            changed={lists.changed}
+            recent={lists.recent}
+            selectedPath={selectedPath}
+            unsavedPaths={unsavedPaths}
+            onOpenFile={lists.onOpenFile}
+          />
+          <span className="flex-1" />
+          <BrowseAllFilesRow shortcut={lists.browseShortcut} onBrowse={lists.onBrowseAll} />
+        </div>
+      ) : null}
+      {lists && lists.changed.length === 0 && lists.recent.length > 0 && !query.trim() ? (
+        // Nothing changed, so the tree is all there is: Recently opened sits above it.
+        <div className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto px-2 pb-2.5">
+          <ChangedFileLists
+            changed={lists.changed}
+            recent={lists.recent}
+            selectedPath={selectedPath}
+            unsavedPaths={unsavedPaths}
+            onOpenFile={lists.onOpenFile}
+          />
+        </div>
+      ) : null}
       {error || pathSearch.error ? (
-        <button
-          type="button"
-          onClick={handleRefresh}
-          className="p-4 text-left text-xs leading-relaxed text-destructive"
-        >
-          {error ?? pathSearch.error} Click to retry.
-        </button>
+        <div className="p-2">
+          <PanelErrorCard
+            title="Could not list files"
+            reason={error ?? pathSearch.error ?? ""}
+            reassurance="Your files are not affected."
+            onRetry={handleRefresh}
+          />
+        </div>
       ) : null}
       {query.trim() && pathSearch.truncated && !pathSearch.isPending ? (
         <div className="px-3 py-1 text-xs text-muted-foreground">
@@ -547,12 +623,15 @@ export default function FileBrowserPanel({
           Loading files…
         </div>
       )}
-      <FileTree
-        model={model}
-        aria-label={`${projectName} files`}
-        className="min-h-0 flex-1 overflow-hidden"
-        style={pierreTreeStyle(resolvedTheme)}
-      />
+      {/* The tree sets its own inline display, so a wrapper hides it while the lists show. */}
+      <div className={cn("flex min-h-0 flex-1 flex-col", showsLists && "hidden")}>
+        <FileTree
+          model={model}
+          aria-label={`${projectName} files`}
+          className="min-h-0 flex-1 overflow-hidden"
+          style={pierreTreeStyle(resolvedTheme)}
+        />
+      </div>
     </div>
   );
 }

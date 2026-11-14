@@ -23,6 +23,25 @@ export function shouldUseCompactComposerFooter(
   return width !== null && width < breakpoint;
 }
 
+/**
+ * What a narrowing composer footer gives up, in order (a wide right panel can leave the thread
+ * column about 420px): Park it drops its label for its icon first, then the mode chip folds its
+ * values into "…". The model picker keeps at least its icon and the primary action stays.
+ */
+const COMPOSER_FOOTER_PARK_LABEL_MIN_PX = 480;
+const COMPOSER_FOOTER_MODE_SUMMARY_MIN_PX = 400;
+
+export function resolveComposerFooterSurrender(width: number | null): {
+  readonly parkLabel: boolean;
+  readonly modeSummary: boolean;
+} {
+  if (width === null) return { parkLabel: true, modeSummary: true };
+  return {
+    parkLabel: width >= COMPOSER_FOOTER_PARK_LABEL_MIN_PX,
+    modeSummary: width >= COMPOSER_FOOTER_MODE_SUMMARY_MIN_PX,
+  };
+}
+
 export function shouldUseRestingComposerLayout(input: {
   isExistingThread: boolean;
   isMobileViewport: boolean;
@@ -62,10 +81,10 @@ export function shouldUseRestingComposerLayout(input: {
 /**
  * How much taller the empty expanded composer is than its resting row on
  * desktop widths, from the layout classes in ChatComposer: the body loses
- * 8px of top padding, the prompt clamps from min-h-17.5 (70px) to 32px, and
+ * 8px of top padding, the prompt clamps from min-h-11 (44px) to 32px, and
  * the 48px footer leaves flow.
  */
-export const COMPOSER_RESTING_EXPANSION_MIN_PX = 94;
+export const COMPOSER_RESTING_EXPANSION_MIN_PX = 68;
 
 /**
  * The space the timeline reserves at its end for the composer overlay.

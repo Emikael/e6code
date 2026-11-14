@@ -39,6 +39,7 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationParkedStreamItem,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
   OrchestrationGetFullThreadDiffError,
@@ -95,6 +96,8 @@ import {
   projectThreadDetailSnapshot,
 } from "./orchestration/ActivityPayloadProjection.ts";
 import { makeThreadLiveEventCoalescer } from "./orchestration/ThreadLiveEventCoalescer.ts";
+import { parkedStreamItemsForEvent } from "./orchestration/parked.ts";
+import { OrchestrationRequestAlreadyAnsweredError } from "./orchestration/Errors.ts";
 import { makeLiveStreamBudget, type RetainedLiveItem } from "./orchestration/LiveStreamBudget.ts";
 import {
   cleanupFailedUploadedAttachments,
@@ -178,6 +181,9 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@e6tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isOrchestrationRequestAlreadyAnsweredError = Schema.is(
+  OrchestrationRequestAlreadyAnsweredError,
+);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -727,6 +733,9 @@ const makeWsRpcLayer = (
           : new OrchestrationDispatchCommandError({
               message: cause instanceof Error ? cause.message : fallbackMessage,
               cause,
+              ...(isOrchestrationRequestAlreadyAnsweredError(cause)
+                ? { requestAlreadyAnswered: true as const }
+                : {}),
             });
       const randomUUID = crypto.randomUUIDv4.pipe(
         Effect.mapError((cause) =>
@@ -2215,6 +2224,53 @@ const makeWsRpcLayer = (
                   }),
               ),
             ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        // The environment's Parked list: a snapshot, then one item per change.
+        // Live delivery attaches before the snapshot is read so no change is
+        // lost, and skips events the snapshot already holds so none repeats.
+        [ORCHESTRATION_WS_METHODS.subscribeParked]: () =>
+          observeRpcStreamEffect(
+            ORCHESTRATION_WS_METHODS.subscribeParked,
+            Effect.gen(function* () {
+              const live = yield* Queue.unbounded<{
+                readonly sequence: number;
+                readonly items: ReadonlyArray<OrchestrationParkedStreamItem>;
+              }>();
+              yield* Effect.forkScoped(
+                orchestrationEngine.streamDomainEvents.pipe(
+                  Stream.runForEach((event) => {
+                    const items = parkedStreamItemsForEvent(event);
+                    return items.length === 0
+                      ? Effect.void
+                      : Queue.offer(live, { sequence: event.sequence, items });
+                  }),
+                ),
+                { startImmediately: true },
+              );
+              const { state, sequence } = yield* projectionSnapshotQuery.getParkedState().pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationGetSnapshotError({
+                      message: "Failed to load the Parked list",
+                      cause,
+                    }),
+                ),
+              );
+              return Stream.concat(
+                // removedThoughts is the server's own record; clients get the ids.
+                Stream.succeed<OrchestrationParkedStreamItem>({
+                  kind: "snapshot",
+                  entries: state.entries,
+                  removedEntryIds: state.removedEntryIds,
+                  ...(state.removedNotes !== undefined ? { removedNotes: state.removedNotes } : {}),
+                }),
+                Stream.fromQueue(live).pipe(
+                  Stream.filter((change) => change.sequence > sequence),
+                  Stream.flatMap((change) => Stream.fromIterable(change.items)),
+                ),
+              );
+            }),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>

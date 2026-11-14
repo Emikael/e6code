@@ -109,7 +109,9 @@ export const AppearanceContrast = Schema.Int.check(
   Schema.isBetween({ minimum: MIN_APPEARANCE_CONTRAST, maximum: MAX_APPEARANCE_CONTRAST }),
 );
 export type AppearanceContrast = typeof AppearanceContrast.Type;
-const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 100;
+// New profiles start at 120. Settings are saved whole, so a stored profile
+// keeps the 100 it was saved with; changing this never rewrites it.
+const DEFAULT_APPEARANCE_CONTRAST: AppearanceContrast = 120;
 export const MIN_PANEL_ANIMATION_DURATION_MS = 0;
 export const MAX_PANEL_ANIMATION_DURATION_MS = 400;
 export const PanelAnimationDurationMs = Schema.Int.check(
@@ -221,13 +223,46 @@ const DEFAULT_SNAP_SHOT_SHORTCUT: SnapShotShortcut = {
   kind: "both-shift-keys",
 };
 
-export const NotificationMode = Schema.Literals([
-  "off",
-  "notifications",
-  "sound",
-  "notifications-and-sound",
-]);
-export type NotificationMode = typeof NotificationMode.Type;
+/**
+ * Which thread events notify you: only when an agent is blocked on you
+ * (approval, question, failure), every update, or nothing. With "off" the
+ * sidebar section and tab title still update.
+ */
+export const AttentionNotifications = Schema.Literals(["blocked", "all", "off"]);
+export type AttentionNotifications = typeof AttentionNotifications.Type;
+
+/** When an opened thread shows "Where you left off": after 5 or more minutes away, always, or never. */
+export const RecapTrigger = Schema.Literals(["after-break", "always", "never"]);
+export type RecapTrigger = typeof RecapTrigger.Type;
+
+/**
+ * How the composer footer shows effort, permissions and Plan or Build:
+ * folded into one chip that names their values, or as separate controls.
+ */
+export const ComposerControls = Schema.Literals(["compact", "full"]);
+export type ComposerControls = typeof ComposerControls.Type;
+
+/**
+ * Attention page, "Motion". `system` follows the operating system's
+ * reduced-motion preference; `reduced` takes the reduced path regardless.
+ */
+export const InterfaceMotion = Schema.Literals(["system", "reduced"]);
+export type InterfaceMotion = typeof InterfaceMotion.Type;
+
+/**
+ * Attention page, "Agent activity". `summary` keeps a working agent's tool
+ * calls and thinking folded to one line; `live` opens them as they happen.
+ */
+export const AgentActivityDetail = Schema.Literals(["summary", "live"]);
+export type AgentActivityDetail = typeof AgentActivityDetail.Type;
+
+/** Attention page, "Open-thread reminder": the count of open threads that shows a line. */
+export const OpenThreadReminderAt = Schema.Literals(["off", 3, 5, 8]);
+export type OpenThreadReminderAt = typeof OpenThreadReminderAt.Type;
+
+/** Minutes of session time before the break reminder's header line, or off. */
+export const BreakReminderMinutes = Schema.Literals(["off", 25, 50, 90]);
+export type BreakReminderMinutes = typeof BreakReminderMinutes.Type;
 
 export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
 export type QuitConfirmationMode = typeof QuitConfirmationMode.Type;
@@ -305,30 +340,43 @@ export type EffortDisplay = typeof EffortDisplay.Type;
 /**
  * Accent the stock E6 Code theme wears for `primary` (the next action and a
  * live agent). Other themes carry their own accent and ignore it. An unknown
- * value, such as one written by a newer client, falls back to Iris.
+ * value, such as one written by a newer client, falls back to the default.
+ * The default is Graphite, a neutral accent that leaves hue to status. Stored
+ * profiles keep the accent they were saved with (Iris before Graphite became
+ * the default).
  */
 export const StockAccent = Schema.Literals(["iris", "cobalt", "rose", "graphite"]);
 export type StockAccent = typeof StockAccent.Type;
-export const DEFAULT_STOCK_ACCENT: StockAccent = "iris";
+export const DEFAULT_STOCK_ACCENT: StockAccent = "graphite";
 
 export const ClientSettingsSchema = Schema.Struct({
-  notificationMode: NotificationMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed("off" as const)),
+  // Attention page, Notifications. Deliberately fresh keys (were
+  // `notificationMode` and `inAppNotificationsEnabled`): decoding drops the
+  // old keys, so everyone, including prior opt-outs, starts at "notify when
+  // an agent is blocked".
+  attentionNotifications: AttentionNotifications.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("blocked" as const)),
+    Schema.withDecodingDefault(Effect.succeed("blocked" as const)),
   ),
-  inAppNotificationsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** A thread you sent a message to notifies when that turn finishes. */
+  notifyWatchedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Other finished threads wait for a pause and arrive as one digest. */
+  holdFinishedUntilBreakpoint: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  /** One short sound when an agent is blocked. */
+  attentionSoundEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   diffColorScheme: DiffColorScheme.pipe(
     Schema.withDecodingDefault(Effect.succeed("red-green" as const)),
   ),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
-  /**
-   * Draws an opened work log as a rail with one dot per step. Off restores the
-   * plain icon rows. A malformed stored value falls back to on rather than
-   * failing the whole settings decode.
-   */
-  showThinkingTimeline: Schema.Boolean.pipe(
-    Schema.catchDecoding(() => Effect.succeedSome(true)),
-    Schema.withDecodingDefault(Effect.succeed(true)),
+  // Deliberately a fresh key (was `showThinkingTimeline`, which chose how an
+  // opened work log is drawn): decoding drops the old key. The rail is now
+  // always drawn; this chooses whether live activity opens by itself.
+  agentActivityDetail: AgentActivityDetail.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("summary" as const)),
+    Schema.withDecodingDefault(Effect.succeed("summary" as const)),
   ),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -485,6 +533,41 @@ export const ClientSettingsSchema = Schema.Struct({
   // old keys, so everyone, including prior beta opt-outs, resets to the new
   // default sidebar.
   legacySidebarEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Attention page. A derived Needs you section above the thread list, and
+  // whole-minute ages on sidebar rows.
+  needsYouSectionEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  sidebarElapsedTimeEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  recapTrigger: RecapTrigger.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("after-break" as const)),
+    Schema.withDecodingDefault(Effect.succeed("after-break" as const)),
+  ),
+  composerControls: ComposerControls.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("compact" as const)),
+    Schema.withDecodingDefault(Effect.succeed("compact" as const)),
+  ),
+  interfaceMotion: InterfaceMotion.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("system" as const)),
+    Schema.withDecodingDefault(Effect.succeed("system" as const)),
+  ),
+  /** Focus mode holds other finished threads until you exit it. */
+  focusHoldsFinished: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  openThreadReminderAt: OpenThreadReminderAt.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome(5 as const)),
+    Schema.withDecodingDefault(Effect.succeed(5 as const)),
+  ),
+  // Attention page, Time. Opt in: session time is counted on this device from the day's
+  // first interaction and never sent to a server.
+  sessionClockEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  breakReminderMinutes: BreakReminderMinutes.pipe(
+    Schema.catchDecoding(() => Effect.succeedSome("off" as const)),
+    Schema.withDecodingDefault(Effect.succeed("off" as const)),
+  ),
+  /**
+   * The one-time "What changed" card. Absent until the first load of the
+   * attention redesign decides it once: false (show) for an existing profile,
+   * true for a fresh one. Dismissing it sets true.
+   */
+  attentionIntroDismissed: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: SidebarProjectGroupingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_GROUPING_MODE)),
   ),
@@ -525,6 +608,26 @@ export const ClientSettingsSchema = Schema.Struct({
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
+
+/**
+ * Carries a choice made under a retired key into its fresh key before
+ * decoding. Run it on stored client settings, not on patches. The old key is
+ * dropped on the next save, so this applies once.
+ *
+ * - `notificationMode` "sound" or "notifications-and-sound" turns on
+ *   `attentionSoundEnabled`, so nobody loses the sound they chose.
+ */
+export function carryRetiredClientSettings(stored: unknown): unknown {
+  if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return stored;
+  const mode: unknown = Reflect.get(stored, "notificationMode");
+  if (
+    (mode === "sound" || mode === "notifications-and-sound") &&
+    !Object.hasOwn(stored, "attentionSoundEnabled")
+  ) {
+    return { ...stored, attentionSoundEnabled: true };
+  }
+  return stored;
+}
 
 // ── Server Settings (server-authoritative) ────────────────────
 
@@ -1620,12 +1723,14 @@ export const ServerSettingsPatch = Schema.Struct({
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
-  notificationMode: Schema.optionalKey(NotificationMode),
-  inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
+  attentionNotifications: Schema.optionalKey(AttentionNotifications),
+  notifyWatchedThreads: Schema.optionalKey(Schema.Boolean),
+  holdFinishedUntilBreakpoint: Schema.optionalKey(Schema.Boolean),
+  attentionSoundEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   effortDisplay: Schema.optionalKey(EffortDisplay),
-  showThinkingTimeline: Schema.optionalKey(Schema.Boolean),
+  agentActivityDetail: Schema.optionalKey(AgentActivityDetail),
   stockAccent: Schema.optionalKey(StockAccent),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
@@ -1692,6 +1797,16 @@ export const ClientSettingsPatch = Schema.Struct({
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
+  needsYouSectionEnabled: Schema.optionalKey(Schema.Boolean),
+  sidebarElapsedTimeEnabled: Schema.optionalKey(Schema.Boolean),
+  recapTrigger: Schema.optionalKey(RecapTrigger),
+  composerControls: Schema.optionalKey(ComposerControls),
+  interfaceMotion: Schema.optionalKey(InterfaceMotion),
+  focusHoldsFinished: Schema.optionalKey(Schema.Boolean),
+  openThreadReminderAt: Schema.optionalKey(OpenThreadReminderAt),
+  sessionClockEnabled: Schema.optionalKey(Schema.Boolean),
+  breakReminderMinutes: Schema.optionalKey(BreakReminderMinutes),
+  attentionIntroDismissed: Schema.optionalKey(Schema.Boolean),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

@@ -2,7 +2,11 @@ import { scopeThreadRef } from "@e6tools/client-runtime/environment";
 import { EnvironmentId, ThreadId, TurnId } from "@e6tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
+import {
+  selectDiffTabFileCount,
+  selectThreadDiffPanelSelection,
+  useDiffPanelStore,
+} from "./diffPanelStore";
 
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
 
@@ -121,5 +125,18 @@ describe("diffPanelStore", () => {
       filePath: "src/app.ts",
       revealRequestId: 1,
     });
+  });
+
+  it("counts the Diff tab from the panel's scope once it has said, else the working tree", () => {
+    useDiffPanelStore.setState({ scopeFileCountByThreadKey: {} });
+    const count = () =>
+      selectDiffTabFileCount(useDiffPanelStore.getState().scopeFileCountByThreadKey, THREAD_REF, 5);
+    expect(count()).toBe(5);
+    useDiffPanelStore.getState().reportScopeFileCount(THREAD_REF, 2);
+    expect(count()).toBe(2);
+    useDiffPanelStore.getState().reportScopeFileCount(THREAD_REF, 0);
+    expect(count()).toBe(0);
+    useDiffPanelStore.getState().reportScopeFileCount(THREAD_REF, null);
+    expect(count()).toBe(5);
   });
 });

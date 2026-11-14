@@ -5,7 +5,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@e6tools/contracts";
-import { scopeThreadRef } from "@e6tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@e6tools/client-runtime/environment";
 import type { EnvironmentProject } from "@e6tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
@@ -18,16 +18,13 @@ import {
 } from "@e6tools/client-runtime/state/agent-state";
 import {
   ChevronDownIcon,
-  CircleAlertIcon,
-  CircleCheckIcon,
-  CirclePauseIcon,
   EllipsisIcon,
-  EyeIcon,
-  MessageCircleQuestionIcon,
+  FileIcon,
+  FocusIcon,
+  NotebookPenIcon,
+  PanelBottomIcon,
   PencilIcon,
-  ShieldQuestionIcon,
   SquarePenIcon,
-  type LucideIcon,
 } from "lucide-react";
 import {
   memo,
@@ -39,7 +36,18 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { isTrailingDoubleClick, resolveSidebarThreadStatus } from "../Sidebar.logic";
+import { ReadyToReviewStatus } from "./ReadyToReviewStatus";
+import { SessionClockCue } from "./SessionClockCue";
+import { requestThreadNote, useThreadNoteActionLabel } from "./ThreadRecapCard";
+import {
+  isTrailingDoubleClick,
+  resolveSidebarThreadStatus,
+  runningStatusMarkKind,
+  THREAD_STATUS_MARKS,
+  type ThreadStatusMark,
+  type ThreadStatusMarkKind,
+} from "../Sidebar.logic";
+import { THREAD_STATUS_TONE_TEXT, ThreadStatusMarker } from "../ThreadStatusMarker";
 import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
@@ -57,18 +65,38 @@ import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
 import { useThreadShell } from "../../state/entities";
 import { useClientSettings } from "~/hooks/useSettings";
-import { formatUpcomingTimestamp } from "~/timestampFormat";
+import { formatDayAwareTimestamp, formatUpcomingTimestamp } from "~/timestampFormat";
+import { doneSummary } from "./ThreadNowBar.logic";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { EnvironmentConnectionChip } from "../EnvironmentConnectionChip";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
+  WorkspaceBreadcrumbSeparator,
   WorkspaceBreadcrumbText,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
+import { useRouter } from "@tanstack/react-router";
+import { useThreadAttention } from "~/hooks/useThreadAttention";
+import { goToNextThreadThatNeedsYou } from "~/lib/needsYouNavigation";
+import { shortcutLabelForCommand } from "~/keybindings";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuItemLabel,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuShortcut,
+  MenuTrigger,
+} from "../ui/menu";
+import { useUiStateStore } from "~/uiStateStore";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -84,6 +112,16 @@ interface ChatHeaderProps {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
+  /** Files the agent has changed in this thread; null hides the slot (drafts). */
+  changedFileCount: number | null;
+  /** The now bar under the header is showing; it carries the status, so the pill steps aside. */
+  nowBarShown?: boolean;
+  /** The finished turn, for the focus bar's "Ready to review · worked 3m 40s · finished 14:06". */
+  doneTurn?: { readonly workedFor: string | null; readonly finishedAt: string } | null;
+  /** Focus mode hides the now bar, so the focus bar offers its Retry for a failed turn. */
+  focusRetry?: (() => void) | null;
+  /** Opens the Diff panel on the working tree. */
+  onOpenChanges: () => void;
   gitCwd: string | null;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
@@ -95,6 +133,16 @@ interface ChatHeaderProps {
     input: NewProjectScriptInput,
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
+  /** Focus mode turns the header into the focus bar (board 3). */
+  focusMode: boolean;
+  onToggleFocus: () => void;
+  /** The terminal drawer toggle, in the More menu (board 2 shows only the panel toggle). */
+  terminal?: {
+    readonly available: boolean;
+    readonly open: boolean;
+    readonly shortcutLabel: string | null;
+    readonly onToggle: () => void;
+  } | null;
 }
 
 /**
@@ -111,20 +159,18 @@ export function resolveRenameCommit(input: {
   return { action: "commit", title: trimmed };
 }
 
-type ThreadHeaderStatusKind =
-  | "approval"
-  | "input"
-  | "paused"
-  | "working"
-  | "monitoring"
-  | "failed"
-  | "done";
-
-interface ThreadHeaderStatus {
-  readonly kind: ThreadHeaderStatusKind;
+interface ThreadHeaderStatus extends ThreadStatusMark {
+  readonly kind: ThreadStatusMarkKind;
   readonly label: string;
   /** Truncatable detail after the label, such as "step 4 of 6". */
   readonly detail: string | null;
+}
+
+function headerStatus(
+  kind: ThreadStatusMarkKind,
+  text: { readonly label: string; readonly detail: string | null },
+): ThreadHeaderStatus {
+  return { kind, ...text, ...THREAD_STATUS_MARKS[kind] };
 }
 
 /**
@@ -150,49 +196,52 @@ export function resolveThreadHeaderStatus(
   const status = resolveSidebarThreadStatus(thread);
   switch (status) {
     case "approval":
-      return { kind: "approval", label: "Needs approval", detail: null };
+      return headerStatus("approval", { label: "Needs approval", detail: null });
     case "input":
-      return { kind: "input", label: "Needs your answer", detail: null };
+      return headerStatus("input", { label: "Needs your answer", detail: null });
     case "paused":
     case "working":
-      return {
-        kind: status,
-        ...formatRunningThreadStatus({
+      return headerStatus(
+        runningStatusMarkKind(status, thread.agentState),
+        formatRunningThreadStatus({
           agentState: thread.agentState,
           planProgress: thread.planProgress,
           formatResetTime,
         }),
-      };
+      );
     case "monitoring":
-      return { kind: "monitoring", label: "Monitoring", detail: null };
+      return headerStatus("monitoring", { label: "Monitoring", detail: null });
     case "failed":
-      return { kind: "failed", label: "Failed", detail: null };
+      return headerStatus("failed", { label: "Failed", detail: null });
     case "ready":
       return thread.latestTurn?.state === "completed"
-        ? { kind: "done", label: "Done", detail: null }
+        ? headerStatus("done", { label: "Done", detail: null })
         : null;
   }
 }
 
-// Each state takes the semantic tone its sidebar row status uses (resolveSidebarRowStatus), on a
-// matching wash: paused and approval read as warning, failed as destructive, done as success. A
-// working agent reads as the live accent with a dot; every other state shows a glyph, and the
-// label always names the state.
-const THREAD_HEADER_STATUS_STYLE: Record<
-  ThreadHeaderStatusKind,
-  { icon: LucideIcon | null; className: string }
-> = {
-  approval: { icon: ShieldQuestionIcon, className: "bg-warning-surface text-warning-foreground" },
-  input: { icon: MessageCircleQuestionIcon, className: "bg-primary-surface text-primary-text" },
-  paused: { icon: CirclePauseIcon, className: "bg-warning-surface text-warning-foreground" },
-  working: { icon: null, className: "bg-primary-surface text-primary-text" },
-  monitoring: { icon: EyeIcon, className: "bg-muted text-foreground" },
-  failed: { icon: CircleAlertIcon, className: "bg-error-surface text-destructive-foreground" },
-  done: { icon: CircleCheckIcon, className: "bg-success/10 text-success-foreground" },
+// The mark and tone come from the sidebar's status table (THREAD_STATUS_MARKS), so the two
+// cannot drift; the pill adds the tone's wash.
+const THREAD_HEADER_STATUS_WASH: Record<ThreadStatusMark["tone"], string> = {
+  live: "bg-primary-surface",
+  warning: "bg-warning-surface",
+  muted: "bg-muted",
+  success: "bg-success/10",
+  failed: "bg-error-surface",
 };
 
-function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
-  const { icon: Icon, className } = THREAD_HEADER_STATUS_STYLE[status.kind];
+function ThreadHeaderStatusPill({
+  status,
+  plain = false,
+}: {
+  status: ThreadHeaderStatus;
+  /** The focus bar draws the glyph and word without the wash. */
+  plain?: boolean;
+}) {
+  const className = cn(
+    THREAD_STATUS_TONE_TEXT[status.tone],
+    plain ? "px-0" : THREAD_HEADER_STATUS_WASH[status.tone],
+  );
   const fullText = joinThreadRowStatus(status);
   // Not a live region itself: it mounts and unmounts with the status, which screen readers
   // skip. ChatHeader keeps an always-mounted region with the short label instead.
@@ -203,11 +252,7 @@ function ThreadHeaderStatusPill({ status }: { status: ThreadHeaderStatus }) {
         className,
       )}
     >
-      {Icon ? (
-        <Icon aria-hidden className="size-3 shrink-0" />
-      ) : (
-        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
-      )}
+      <ThreadStatusMarker kind={status.kind} marker={status.marker} />
       <span className="shrink-0">{status.label}</span>
       {status.detail ? (
         <span className="max-w-32 truncate font-normal text-muted-foreground">
@@ -233,7 +278,7 @@ function ThreadHeaderBranch(props: { branch: string }) {
         render={
           <span
             // Branch gives way first: hidden in narrow headers, pill stays.
-            className="hidden min-w-0 shrink font-mono text-[11px] text-muted-foreground @xl/header-actions:block"
+            className="hidden min-w-0 shrink rounded-sm bg-surface-well px-1.5 py-[3px] font-mono text-[11px] leading-[14px] text-muted-foreground @xl/header-actions:block"
           />
         }
       >
@@ -242,6 +287,142 @@ function ThreadHeaderBranch(props: { branch: string }) {
       </TooltipTrigger>
       <TooltipPopup side="top">{props.branch}</TooltipPopup>
     </Tooltip>
+  );
+}
+
+/**
+ * The header's fixed "Changes so far" slot (F5): something bounded to look at
+ * while the agent works. It stays in place, disabled as "No changes yet", so
+ * the header never shifts when the first file changes. A narrow header keeps
+ * the slot as the file glyph and the count.
+ */
+function ChangesSoFarButton({ count, onOpen }: { count: number; onOpen: () => void }) {
+  const label =
+    count === 0 ? "No changes yet" : `Changes so far · ${count} ${count === 1 ? "file" : "files"}`;
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={count === 0}
+      onClick={onOpen}
+      aria-label={label}
+      className="me-1 shrink-0 sm:text-xs"
+    >
+      <FileIcon aria-hidden className="size-3.5" />
+      <span aria-hidden className="hidden @lg/header-actions:inline">
+        {label}
+      </span>
+      {count > 0 ? (
+        <span aria-hidden className="tabular-nums @lg/header-actions:hidden">
+          {count}
+        </span>
+      ) : null}
+    </Button>
+  );
+}
+
+/**
+ * Focus (boards 1 and 2). On the start screen it shows with its key caps but
+ * stays disabled: focus mode needs an open thread. A narrow header keeps the
+ * glyph alone.
+ */
+function FocusButton({
+  available,
+  shortcut,
+  onToggle,
+}: {
+  available: boolean;
+  shortcut: string | null;
+  onToggle: () => void;
+}) {
+  const button = (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={!available}
+      aria-label="Focus"
+      className="me-1 shrink-0 sm:text-xs"
+      onClick={onToggle}
+    >
+      <FocusIcon aria-hidden className="size-3.5" />
+      <span aria-hidden className="hidden @lg/header-actions:inline">
+        Focus
+      </span>
+      {available ? null : (
+        <ShortcutKeyCaps label={shortcut} className="hidden @lg/header-actions:inline-flex" />
+      )}
+    </Button>
+  );
+  return (
+    <Tooltip>
+      {available ? (
+        <TooltipTrigger render={button} />
+      ) : (
+        // A disabled button gets no pointer events, so the tooltip hangs on its wrapper.
+        <TooltipTrigger render={<span className="inline-flex shrink-0" />}>{button}</TooltipTrigger>
+      )}
+      <TooltipPopup side="bottom">
+        {available
+          ? `One thread, nothing around it${shortcut ? ` (${shortcut})` : ""}`
+          : "Focus mode needs an open thread. Send a message first."}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/** Board 3: the focus bar names a finished turn the way the now bar does, with its times. */
+function FocusDoneCue({ workedFor, finishedAt }: { workedFor: string | null; finishedAt: string }) {
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const summary = doneSummary(workedFor, formatDayAwareTimestamp(finishedAt, timestampFormat));
+  return (
+    <>
+      <ReadyToReviewStatus />
+      <span className="shrink-0 font-mono text-[11px] leading-[14px] whitespace-nowrap text-muted-foreground tabular-nums">
+        {summary.charAt(0).toLowerCase() + summary.slice(1)}
+      </span>
+    </>
+  );
+}
+
+/**
+ * "1 needs you · Next" in the focus bar: the sidebar's Needs you count is
+ * hidden in focus, so this pill carries it, and only while another thread is
+ * blocked on you.
+ */
+function FocusNeedsYouPill({
+  currentThreadKey,
+  keybindings,
+}: {
+  currentThreadKey: string;
+  keybindings: ResolvedKeybindingsConfig;
+}) {
+  const attention = useThreadAttention();
+  const router = useRouter();
+  const count = [...attention.blocked, ...attention.earlier].filter(
+    (item) => item.key !== currentThreadKey,
+  ).length;
+  if (count === 0) return null;
+  const shortcut = shortcutLabelForCommand(keybindings, "thread.nextNeedsYou");
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-7 shrink-0 rounded-md px-2 text-xs bg-warning-surface text-warning-foreground hover:bg-warning-surface hover:text-warning-foreground sm:h-7 sm:text-xs"
+      aria-label={`${count} ${count === 1 ? "thread needs" : "threads need"} you. Go to the next one`}
+      onClick={() =>
+        goToNextThreadThatNeedsYou({
+          attention,
+          currentThreadKey,
+          // The pill counts blocked threads only; Next walks the same ones.
+          scope: "blocked",
+          navigate: (options) => router.navigate(options),
+        })
+      }
+    >
+      {count} {count === 1 ? "needs" : "need"} you
+      <span className="text-xs font-normal opacity-85">Next</span>
+      <ShortcutKeyCaps label={shortcut} />
+    </Button>
   );
 }
 
@@ -277,6 +458,11 @@ export const ChatHeader = memo(function ChatHeader({
   keybindings,
   availableEditors,
   rightPanelOpen,
+  changedFileCount,
+  nowBarShown = false,
+  doneTurn = null,
+  focusRetry = null,
+  onOpenChanges,
   gitCwd,
   onOpenPullRequest,
   onNewThreadInProject,
@@ -285,9 +471,13 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  focusMode,
+  onToggleFocus,
+  terminal = null,
 }: ChatHeaderProps) {
   const isMobile = useIsMobile();
-  // Scripts, Open in and Git live in one quiet menu on every viewport; phones get touch rows.
+  // Scripts, Open in and the terminal live in one quiet menu; Git has its own slot, except on
+  // phones, where it joins the menu. Phones get touch rows.
   const menuDensity = isMobile ? "touch" : "default";
   const [actionsOpen, setActionsOpen] = useState(false);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -314,11 +504,21 @@ export const ChatHeader = memo(function ChatHeader({
   });
   const showProjectScripts = activeProjectScripts;
   const showGitActions = Boolean(activeProjectName && gitCwd);
+  // The boards draw no Git control in the header, so Git sits in More at every width. It stays
+  // mounted there (the menu keeps its popup mounted), so its status refresh and the draft's branch
+  // sync keep running. Commit and Push are also in Run details and the Diff's commit rail.
+  const gitInMenu = showGitActions;
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
   );
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  // "Agent activity" for this thread (F11): its own choice, else the Attention setting.
+  const activeThreadKey = scopedThreadKey(activeThreadRef);
+  const defaultAgentActivityDetail = useClientSettings((settings) => settings.agentActivityDetail);
+  const agentActivityDetail =
+    useUiStateStore((state) => state.agentActivityDetailByThreadKey[activeThreadKey]) ??
+    defaultAgentActivityDetail;
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -434,6 +634,7 @@ export const ChatHeader = memo(function ChatHeader({
     },
     [commitRename],
   );
+  const noteActionLabel = useThreadNoteActionLabel(isServerThread ? activeThreadKey : null);
   const headerActions = (
     <>
       {activeProject ? (
@@ -442,7 +643,7 @@ export const ChatHeader = memo(function ChatHeader({
             <SquarePenIcon className="size-4" />
             <MenuItemLabel className="truncate">New thread in {projectDetail}</MenuItemLabel>
           </MenuItem>
-          {showProjectScripts || showOpenInPicker || showGitActions ? <MenuSeparator /> : null}
+          {showProjectScripts || showOpenInPicker || gitInMenu ? <MenuSeparator /> : null}
         </>
       ) : null}
       {showProjectScripts && (
@@ -475,7 +676,7 @@ export const ChatHeader = memo(function ChatHeader({
           />
         </>
       )}
-      {showGitActions && gitCwd && (
+      {gitInMenu && gitCwd && (
         <>
           {(showProjectScripts || showOpenInPicker) && <MenuSeparator />}
           <GitActionsControl
@@ -488,27 +689,152 @@ export const ChatHeader = memo(function ChatHeader({
           />
         </>
       )}
+      {terminal ? (
+        <>
+          {(activeProject || showProjectScripts || showOpenInPicker || gitInMenu) && (
+            <MenuSeparator />
+          )}
+          <MenuItem
+            density={menuDensity}
+            disabled={!terminal.available}
+            onClick={terminal.onToggle}
+          >
+            <PanelBottomIcon className="size-4" />
+            <MenuItemLabel>{terminal.open ? "Hide terminal" : "Show terminal"}</MenuItemLabel>
+            {terminal.shortcutLabel ? <MenuShortcut>{terminal.shortcutLabel}</MenuShortcut> : null}
+          </MenuItem>
+        </>
+      ) : null}
+      {isServerThread ? (
+        <>
+          <MenuSeparator />
+          <MenuItem density={menuDensity} onClick={() => requestThreadNote(activeThreadKey)}>
+            <NotebookPenIcon className="size-4" />
+            <MenuItemLabel>{noteActionLabel}</MenuItemLabel>
+          </MenuItem>
+          <MenuSeparator />
+          <MenuGroup>
+            <MenuGroupLabel>Agent activity</MenuGroupLabel>
+            <MenuRadioGroup
+              value={agentActivityDetail}
+              onValueChange={(value) => {
+                if (value !== "summary" && value !== "live") return;
+                // Choosing what the setting says clears this thread's own choice.
+                useUiStateStore
+                  .getState()
+                  .setThreadAgentActivityDetail(
+                    activeThreadKey,
+                    value === defaultAgentActivityDetail ? null : value,
+                  );
+              }}
+            >
+              <MenuRadioItem value="summary">Summary</MenuRadioItem>
+              <MenuRadioItem value="live">Live</MenuRadioItem>
+            </MenuRadioGroup>
+          </MenuGroup>
+        </>
+      ) : null}
     </>
   );
   const hasHeaderActions =
-    activeProject !== null || Boolean(showProjectScripts || showOpenInPicker || showGitActions);
+    activeProject !== null ||
+    terminal !== null ||
+    isServerThread ||
+    Boolean(showProjectScripts || showOpenInPicker || gitInMenu);
+  // "More: scripts, open in", naming only what the menu holds here.
+  const moreMenuLabel = [
+    "More",
+    [
+      showProjectScripts ? "scripts" : null,
+      showOpenInPicker ? "open in" : null,
+      gitInMenu ? "git" : null,
+      terminal ? "terminal" : null,
+      isServerThread ? "agent activity" : null,
+    ]
+      .filter(Boolean)
+      .join(", "),
+  ]
+    .filter(Boolean)
+    .join(": ");
+  const focusShortcut = shortcutLabelForCommand(keybindings, "focus.toggle");
+  const statusRegion = (
+    // The open thread's only status live region, so it is heard whether or not the sidebar
+    // is showing; the sidebar row of the open thread is not a live region. It stays mounted
+    // and holds just the short label, so a status change is announced and a plan step is
+    // not. Keyed by thread, so opening a thread does not announce its current status.
+    <span key={`${activeThreadEnvironmentId}:${activeThreadId}`} role="status" className="sr-only">
+      {headerStatus?.label ?? ""}
+    </span>
+  );
+  if (focusMode) {
+    // Board 3: Focus, the title, its status, a Needs you pill only when another thread is
+    // blocked, and a visible way out. Escape does not exit.
+    return (
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+        <span className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-secondary px-2 text-xs font-medium text-muted-foreground">
+          <FocusIcon aria-hidden className="size-3.5" />
+          Focus
+        </span>
+        <h2 className="max-w-80 min-w-0 truncate text-[13px] leading-[18px] font-medium text-foreground">
+          {activeThreadTitle}
+        </h2>
+        {doneTurn ? (
+          <FocusDoneCue workedFor={doneTurn.workedFor} finishedAt={doneTurn.finishedAt} />
+        ) : headerStatus ? (
+          <ThreadHeaderStatusPill status={headerStatus} plain />
+        ) : null}
+        {focusRetry && headerStatus?.kind === "failed" ? (
+          <Button size="sm" variant="outline" className="shrink-0 sm:text-xs" onClick={focusRetry}>
+            Retry
+          </Button>
+        ) : null}
+        {statusRegion}
+        <span className="grow" />
+        <SessionClockCue />
+        {isServerThread ? (
+          <FocusNeedsYouPill
+            currentThreadKey={scopedThreadKey(activeThreadRef)}
+            keybindings={keybindings}
+          />
+        ) : null}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="shrink-0 text-xs sm:text-xs"
+          onClick={onToggleFocus}
+        >
+          Exit focus
+          <ShortcutKeyCaps label={focusShortcut} />
+        </Button>
+      </div>
+    );
+  }
   return (
     <div
-      className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
+      className="@container/header-actions flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5"
       onContextMenu={handleHeaderContextMenu}
     >
       <WorkspaceBreadcrumb
         ariaLabel="Thread breadcrumb"
-        className="flex-1 overflow-clip [overflow-clip-margin:2px]"
+        className="group/crumb flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
+        {/* Board 2: "project / title". The project gives way first in narrow headers. */}
+        {projectDisplayName ? (
+          <>
+            <li className="hidden min-w-0 shrink-[2] items-center text-[13px] font-medium text-muted-foreground @2xl/header-actions:flex">
+              <span className="truncate">{projectDisplayName}</span>
+            </li>
+            <WorkspaceBreadcrumbSeparator className="hidden text-muted-foreground @2xl/header-actions:flex" />
+          </>
+        ) : null}
         {/* The title sizes to its text so the branch sits right after it; the title still
             truncates first, and the status pill holds the right edge. */}
-        <WorkspaceBreadcrumbItem current className="min-w-10 shrink text-[15px] font-semibold">
+        <WorkspaceBreadcrumbItem current className="min-w-10 shrink text-sm font-semibold">
           {renamingTitle !== null ? (
             <input
               autoFocus
               aria-label="Thread title"
-              className="min-w-0 flex-1 rounded-sm bg-transparent text-[15px] font-semibold text-foreground outline-none ring-1 ring-ring/50 focus:ring-ring"
+              className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-semibold text-foreground outline-none ring-1 ring-ring/50 focus:ring-ring"
               defaultValue={renamingTitle}
               onBlur={(event) => {
                 if (renameCommittedRef.current) return;
@@ -544,25 +870,6 @@ export const ChatHeader = memo(function ChatHeader({
                 </TooltipTrigger>
                 <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={`Rename ${activeThreadTitle}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeMenu();
-                        startRename();
-                      }}
-                      className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/thread-title:opacity-100"
-                    />
-                  }
-                >
-                  <PencilIcon aria-hidden className="size-3" />
-                </TooltipTrigger>
-                <TooltipPopup side="top">Rename thread</TooltipPopup>
-              </Tooltip>
             </div>
           ) : (
             <Tooltip>
@@ -580,37 +887,60 @@ export const ChatHeader = memo(function ChatHeader({
             <ThreadHeaderBranch branch={headerBranch} />
           </li>
         ) : null}
-        {renamingTitle === null && headerStatus ? (
+        {/* Rename sits after the branch, so it never holds the title apart from it (board 2);
+            it shows on hover and stays reachable by keyboard. */}
+        {renamingTitle === null && isServerThread ? (
+          <li className="-ms-1 flex shrink-0 items-center sm:-ms-2">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={`Rename ${activeThreadTitle}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeMenu();
+                      startRename();
+                    }}
+                    className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/crumb:opacity-100 group-focus-within/crumb:opacity-100"
+                  />
+                }
+              >
+                <PencilIcon aria-hidden className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Rename thread</TooltipPopup>
+            </Tooltip>
+          </li>
+        ) : null}
+        {/* The now bar says the same thing in more words (board 2); the live region below
+            still announces status changes. */}
+        {renamingTitle === null && headerStatus && !nowBarShown ? (
           <li className="ms-auto flex shrink-0 items-center">
             <ThreadHeaderStatusPill status={headerStatus} />
           </li>
         ) : null}
       </WorkspaceBreadcrumb>
-      {/* The open thread's only status live region, so it is heard whether or not the sidebar
-          is showing; the sidebar row of the open thread is not a live region. It stays mounted
-          and holds just the short label, so a status change is announced and a plan step is
-          not. Keyed by thread, so opening a thread does not announce its current status. */}
-      <span
-        key={`${activeThreadEnvironmentId}:${activeThreadId}`}
-        role="status"
-        className="sr-only"
-      >
-        {headerStatus?.label ?? ""}
-      </span>
-      {/* Which machine runs this thread, and whether it is reachable, as a dot and a word.
-          Never hidden: narrow headers drop only the machine name. */}
+      {statusRegion}
+      {/* Opt-in session time and break reminder: still, quiet, never focused. */}
+      <SessionClockCue />
+      {/* Which machine runs this thread, as a dot and a word, only while it is not reachable.
+          Narrow headers drop only the machine name. */}
       <EnvironmentConnectionChip environmentId={activeThreadEnvironmentId} />
       <div
         data-chat-header-actions
         className={cn(
           "flex shrink-0 items-center justify-end",
-          // Reserve two panel toggles plus their 4px gaps and 1px edge inset.
-          // The page header adds 8px more right padding at sm.
-          rightPanelOpen ? "pr-0" : "pr-[calc(--spacing(18)+1px)] sm:pr-[calc(--spacing(14)+1px)]",
+          // Reserve the right panel toggle plus its 4px gap and 1px edge inset; the terminal
+          // toggle lives in More. The page header adds 8px more right padding at sm.
+          rightPanelOpen ? "pr-0" : "pr-[calc(--spacing(9)+1px)] sm:pr-[calc(--spacing(6)+1px)]",
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-(--ease-spring-gentle)",
         )}
       >
-        {/* Scripts, Open in and Git sit in one quiet menu. It stays mounted while closed, so
+        {changedFileCount !== null ? (
+          <ChangesSoFarButton count={changedFileCount} onOpen={onOpenChanges} />
+        ) : null}
+        <FocusButton available={isServerThread} shortcut={focusShortcut} onToggle={onToggleFocus} />
+        {/* Scripts, Open in and the terminal sit in one quiet menu. It stays mounted while closed, so
             their keybindings, command palette entries and open dialogs keep working. */}
         <Menu open={actionsOpen} onOpenChange={setActionsOpen}>
           <MenuTrigger
@@ -620,7 +950,7 @@ export const ChatHeader = memo(function ChatHeader({
                 size="icon-sm"
                 variant="ghost"
                 className="text-muted-foreground"
-                aria-label="Thread actions"
+                aria-label={moreMenuLabel}
               />
             }
           >

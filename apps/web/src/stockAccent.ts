@@ -1,4 +1,4 @@
-import type { StockAccent } from "@e6tools/contracts/settings";
+import { DEFAULT_STOCK_ACCENT, type StockAccent } from "@e6tools/contracts/settings";
 import {
   STOCK_ACCENT_PALETTES,
   type StockAccentColors,
@@ -28,18 +28,19 @@ function translucentHex(hex: string, alphaPercent: number): string {
   return `rgb(${r} ${g} ${b} / ${alphaPercent}%)`;
 }
 
-// Selection washes match the stock Iris tokens: 18% on Porcelain, 22% on Slate.
+// Selection washes match the stock tokens in index.css: 18% on Porcelain, 22% on Slate.
 const TERMINAL_SELECTION_ALPHA = { light: 18, dark: 22 } as const;
 
 /**
- * Inline variables the stock tokens in index.css read before their Iris
+ * Inline variables the stock tokens in index.css read before their Graphite
  * fallbacks. Both appearances are written at once so a light/dark switch
- * needs no re-run. Iris writes nothing and lets the stylesheet stand. The
- * terminal colors are resolved here rather than with color-mix() because the
- * terminal reads them back as computed values.
+ * needs no re-run. The default accent (Graphite) writes nothing and lets the
+ * stylesheet stand. The terminal colors are resolved here rather than with
+ * color-mix() because the terminal reads them back as computed values. The
+ * boot script in index.html writes the same variables before first paint.
  */
 export function stockAccentVariables(accent: StockAccent): Readonly<Record<string, string>> {
-  if (accent === "iris") return {};
+  if (accent === DEFAULT_STOCK_ACCENT) return {};
   const palette = STOCK_ACCENT_PALETTES[accent];
   const variables: Record<string, string> = {};
   for (const appearance of ["light", "dark"] as const) {

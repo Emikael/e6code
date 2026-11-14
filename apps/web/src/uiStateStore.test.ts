@@ -9,11 +9,16 @@ import {
   PERSISTED_STATE_KEY,
   type PersistedUiState,
   persistState,
+  RECENT_FILES_STORED_LIMIT,
+  recordRecentFile,
   reorderProjects,
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
+  setFilesFilter,
   setProjectExpanded,
+  setRunDetailsSectionOpen,
   setSidebarProjectScopeKey,
+  setThreadAgentActivityDetail,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -27,9 +32,57 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    runDetailsSectionOpen: {},
+    focusMode: false,
+    focusPanelPeek: false,
+    recentFilesByThreadKey: {},
+    filesFilterByThreadKey: {},
+    focusOpenedPanelKeys: [],
+    focusReplacedSurfaceByThreadKey: {},
+    agentActivityDetailByThreadKey: {},
     ...overrides,
   };
 }
+
+describe("Files tab state per thread", () => {
+  it("keeps the last files opened, newest first, with the line each was left at", () => {
+    let state = makeUiState();
+    state = recordRecentFile(state, "env:t1", "a.ts", null);
+    state = recordRecentFile(state, "env:t1", "b.ts", null);
+    state = recordRecentFile(state, "env:t1", "a.ts", 40);
+    // Opening again without a line keeps the one it was left at.
+    state = recordRecentFile(state, "env:t1", "b.ts", null);
+    state = recordRecentFile(state, "env:t1", "a.ts", null);
+    expect(state.recentFilesByThreadKey["env:t1"]).toEqual([
+      { path: "a.ts", line: 40 },
+      { path: "b.ts", line: null },
+    ]);
+    for (let index = 0; index < RECENT_FILES_STORED_LIMIT; index++) {
+      state = recordRecentFile(state, "env:t1", `f${index}`, null);
+    }
+    expect(state.recentFilesByThreadKey["env:t1"]).toHaveLength(RECENT_FILES_STORED_LIMIT);
+    expect(state.recentFilesByThreadKey["env:t1"]?.[0]?.path).toBe(
+      `f${RECENT_FILES_STORED_LIMIT - 1}`,
+    );
+    expect(state.recentFilesByThreadKey["env:t2"]).toBeUndefined();
+  });
+
+  it("remembers the filter per thread and survives a reload", () => {
+    const state = setFilesFilter(makeUiState(), "env:t1", "all");
+    expect(setFilesFilter(state, "env:t1", "all")).toBe(state);
+    const reloaded = parsePersistedState({
+      filesFilterByThreadKey: { ...state.filesFilterByThreadKey, "env:t2": "bogus" as "all" },
+      recentFilesByThreadKey: {
+        "env:t1": [
+          { path: "a.ts", line: 3 },
+          { path: "", line: 1 },
+        ],
+      },
+    });
+    expect(reloaded.filesFilterByThreadKey).toEqual({ "env:t1": "all" });
+    expect(reloaded.recentFilesByThreadKey).toEqual({ "env:t1": [{ path: "a.ts", line: 3 }] });
+  });
+});
 
 describe("uiStateStore pure functions", () => {
   it("stores server timestamps without moving visit state backwards", () => {
@@ -138,6 +191,12 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("stores a Run details section choice and skips repeats", () => {
+    const opened = setRunDetailsSectionOpen(makeUiState(), "usage", true);
+    expect(opened.runDetailsSectionOpen).toEqual({ usage: true });
+    expect(setRunDetailsSectionOpen(opened, "usage", true)).toBe(opened);
+  });
+
   it("stores the endpoint preference by stable key", () => {
     const next = setDefaultAdvertisedEndpointKey(makeUiState(), "desktop-core:lan:http");
 
@@ -169,6 +228,14 @@ describe("parsePersistedState", () => {
 
     expect(parsed.pullRequestMergeMethod).toBe("squash");
     expect(invalid.pullRequestMergeMethod).toBe("merge");
+  });
+
+  it("keeps only known Run details sections with boolean state", () => {
+    const parsed = parsePersistedState({
+      runDetailsSectionOpen: { usage: true, plan: false, unknown: true, changes: "yes" as never },
+    });
+
+    expect(parsed.runDetailsSectionOpen).toEqual({ usage: true, plan: false });
   });
 
   it("hydrates raw UI-owned state without server entities", () => {
@@ -203,6 +270,14 @@ describe("parsePersistedState", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
       pullRequestMergeMethod: "merge",
+      runDetailsSectionOpen: {},
+      focusMode: false,
+      focusPanelPeek: false,
+      recentFilesByThreadKey: {},
+      filesFilterByThreadKey: {},
+      focusOpenedPanelKeys: [],
+      focusReplacedSurfaceByThreadKey: {},
+      agentActivityDetailByThreadKey: {},
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -332,6 +407,13 @@ describe("uiStateStore persistence", () => {
         },
       },
       pullRequestMergeMethod: "merge",
+      runDetailsSectionOpen: {},
+      focusMode: false,
+      recentFilesByThreadKey: {},
+      filesFilterByThreadKey: {},
+      focusOpenedPanelKeys: [],
+      focusReplacedSurfaceByThreadKey: {},
+      agentActivityDetailByThreadKey: {},
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
@@ -359,5 +441,25 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(resolveProjectExpanded(persisted.projectExpandedById ?? {}, ["unknown"])).toBe(true);
+  });
+});
+
+describe("per-thread agent activity", () => {
+  it("overrides the setting for one thread, and clears back to it", () => {
+    const base = makeUiState();
+    const live = setThreadAgentActivityDetail(base, "env:thread", "live");
+    expect(live.agentActivityDetailByThreadKey).toEqual({ "env:thread": "live" });
+    expect(setThreadAgentActivityDetail(live, "env:thread", "live")).toBe(live);
+    expect(
+      setThreadAgentActivityDetail(live, "env:thread", null).agentActivityDetailByThreadKey,
+    ).toEqual({});
+  });
+
+  it("keeps only valid stored choices", () => {
+    expect(
+      parsePersistedState({
+        agentActivityDetailByThreadKey: { a: "live", b: "loud", c: "summary" },
+      }).agentActivityDetailByThreadKey,
+    ).toEqual({ a: "live", c: "summary" });
   });
 });

@@ -99,15 +99,32 @@ For a local Git repository without a remote, **Publish Repository** creates a ho
 adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
 make your first commit before pushing.
 
+## Review changes in the Diff tab
+
+Open the Diff tab (`Mod+D`) to read what changed. The file list beside the diff follows the order
+of the diff. Choose **Mark reviewed** on a file once you have read it; the mark is kept on this
+device, and **Run details** counts it too. If the agent changes a reviewed file again, the list
+says **changed since review**, the button reads **Mark reviewed** again, and **Show only what
+changed** in the file's header hides what you already reviewed.
+
+Press `V` to move to the next change. After a file's last change, `V` marks that file reviewed and
+moves to the next file you have not reviewed. `J` and `K` move to the next and previous file. These
+keys work while the Diff tab has focus and you are not typing; change them in
+**Settings → Keybindings**.
+
+While the agent is working, the diff holds still so nothing moves while you read. It says the
+agent is still working, and **Update** shows its newest changes. When the turn ends, the diff
+updates by itself.
+
 ## Stage and commit from the Diff tab
 
-Open the Diff tab (`Mod+D`) on the **Uncommitted** scope to see your changes split into
-**Staged** and **Changes**, the same way `git status` sees them. Hover a file to stage, unstage,
-or discard it, or use the buttons beside a section title to act on all of its files. Click a file to
-jump to its diff, and switch the scope to **Staged** or **Unstaged** to see only one side.
+On the **Uncommitted** scope, the file list splits your changes into **Staged** and **Changes**,
+the same way `git status` sees them. Stage, unstage, or discard a file from its row or its menu,
+or use the buttons beside a section title to act on all of its files. Switch the scope to
+**Staged** or **Unstaged** to see only one side.
 
-The commit box at the top commits only what is staged. When nothing is staged, it stages every
-change first. Leave the message empty to generate one.
+The commit box at the foot of the file list commits only what is staged. When nothing is staged,
+it stages every change first. Leave the message empty to generate one.
 
 Discarding reverts unstaged edits and deletes untracked files, but staged changes are kept, and so
 are ignored files and nested repositories inside an untracked folder. Use
@@ -116,8 +133,10 @@ still working on the thread.
 
 ## Create a pull request
 
-Use a thread's Git actions to commit, push, and create a pull request. E6 Code can generate commit
-messages, review titles, and descriptions from your changes.
+Use the Git actions in a thread's **More** menu (the **…** in the thread header) to commit, push,
+and create a pull request. **Run details** also offers Commit and Push, and an empty **Pull
+requests** tab offers Create. E6 Code can generate commit messages, review titles, and descriptions
+from your changes.
 
 Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
 uses the project's instructions and recent commit subjects.
@@ -131,10 +150,14 @@ GitLab calls these merge requests.
 The page opens on **Needs you**, which lists only pull requests waiting on you: reviews requested
 from you and your own pull requests that are blocked or ready to merge. Your pull requests that are
 waiting on reviewers or checks are under **Yours**, **All open** shows every open pull request, and
-**Merged** shows finished work. The page remembers the tab you pick. An open review lists its merge readiness (checks, approval, conflicts, and whether
-the branch is up to date) above the merge controls, with a button to fix what is failing.
+**Merged** shows finished work. The page remembers the tab you pick.
 
-GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
+An open pull request's **Summary** starts with the one thing to do next, such as resolving
+conflicts, fixing failing checks, or requesting a review, and what is still needed after that.
+Where the fix is code, it can hand the task to the thread's agent; nothing runs until you send
+it. Merge from the footer of the pull request. On GitHub, GitLab, and Azure DevOps, **Merge when
+ready** asks the host to merge once checks and reviews pass; choose **Cancel Merge when ready** to
+take it back. A draft or a branch with conflicts cannot be set to merge when ready. GitHub also
 supports approving waiting fork workflows and opening a revert pull request for a merged change.
 
 GitHub sharing is off by default. In Settings → Connections → GitHub sharing (Environments on mobile), choose
@@ -158,9 +181,11 @@ declined pull request.
 
 ### Mark files as viewed
 
-Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a
-running count. A tick belongs to the pull request rather than to a commit, so scoping the tab to a
-single commit keeps them. A file pushed to after you cleared it comes back marked **Changed**.
+Choose **Mark reviewed** on a file in the **Code** tab once you have read it and it collapses; the
+toolbar keeps a running count. `V`, `J`, and `K` page through the files as in the
+[Diff tab](#review-changes-in-the-diff-tab). A mark belongs to the pull request rather than to a
+commit, so scoping the tab to a single commit keeps them. A file pushed to after you marked it
+reads **changed since review** in the file list, and its button reads **Mark reviewed** again.
 
 On GitHub these are GitHub's own viewed marks, so a review carries between E6 Code and github.com
 in either direction. Forgejo, GitLab, Bitbucket, and Azure DevOps expose no record E6 Code can read, so the

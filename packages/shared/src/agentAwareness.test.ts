@@ -9,7 +9,7 @@ import type {
 } from "@e6tools/contracts";
 import { ProviderInstanceId } from "@e6tools/contracts";
 
-import { projectThreadAwareness } from "./agentAwareness.ts";
+import { describeAwarenessAsk, projectThreadAwareness } from "./agentAwareness.ts";
 
 const NOW = "2026-05-22T12:00:00.000Z";
 
@@ -29,7 +29,8 @@ function thread(
   | "updatedAt"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
-> {
+> &
+  Partial<Pick<OrchestrationThreadShell, "pendingRequestSummary">> {
   return {
     id: "thread-1" as ThreadId,
     title: "Fix failing CI",
@@ -173,8 +174,97 @@ describe("projectThreadAwareness", () => {
 
     expect(state).toMatchObject({
       phase: "failed",
-      headline: "Agent failed",
+      headline: "Thread failed",
       detail: "Provider process exited.",
     });
+  });
+
+  const codexSession = (status: "running" | "ready" | "error") => ({
+    threadId: "thread-1" as ThreadId,
+    status,
+    providerName: "codex",
+    runtimeMode: "full-access" as const,
+    activeTurnId: null,
+    lastError: status === "error" ? "Provider process exited." : null,
+    updatedAt: NOW,
+  });
+
+  it("says what a blocked agent asks as the one fact, never the question itself", () => {
+    const approval = projectThreadAwareness({
+      environmentId: "env-1" as EnvironmentId,
+      project,
+      thread: thread({
+        hasPendingApprovals: true,
+        session: codexSession("running"),
+        pendingRequestSummary: {
+          approvalCount: 1,
+          approvalKind: "command",
+          approvalKindCount: 1,
+          userInputCount: 0,
+          questionCount: 0,
+        },
+      }),
+    });
+    expect(approval).toMatchObject({
+      headline: "Approval needed",
+      detail: "Codex wants to run 1 command",
+    });
+    const input = projectThreadAwareness({
+      environmentId: "env-1" as EnvironmentId,
+      project,
+      thread: thread({
+        hasPendingUserInput: true,
+        session: codexSession("running"),
+        pendingRequestSummary: {
+          approvalCount: 0,
+          userInputCount: 1,
+          questionCount: 2,
+          question: "keep the spring animation, or cut to a fade?",
+        },
+      }),
+    });
+    expect(input).toMatchObject({ headline: "Input needed", detail: "Codex asks 2 questions" });
+    expect(input?.detail).not.toContain("spring");
+    expect(describeAwarenessAsk("waiting_for_approval", { session: null })).toBe(
+      "The agent is waiting for your approval",
+    );
+  });
+
+  it("says how long a finished turn worked", () => {
+    const state = projectThreadAwareness({
+      environmentId: "env-1" as EnvironmentId,
+      project,
+      thread: thread({
+        session: codexSession("ready"),
+        latestTurn: {
+          turnId: "turn-1" as TurnId,
+          state: "completed",
+          requestedAt: "2026-05-22T11:50:00.000Z",
+          startedAt: "2026-05-22T11:50:00.000Z",
+          completedAt: "2026-05-22T11:53:40.000Z",
+          assistantMessageId: null,
+        },
+      }),
+    });
+    expect(state).toMatchObject({ headline: "Thread completed", detail: "worked 3m 40s" });
+  });
+
+  it("does not report an old failure while the agent is running again", () => {
+    const state = projectThreadAwareness({
+      environmentId: "env-1" as EnvironmentId,
+      project,
+      thread: thread({
+        session: codexSession("running"),
+        latestTurn: {
+          turnId: "turn-1" as TurnId,
+          state: "error",
+          requestedAt: NOW,
+          startedAt: NOW,
+          completedAt: NOW,
+          assistantMessageId: null,
+        },
+      }),
+    });
+    expect(state?.phase).toBe("running");
   });
 });

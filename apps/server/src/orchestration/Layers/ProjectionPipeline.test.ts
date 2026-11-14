@@ -10,6 +10,7 @@ import {
   ThreadId,
   type ThreadPullRequestSnapshot,
   ThreadLinkedPullRequest,
+  ThreadPendingRequestSummary,
   TurnId,
   ProviderInstanceId,
 } from "@e6tools/contracts";
@@ -3760,6 +3761,442 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHERE thread_id = 'thread-nonstale-approval'
       `;
       assert.deepEqual(resolvedThreadRows, [{ pendingApprovalCount: 0 }]);
+    }),
+  );
+
+  // Event logs written before the decider refused second answers can hold one.
+  it.effect("keeps the first answer when a recorded second answer replays", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-second-answer");
+      const requestId = ApprovalRequestId.make("approval-request-second-answer");
+      const base = (n: number, aggregate: "project" | "thread") =>
+        ({
+          eventId: EventId.make(`evt-second-answer-${n}`),
+          aggregateKind: aggregate,
+          aggregateId: aggregate === "project" ? ProjectId.make("project-second-answer") : threadId,
+          occurredAt: `2026-02-26T13:00:0${n}.000Z`,
+          commandId: CommandId.make(`cmd-second-answer-${n}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-second-answer-${n}`),
+          metadata: {},
+        }) as const;
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+      yield* appendAndProject({
+        ...base(0, "project"),
+        type: "project.created",
+        payload: {
+          projectId: ProjectId.make("project-second-answer"),
+          title: "Project Second Answer",
+          workspaceRoot: "/tmp/project-second-answer",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-02-26T13:00:00.000Z",
+          updatedAt: "2026-02-26T13:00:00.000Z",
+        },
+      });
+      yield* appendAndProject({
+        ...base(1, "thread"),
+        type: "thread.created",
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-second-answer"),
+          title: "Thread Second Answer",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-02-26T13:00:01.000Z",
+          updatedAt: "2026-02-26T13:00:01.000Z",
+        },
+      });
+      yield* appendAndProject({
+        ...base(2, "thread"),
+        type: "thread.activity-appended",
+        payload: {
+          threadId,
+          activity: {
+            id: EventId.make("activity-second-answer-requested"),
+            tone: "approval",
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            payload: { requestId, requestKind: "command" },
+            turnId: null,
+            createdAt: "2026-02-26T13:00:02.000Z",
+          },
+        },
+      });
+      for (const [n, decision] of [
+        [3, "accept"],
+        [4, "decline"],
+      ] as const) {
+        yield* appendAndProject({
+          ...base(n, "thread"),
+          type: "thread.approval-response-requested",
+          payload: { threadId, requestId, decision, createdAt: `2026-02-26T13:00:0${n}.000Z` },
+        });
+      }
+
+      const rows = yield* sql<{ readonly decision: string; readonly resolvedAt: string }>`
+        SELECT decision, resolved_at AS "resolvedAt"
+        FROM projection_pending_approvals
+        WHERE request_id = ${requestId}
+      `;
+      assert.deepEqual(rows, [{ decision: "accept", resolvedAt: "2026-02-26T13:00:03.000Z" }]);
+    }),
+  );
+
+  it.effect("keeps the earliest unresolved request time on the thread shell", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-pending-since");
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      const appendActivity = (input: {
+        readonly id: string;
+        readonly at: string;
+        readonly kind: string;
+        readonly payload: Record<string, unknown>;
+      }) =>
+        appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make(`evt-${input.id}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: input.at,
+          commandId: CommandId.make(`cmd-${input.id}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-${input.id}`),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make(`activity-${input.id}`),
+              tone: "info",
+              kind: input.kind,
+              summary: input.kind,
+              payload: input.payload,
+              turnId: null,
+              createdAt: input.at,
+            },
+          },
+        });
+      const readPendingSince = sql<{ readonly pendingRequestSince: string | null }>`
+        SELECT pending_request_since AS "pendingRequestSince"
+        FROM projection_threads
+        WHERE thread_id = 'thread-pending-since'
+      `.pipe(Effect.map((rows) => rows[0]?.pendingRequestSince));
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.make("evt-pending-since-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-pending-since"),
+        occurredAt: "2026-04-01T09:00:00.000Z",
+        commandId: CommandId.make("cmd-pending-since-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-since-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.make("project-pending-since"),
+          title: "Pending since",
+          workspaceRoot: "/tmp/project-pending-since",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-04-01T09:00:00.000Z",
+          updatedAt: "2026-04-01T09:00:00.000Z",
+        },
+      });
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-pending-since-thread"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-04-01T09:00:01.000Z",
+        commandId: CommandId.make("cmd-pending-since-thread"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-since-thread"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-pending-since"),
+          title: "Pending since",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-04-01T09:00:01.000Z",
+          updatedAt: "2026-04-01T09:00:01.000Z",
+        },
+      });
+      assert.isNull(yield* readPendingSince);
+
+      // A question, then an approval, then a second question: the oldest wins.
+      yield* appendActivity({
+        id: "pending-since-question-1",
+        at: "2026-04-01T09:01:00.000Z",
+        kind: "user-input.requested",
+        payload: { requestId: "pending-since-question-1", questions: [] },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:01:00.000Z");
+
+      yield* appendActivity({
+        id: "pending-since-approval",
+        at: "2026-04-01T09:02:00.000Z",
+        kind: "approval.requested",
+        payload: { requestId: "pending-since-approval", requestKind: "command" },
+      });
+      yield* appendActivity({
+        id: "pending-since-question-2",
+        at: "2026-04-01T09:03:00.000Z",
+        kind: "user-input.requested",
+        payload: { requestId: "pending-since-question-2", questions: [] },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:01:00.000Z");
+
+      // Resolving the oldest moves the time to the next open request.
+      yield* appendActivity({
+        id: "pending-since-question-1-resolved",
+        at: "2026-04-01T09:04:00.000Z",
+        kind: "user-input.resolved",
+        payload: { requestId: "pending-since-question-1", answers: {} },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:02:00.000Z");
+
+      yield* appendActivity({
+        id: "pending-since-approval-resolved",
+        at: "2026-04-01T09:05:00.000Z",
+        kind: "approval.resolved",
+        payload: { requestId: "pending-since-approval", decision: "accept" },
+      });
+      assert.strictEqual(yield* readPendingSince, "2026-04-01T09:03:00.000Z");
+
+      // Nothing left to answer clears it.
+      yield* appendActivity({
+        id: "pending-since-question-2-resolved",
+        at: "2026-04-01T09:06:00.000Z",
+        kind: "user-input.resolved",
+        payload: { requestId: "pending-since-question-2", answers: {} },
+      });
+      assert.isNull(yield* readPendingSince);
+    }),
+  );
+
+  it.effect("summarizes what the open requests ask on the thread shell", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("thread-pending-summary");
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+      const appendActivity = (input: {
+        readonly id: string;
+        readonly at: string;
+        readonly kind: string;
+        readonly payload: Record<string, unknown>;
+      }) =>
+        appendAndProject({
+          type: "thread.activity-appended",
+          eventId: EventId.make(`evt-${input.id}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: input.at,
+          commandId: CommandId.make(`cmd-${input.id}`),
+          causationEventId: null,
+          correlationId: CorrelationId.make(`cmd-${input.id}`),
+          metadata: {},
+          payload: {
+            threadId,
+            activity: {
+              id: EventId.make(`activity-${input.id}`),
+              tone: "info",
+              kind: input.kind,
+              summary: input.kind,
+              payload: input.payload,
+              turnId: null,
+              createdAt: input.at,
+            },
+          },
+        });
+      const readRawSummary = sql<{ readonly summary: string | null }>`
+        SELECT pending_request_summary_json AS "summary"
+        FROM projection_threads
+        WHERE thread_id = 'thread-pending-summary'
+      `.pipe(Effect.map((rows) => rows[0]?.summary ?? null));
+      const decodeSummary = Schema.decodeUnknownEffect(
+        Schema.fromJsonString(ThreadPendingRequestSummary),
+      );
+      const readSummary = readRawSummary.pipe(
+        Effect.flatMap((raw) => (raw === null ? Effect.succeed(null) : decodeSummary(raw))),
+      );
+      const question = (id: string, text: string) => ({
+        id,
+        header: "Choice",
+        question: text,
+        options: [{ label: "Yes", description: "Yes" }],
+      });
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.make("evt-pending-summary-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.make("project-pending-summary"),
+        occurredAt: "2026-04-01T09:00:00.000Z",
+        commandId: CommandId.make("cmd-pending-summary-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-summary-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.make("project-pending-summary"),
+          title: "Pending summary",
+          workspaceRoot: "/tmp/project-pending-summary",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: "2026-04-01T09:00:00.000Z",
+          updatedAt: "2026-04-01T09:00:00.000Z",
+        },
+      });
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.make("evt-pending-summary-thread"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-04-01T09:00:01.000Z",
+        commandId: CommandId.make("cmd-pending-summary-thread"),
+        causationEventId: null,
+        correlationId: CorrelationId.make("cmd-pending-summary-thread"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: ProjectId.make("project-pending-summary"),
+          title: "Pending summary",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-04-01T09:00:01.000Z",
+          updatedAt: "2026-04-01T09:00:01.000Z",
+        },
+      });
+      assert.isNull(yield* readSummary);
+
+      // Two command approvals (one named only by its native request type) and a file change.
+      yield* appendActivity({
+        id: "pending-summary-command",
+        at: "2026-04-01T09:01:00.000Z",
+        kind: "approval.requested",
+        payload: {
+          requestId: "pending-summary-command",
+          requestKind: "command",
+          requestType: "command_execution_approval",
+          detail: "vp test run apps/server/src/relay",
+        },
+      });
+      yield* appendActivity({
+        id: "pending-summary-edit",
+        at: "2026-04-01T09:02:00.000Z",
+        kind: "approval.requested",
+        payload: { requestId: "pending-summary-edit", requestKind: "file-change" },
+      });
+      yield* appendActivity({
+        id: "pending-summary-legacy-command",
+        at: "2026-04-01T09:03:00.000Z",
+        kind: "approval.requested",
+        payload: {
+          requestId: "pending-summary-legacy-command",
+          requestType: "exec_command_approval",
+        },
+      });
+      assert.deepEqual(yield* readSummary, {
+        approvalCount: 3,
+        approvalKind: "command",
+        approvalKindCount: 2,
+        userInputCount: 0,
+        questionCount: 0,
+      });
+      // The kind is stored on the pending row, so the summary never scans activities.
+      assert.deepEqual(
+        yield* sql<{ readonly requestKind: string | null; readonly requestType: string | null }>`
+          SELECT request_kind AS "requestKind", request_type AS "requestType"
+          FROM projection_pending_approvals
+          WHERE thread_id = 'thread-pending-summary'
+          ORDER BY created_at
+        `,
+        [
+          { requestKind: "command", requestType: "command_execution_approval" },
+          { requestKind: "file-change", requestType: null },
+          { requestKind: null, requestType: "exec_command_approval" },
+        ],
+      );
+
+      // A question with a long, multi-line text is cut to one short line.
+      const longText = `Keep the spring animation,\n or cut to a fade? ${"x".repeat(200)}`;
+      yield* appendActivity({
+        id: "pending-summary-question",
+        at: "2026-04-01T09:04:00.000Z",
+        kind: "user-input.requested",
+        payload: {
+          requestId: "pending-summary-question",
+          questions: [question("q1", longText), question("q2", "And the easing?")],
+        },
+      });
+      const withQuestion = yield* readSummary;
+      assert.strictEqual(withQuestion?.userInputCount, 1);
+      assert.strictEqual(withQuestion?.questionCount, 2);
+      const questionText = withQuestion?.question ?? "";
+      assert.strictEqual(questionText.length, 160);
+      assert.isTrue(questionText.startsWith("Keep the spring animation, or cut to a fade?"));
+      assert.isTrue(questionText.endsWith("…"));
+
+      // Resolving the oldest approval names the next kind; the command text never rides along.
+      yield* appendActivity({
+        id: "pending-summary-command-resolved",
+        at: "2026-04-01T09:05:00.000Z",
+        kind: "approval.resolved",
+        payload: { requestId: "pending-summary-command", decision: "accept" },
+      });
+      const afterResolve = yield* readSummary;
+      assert.strictEqual(afterResolve?.approvalCount, 2);
+      assert.strictEqual(afterResolve?.approvalKind, "file-change");
+      assert.strictEqual(afterResolve?.approvalKindCount, 1);
+      assert.notInclude((yield* readRawSummary) ?? "", "vp test run");
+
+      // Nothing left pending clears it.
+      for (const [id, kind, requestId] of [
+        ["pending-summary-edit-resolved", "approval.resolved", "pending-summary-edit"],
+        ["pending-summary-legacy-resolved", "approval.resolved", "pending-summary-legacy-command"],
+        ["pending-summary-question-resolved", "user-input.resolved", "pending-summary-question"],
+      ] as const) {
+        yield* appendActivity({
+          id,
+          at: "2026-04-01T09:06:00.000Z",
+          kind,
+          payload: { requestId, decision: "accept", answers: {} },
+        });
+      }
+      assert.isNull(yield* readSummary);
     }),
   );
 

@@ -27,6 +27,7 @@ import { resolveThreadStatus } from "./threadPresentation";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
+  describeThreadListV2NeedsYou,
   getThreadListV2OrderedSection,
   resolveThreadHeaderStatusText,
   resolveThreadListV2Enabled,
@@ -34,6 +35,12 @@ import {
   resolveThreadListV2SnoozeGateExpiryMs,
   resolveThreadListV2Status,
   resolveThreadListV2SwipeActions,
+  resolveThreadListV2WorkingSince,
+  reuseThreadListV2NeedsYou,
+  selectThreadListV2NeedsYou,
+  describeThreadListV2SnoozeEarlier,
+  formatThreadListV2WorkingCaption,
+  selectThreadListV2SnoozableEarlier,
   sortThreadsForListV2,
 } from "./threadListV2";
 
@@ -193,13 +200,18 @@ describe("resolveThreadListV2Status", () => {
 
     // The legacy list says the same, between input and working.
     expect(resolveThreadStatus(paused)).toMatchObject({ kind: "paused", label: "Paused" });
+    // Answer and approval are both blocked on you, so they share the warning roles.
     expect(resolveThreadStatus({ ...paused, hasPendingUserInput: true })).toMatchObject({
       kind: "awaiting-input",
       label: "Needs your answer",
+      pillClassName: "bg-warning",
+      textClassName: "text-warning-foreground",
     });
     expect(resolveThreadStatus({ ...paused, hasPendingApprovals: true })).toMatchObject({
       kind: "pending-approval",
       label: "Needs approval",
+      pillClassName: "bg-warning",
+      textClassName: "text-warning-foreground",
     });
     expect(resolveThreadStatus({ ...paused, agentState: undefined })?.kind).toBe("working");
   });
@@ -1577,5 +1589,382 @@ describe("cross-section thread drops", () => {
         NOW,
       ),
     ).toEqual({ pin: false, unpin: false, unsettle: false, unsnooze: false });
+  });
+});
+
+describe("Needs you section", () => {
+  const approval = makeThread({
+    id: ThreadId.make("approval"),
+    title: "Fix tunnel reconnect loop",
+    hasPendingApprovals: true,
+    pendingRequestSince: "2026-06-01T23:56:00.000Z",
+    pendingRequestSummary: {
+      approvalCount: 1,
+      approvalKind: "command",
+      approvalKindCount: 1,
+      userInputCount: 0,
+      questionCount: 0,
+    },
+  });
+  const question = makeThread({
+    id: ThreadId.make("question"),
+    title: "Mobile composer morph",
+    hasPendingUserInput: true,
+    pendingRequestSince: "2026-06-01T23:48:00.000Z",
+    pendingRequestSummary: {
+      approvalCount: 0,
+      userInputCount: 1,
+      questionCount: 1,
+      question: "keep the spring animation, or cut to a fade?",
+    },
+  });
+  const working = makeThread({ id: ThreadId.make("working"), title: "Remodel the theme tokens" });
+  const otherProject = makeThread({
+    id: ThreadId.make("elsewhere"),
+    title: "Elsewhere",
+    projectId: ProjectId.make("project-2"),
+    hasPendingApprovals: true,
+  });
+
+  it("lists blocked threads from the shared selector, approvals first", () => {
+    const needsYou = selectThreadListV2NeedsYou({
+      threads: [working, question, approval],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(needsYou.blocked.map((item) => [item.thread.id, item.kind])).toEqual([
+      ["approval", "approval"],
+      ["question", "input"],
+    ]);
+  });
+
+  it("follows the project scope and steps aside while searching", () => {
+    const scoped = selectThreadListV2NeedsYou({
+      threads: [approval, otherProject],
+      environmentId: null,
+      projectRefs: [{ environmentId, projectId: ProjectId.make("project-1") }],
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(scoped.blocked.map((item) => item.thread.id)).toEqual(["approval"]);
+    expect(
+      selectThreadListV2NeedsYou({
+        threads: [approval],
+        environmentId: null,
+        searchQuery: "tunnel",
+        now: NOW,
+      }),
+    ).toEqual({ blocked: [], earlier: [], review: [] });
+  });
+
+  it("leads the list with a counted header, and the threads keep their own rows", () => {
+    const needsYou = selectThreadListV2NeedsYou({
+      threads: [approval, question, working],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    const layout = buildThreadListV2Items({
+      threads: [approval, question, working],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    const items = buildThreadListV2ListItems({ needsYou, items: layout.items, pendingTasks: [] });
+    expect(items.slice(0, 3).map((item) => item.type)).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you",
+      "v2-needs-you",
+    ]);
+    expect(items[0]?.type === "v2-needs-you-header" && items[0].count).toBe(2);
+    // Only the first approval opens with its actions.
+    expect(items.slice(1, 3).map((item) => item.type === "v2-needs-you" && item.expanded)).toEqual([
+      true,
+      false,
+    ]);
+    expect(items.filter((item) => item.type === "v2-thread")).toHaveLength(3);
+    expect(
+      buildThreadListV2ListItems({
+        needsYou: { blocked: [], earlier: [], review: [] },
+        items: layout.items,
+        pendingTasks: [],
+      })[0]?.type,
+    ).toBe("v2-thread");
+  });
+
+  it("folds threads blocked over a day into one counted Earlier row", () => {
+    const stale = makeThread({
+      id: ThreadId.make("stale"),
+      title: "Old question",
+      hasPendingUserInput: true,
+      pendingRequestSince: "2026-05-30T08:00:00.000Z",
+    });
+    const needsYou = selectThreadListV2NeedsYou({
+      threads: [approval, stale],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(needsYou.earlier.map((item) => item.thread.id)).toEqual(["stale"]);
+    const collapsed = buildThreadListV2ListItems({ needsYou, items: [], pendingTasks: [] });
+    expect(collapsed.map((item) => item.type)).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you",
+      "v2-needs-you-earlier",
+    ]);
+    expect(collapsed[0]?.type === "v2-needs-you-header" && collapsed[0].count).toBe(2);
+    expect(collapsed[2]?.type === "v2-needs-you-earlier" && collapsed[2].count).toBe(1);
+    const open = buildThreadListV2ListItems({
+      needsYou,
+      needsYouEarlierExpanded: true,
+      items: [],
+      pendingTasks: [],
+    });
+    expect(open.at(-1)?.type === "v2-needs-you" && open.at(-1)).toMatchObject({
+      expanded: false,
+      item: { kind: "input" },
+    });
+  });
+
+  it("keeps the previous lists when a minute passes and nothing shown changed", () => {
+    const select = (now: string) =>
+      selectThreadListV2NeedsYou({
+        threads: [approval, question],
+        environmentId: null,
+        searchQuery: "",
+        now,
+      });
+    const first = select(NOW);
+    const later = select("2026-06-02T00:01:00.000Z");
+    expect(later).not.toBe(first);
+    expect(reuseThreadListV2NeedsYou(first, later)).toBe(first);
+    const changed = selectThreadListV2NeedsYou({
+      threads: [approval],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(reuseThreadListV2NeedsYou(first, changed)).toBe(changed);
+  });
+
+  it("words each row as board 8 does", () => {
+    const [first, second] = selectThreadListV2NeedsYou({
+      threads: [approval, question],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    }).blocked;
+    expect(describeThreadListV2NeedsYou(first!, "Codex")).toEqual({
+      status: "Needs approval",
+      detail: "Codex wants to run 1 command",
+    });
+    expect(describeThreadListV2NeedsYou(second!, "Claude")).toEqual({
+      status: "Needs your answer",
+      detail: "keep the spring animation, or cut to a fade?",
+    });
+    const failed = makeThread({
+      id: ThreadId.make("failed"),
+      title: "Failed",
+      session: {
+        threadId: ThreadId.make("failed"),
+        status: "error",
+        providerName: "codex",
+        runtimeMode: "full-access",
+        activeTurnId: null,
+        lastError: "the CLI is not signed in\nstack",
+        updatedAt: NOW,
+      } as EnvironmentThreadShell["session"],
+    });
+    expect(describeThreadListV2NeedsYou({ kind: "failed", thread: failed }, "Codex")).toEqual({
+      status: "Failed",
+      detail: "the CLI is not signed in",
+    });
+  });
+});
+
+describe("Home sections (board 8)", () => {
+  const session = (threadId: string, status: "running" | "ready" | "error") =>
+    ({
+      threadId: ThreadId.make(threadId),
+      status,
+      providerName: "codex",
+      runtimeMode: "full-access",
+      activeTurnId: null,
+      lastError: status === "error" ? "the CLI is not signed in" : null,
+      updatedAt: NOW,
+    }) as EnvironmentThreadShell["session"];
+  const approval = makeThread({
+    id: ThreadId.make("approval"),
+    title: "Fix tunnel reconnect loop",
+    hasPendingApprovals: true,
+    pendingRequestSince: "2026-06-01T23:56:00.000Z",
+  });
+  const working = makeThread({
+    id: ThreadId.make("working"),
+    title: "Remodel the theme tokens",
+    session: session("working", "running"),
+    planProgress: { step: "Updating the token map", completedSteps: 2, totalSteps: 5 },
+  });
+  const idle = makeThread({ id: ThreadId.make("idle"), title: "Idle" });
+  const finished = makeThread({
+    id: ThreadId.make("finished"),
+    title: "Relay heartbeat tests",
+    session: session("finished", "ready"),
+    latestTurn: {
+      turnId: TurnId.make("turn-1"),
+      state: "completed",
+      requestedAt: "2026-06-01T23:00:00.000Z",
+      startedAt: "2026-06-01T23:00:00.000Z",
+      completedAt: "2026-06-01T23:30:00.000Z",
+      assistantMessageId: null,
+    },
+  });
+  const threads = [approval, working, idle, finished];
+  const layout = buildThreadListV2Items({
+    threads,
+    environmentId: null,
+    searchQuery: "",
+    now: NOW,
+  });
+  const build = (lastVisitedAt?: (key: string) => string | null) =>
+    buildThreadListV2ListItems({
+      needsYou: selectThreadListV2NeedsYou({
+        threads,
+        environmentId: null,
+        searchQuery: "",
+        now: NOW,
+        ...(lastVisitedAt ? { lastVisitedAt } : {}),
+      }),
+      sections: true,
+      items: layout.items,
+      pendingTasks: [],
+    });
+  const shape = (items: ReturnType<typeof build>) =>
+    items.map((item) =>
+      item.type === "v2-section-header"
+        ? item.label
+        : item.type === "v2-thread"
+          ? `${item.item.thread.id}${item.working ? " (working)" : ""}`
+          : item.type === "v2-needs-you" || item.type === "v2-review"
+            ? `${item.type}:${item.item.thread.id}`
+            : item.type,
+    );
+
+  it("lists a blocked thread once and gathers working threads under Working", () => {
+    expect(shape(build())).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you:approval",
+      "Working",
+      "working (working)",
+      "Other threads",
+      "finished",
+      "idle",
+    ]);
+  });
+
+  it("lists a finished turn you have not seen under To review, and only there", () => {
+    const visits = new Map([[`${environmentId}:finished`, "2026-06-01T23:10:00.000Z"]]);
+    expect(shape(build((key) => visits.get(key) ?? null))).toEqual([
+      "v2-needs-you-header",
+      "v2-needs-you:approval",
+      "To review",
+      "v2-review:finished",
+      "Working",
+      "working (working)",
+      "Other threads",
+      "idle",
+    ]);
+    // Seen after it finished, or never opened on this device: not to review.
+    const seen = new Map([[`${environmentId}:finished`, "2026-06-01T23:40:00.000Z"]]);
+    expect(shape(build((key) => seen.get(key) ?? null))).not.toContain("To review");
+  });
+
+  it("keeps a plain list without headings, and the sidebar keeps every row", () => {
+    expect(
+      shape(
+        buildThreadListV2ListItems({
+          sections: true,
+          items: buildThreadListV2Items({
+            threads: [idle],
+            environmentId: null,
+            searchQuery: "",
+            now: NOW,
+          }).items,
+          pendingTasks: [],
+        }),
+      ),
+    ).toEqual(["idle"]);
+    const sidebar = buildThreadListV2ListItems({
+      needsYou: selectThreadListV2NeedsYou({
+        threads,
+        environmentId: null,
+        searchQuery: "",
+        now: NOW,
+      }),
+      expandFirstApproval: false,
+      items: layout.items,
+      pendingTasks: [],
+    });
+    expect(sidebar.filter((item) => item.type === "v2-thread")).toHaveLength(4);
+    expect(sidebar.some((item) => item.type === "v2-needs-you" && item.expanded)).toBe(false);
+  });
+
+  it("words a working row as board 8 does, with a fallback for agents without a plan", () => {
+    expect(formatThreadListV2WorkingCaption(working)).toBe("Step 3 of 5 · Updating the token map");
+    expect(formatThreadListV2WorkingCaption({ agentState: undefined, planProgress: null })).toBe(
+      "Working",
+    );
+    expect(
+      formatThreadListV2WorkingCaption({
+        agentState: { kind: "retrying", attempt: 2, maxAttempts: 10 },
+        planProgress: working.planProgress,
+      }),
+    ).toBe("Retrying · attempt 2 of 10");
+  });
+
+  it("offers to snooze only the folded threads that can be snoozed, and names them", () => {
+    const failed = makeThread({
+      id: ThreadId.make("failed"),
+      title: "Failed",
+      session: session("failed", "error"),
+    });
+    const earlier = selectThreadListV2NeedsYou({
+      threads: [
+        { ...approval, pendingRequestSince: "2026-05-30T00:00:00.000Z" },
+        { ...failed, updatedAt: "2026-05-30T00:00:00.000Z" },
+      ],
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    }).earlier;
+    expect(earlier.map((item) => item.kind)).toEqual(["approval", "failed"]);
+    const snoozable = selectThreadListV2SnoozableEarlier(earlier, { now: NOW });
+    expect(snoozable.map((thread) => thread.id)).toEqual(["failed"]);
+    expect(describeThreadListV2SnoozeEarlier(snoozable)).toBe("Snooze 1 failed");
+    expect(
+      selectThreadListV2SnoozableEarlier(earlier, { now: NOW, snoozeEnvironmentIds: new Set() }),
+    ).toEqual([]);
+    expect(describeThreadListV2SnoozeEarlier([])).toBeNull();
+  });
+});
+
+describe("resolveThreadListV2WorkingSince", () => {
+  it("counts from the open turn's start, else its request, else the session", () => {
+    const turn = {
+      turnId: TurnId.make("turn-1"),
+      state: "running" as const,
+      requestedAt: "2026-06-01T23:50:00.000Z",
+      startedAt: "2026-06-01T23:51:00.000Z",
+      completedAt: null,
+      assistantMessageId: null,
+    };
+    expect(resolveThreadListV2WorkingSince({ latestTurn: turn, session: null })).toBe(
+      "2026-06-01T23:51:00.000Z",
+    );
+    expect(
+      resolveThreadListV2WorkingSince({ latestTurn: { ...turn, startedAt: null }, session: null }),
+    ).toBe("2026-06-01T23:50:00.000Z");
+    expect(resolveThreadListV2WorkingSince({ latestTurn: null, session: null })).toBeNull();
   });
 });

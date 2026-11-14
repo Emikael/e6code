@@ -11,7 +11,9 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { DEFAULT_APPROVAL_OPTIONS, layoutApprovalActions } from "./approvalActions";
 import { HoldToAllowButton } from "./HoldToAllowButton";
+import { useApprovalSwapGuard } from "./useApprovalResponder";
 
 interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
@@ -29,14 +31,9 @@ interface ComposerPendingApprovalActionsProps {
     decision: ProviderApprovalDecision,
     feedback?: string,
   ) => Promise<unknown>;
+  /** "Sent. Waiting for Codex.": shown instead of the actions once answered. */
+  sentLabel?: string | null;
 }
-
-const DEFAULT_APPROVAL_OPTIONS = [
-  { decision: "cancel", label: "Cancel" },
-  { decision: "decline", label: "Decline" },
-  { decision: "acceptForSession", label: "Always allow this session" },
-  { decision: "accept", label: "Approve" },
-] satisfies ReadonlyArray<ProviderApprovalOption>;
 
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
@@ -45,24 +42,31 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
   declineFeedback = null,
   destructive = null,
   onRespondToApproval,
+  sentLabel = null,
 }: ComposerPendingApprovalActionsProps) {
   const feedbackDraft = declineFeedback?.draft ?? null;
   const primaryOptions = options.filter(
     (option) => option.decision === "decline" || option.decision === "accept",
   );
   // A destructive command is allowed one hold at a time, never for the session.
-  const moreOptions = options.filter(
-    (option) =>
-      option.decision !== "decline" &&
-      option.decision !== "accept" &&
-      !(
-        destructive !== null &&
-        (option.decision === "acceptForSession" || option.decision === "acceptAlways")
-      ),
-  );
+  const moreOptions = layoutApprovalActions(options, destructive).more;
+  // A request answered elsewhere is replaced under the pointer: ignore clicks
+  // for a moment, and key everything by request so a press in progress dies.
+  const activationAllowed = useApprovalSwapGuard(requestId);
+  const respond = (decision: ProviderApprovalDecision, feedback?: string) => {
+    if (activationAllowed()) void onRespondToApproval(requestId, decision, feedback);
+  };
+
+  if (sentLabel !== null) {
+    return (
+      <span key={requestId} role="status" className="text-xs text-muted-foreground">
+        {sentLabel}
+      </span>
+    );
+  }
 
   return (
-    <>
+    <Fragment key={requestId}>
       {primaryOptions.map((option) => {
         if (option.decision === "accept" && destructive !== null) {
           return (
@@ -83,7 +87,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
             variant={option.decision === "accept" ? "default" : "outline"}
             disabled={isResponding}
             aria-description={option.warning}
-            onClick={() => void onRespondToApproval(requestId, option.decision)}
+            onClick={() => respond(option.decision)}
           >
             {option.warning ? <TriangleAlertIcon className="size-3 shrink-0" /> : null}
             <span className="max-w-40 truncate">{option.label}</span>
@@ -118,7 +122,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
               disabled={isResponding || feedbackDraft.status !== "ready"}
               onClick={() => {
                 if (feedbackDraft.status !== "ready") return;
-                void onRespondToApproval(requestId, "decline", feedbackDraft.feedback);
+                respond("decline", feedbackDraft.feedback);
               }}
             >
               <span className="max-w-48 truncate">{`Decline and tell ${declineFeedback.agentName}`}</span>
@@ -146,7 +150,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
                   key={option.decision}
                   disabled={isResponding}
                   aria-description={option.warning}
-                  onClick={() => void onRespondToApproval(requestId, option.decision)}
+                  onClick={() => respond(option.decision)}
                   variant="ghost"
                   className="mb-1 last:mb-0"
                 >
@@ -168,6 +172,6 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
           </MenuPopup>
         </Menu>
       ) : null}
-    </>
+    </Fragment>
   );
 });

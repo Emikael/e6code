@@ -1,0 +1,271 @@
+/**
+ * Parked on mobile (F7, phase 20): park a thought, see the list every device
+ * connected to the same environment sees, start a task from one, or delete it
+ * with Undo. Thoughts are kept by an environment the user accepted saving to,
+ * asked once per environment; nothing is sent to any other. A thought parked
+ * while that environment is unreachable waits on this phone and shows here.
+ */
+import { EnvironmentId, PARKED_TEXT_MAX_CHARS, ParkedEntryId, ProjectId } from "@e6tools/contracts";
+import { useState } from "react";
+import { Platform, Pressable, View } from "react-native";
+
+import { SymbolView } from "../../components/AppSymbol";
+import { AppText as Text, AppTextInput } from "../../components/AppText";
+import { EmptyState } from "../../components/EmptyState";
+import { uuidv4 } from "../../lib/uuid";
+import { useProjects } from "../../state/entities";
+import { enqueueParked, setParkedConsent } from "../../state/parked";
+import { writeIncomingShareDraft } from "../sharing/incoming-share-storage";
+import { useIncomingShare } from "../sharing/IncomingShareProvider";
+import { SettingsScreen } from "../settings/components/SettingsScreen";
+import { SettingsSection } from "../settings/components/SettingsSection";
+import {
+  canParkIn,
+  formatParkedTime,
+  PARKED_FULL_MESSAGE,
+  parkedLengthCount,
+  parkedTarget,
+  type ParkedRow,
+} from "./parkedListModel";
+import {
+  ParkedEnvironmentPicker,
+  ParkedOfferCard,
+  ParkedSaveToButton,
+  ParkedUnavailable,
+} from "./ParkedSaving";
+import { useParkedEnvironments } from "./useParkedEnvironments";
+
+export function ParkedRouteScreen() {
+  const { lists, accepted, rows, offer, declinedAvailable, available, hasEnvironments, labelOf } =
+    useParkedEnvironments();
+  const projects = useProjects();
+  const { refresh: refreshShares } = useIncomingShare();
+  const [draft, setDraft] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<ParkedRow | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  // A new thought goes to the accepted environment the user picked; a picker shows only for two or more.
+  const target = parkedTarget(accepted, picked);
+  const targetEnvironmentId = target === null ? null : EnvironmentId.make(target);
+  const targetOnline = targetEnvironmentId !== null && lists.has(targetEnvironmentId);
+  const lengthCount = parkedLengthCount(draft.length);
+
+  const park = () => {
+    const text = draft.trim();
+    if (text.length === 0 || targetEnvironmentId === null) return;
+    if (!canParkIn(rows, targetEnvironmentId)) {
+      setNotice(PARKED_FULL_MESSAGE);
+      return;
+    }
+    enqueueParked({
+      kind: "add",
+      opId: uuidv4(),
+      environmentId: targetEnvironmentId,
+      entryId: ParkedEntryId.make(uuidv4()),
+      text,
+      projectId: null,
+      pinnedFor: null,
+      createdAt: new Date().toISOString(),
+    });
+    setDraft("");
+    setNotice(null);
+    setRemoved(null);
+  };
+
+  const remove = (row: ParkedRow) => {
+    enqueueParked({
+      kind: "remove",
+      opId: uuidv4(),
+      environmentId: row.environmentId,
+      entryId: row.entry.id,
+    });
+    setRemoved(row);
+  };
+
+  const undoRemove = () => {
+    if (!removed) return;
+    enqueueParked({
+      kind: "add",
+      opId: uuidv4(),
+      environmentId: removed.environmentId,
+      entryId: removed.entry.id,
+      text: removed.entry.text,
+      projectId: removed.entry.projectId,
+      pinnedFor: removed.entry.pinnedFor,
+      createdAt: removed.entry.createdAt,
+    });
+    setRemoved(null);
+  };
+
+  // The task flow opens on its own for a new shared draft, with the text in it.
+  const startTask = async (row: ParkedRow) => {
+    await writeIncomingShareDraft({
+      schemaVersion: 1,
+      id: uuidv4(),
+      createdAt: new Date().toISOString(),
+      text: row.entry.text,
+      attachments: [],
+      warnings: [],
+    });
+    await refreshShares();
+  };
+
+  // Only for "14:09" against an older date; a screen left open across midnight is rare.
+  const [now] = useState(() => new Date());
+  const projectTitle = (row: ParkedRow, projectId: ProjectId | null) =>
+    projectId === null
+      ? null
+      : (projects.find(
+          (project) => project.environmentId === row.environmentId && project.id === projectId,
+        )?.title ?? null);
+
+  return (
+    <SettingsScreen title="Parked">
+      {offer !== null ? <ParkedOfferCard environmentId={offer} label={labelOf(offer)} /> : null}
+      {target === null ? (
+        offer !== null ? null : (
+          <ParkedUnavailable
+            declined={declinedAvailable.length > 0}
+            hasEnvironments={hasEnvironments}
+            supported={available.length > 0}
+          />
+        )
+      ) : (
+        <SettingsSection>
+          <ParkedEnvironmentPicker accepted={accepted} target={target} onPick={setPicked} />
+          <View className="flex-row items-center gap-2 p-3">
+            <AppTextInput
+              accessibilityLabel="Park a thought"
+              className="min-h-11 min-w-0 flex-1 rounded-xl border-continuous bg-card px-3 text-base text-foreground"
+              placeholder="Park a thought"
+              value={draft}
+              maxLength={PARKED_TEXT_MAX_CHARS}
+              onChangeText={setDraft}
+              onSubmitEditing={park}
+              returnKeyType="done"
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Park"
+              disabled={draft.trim().length === 0}
+              onPress={park}
+              className="min-h-11 justify-center rounded-full bg-subtle-strong px-4 active:opacity-70 disabled:opacity-40"
+            >
+              <Text className="text-sm font-e6-medium text-foreground">Park</Text>
+            </Pressable>
+          </View>
+          {lengthCount ? (
+            <Text className="px-4 pb-2 text-xs text-foreground-muted">{lengthCount}</Text>
+          ) : null}
+          {notice ? (
+            <Text className="px-4 pb-3 text-sm text-foreground-muted">{notice}</Text>
+          ) : null}
+        </SettingsSection>
+      )}
+
+      {removed ? (
+        <View className="flex-row items-center justify-between gap-3 px-2">
+          <Text className="text-sm text-foreground-muted">Thought deleted.</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={undoRemove}
+            className="min-h-11 justify-center px-3"
+          >
+            <Text className="text-sm font-e6-medium text-foreground">Undo</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {rows.length > 0 ? (
+        <SettingsSection title="Parked">
+          {rows.map((row, index) => {
+            const meta = [
+              projectTitle(row, row.entry.projectId),
+              formatParkedTime(row.entry.createdAt, now),
+              row.waiting && !lists.has(row.environmentId) ? "Waiting to be saved" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <View
+                key={`${row.environmentId}:${row.entry.id}`}
+                className={index === 0 ? "gap-2 p-4" : "gap-2 border-t border-border-subtle p-4"}
+              >
+                <Text
+                  className={
+                    Platform.OS === "android"
+                      ? "text-base text-foreground"
+                      : "text-lg text-foreground"
+                  }
+                >
+                  {row.entry.text}
+                </Text>
+                {meta ? <Text className="text-sm text-foreground-muted">{meta}</Text> : null}
+                <View className="flex-row items-center gap-2">
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start a task: ${row.entry.text}`}
+                    onPress={() => void startTask(row)}
+                    className="min-h-11 justify-center rounded-full bg-subtle-strong px-3 active:opacity-70"
+                  >
+                    <Text className="text-sm font-e6-medium text-foreground">Start task</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete: ${row.entry.text}`}
+                    onPress={() => remove(row)}
+                    className="min-h-11 flex-row items-center gap-1 rounded-full px-3 active:opacity-70"
+                  >
+                    <SymbolView
+                      name="trash"
+                      size={16}
+                      tintColorClassName="accent-icon"
+                      type="monochrome"
+                      weight="regular"
+                    />
+                    <Text className="text-sm text-foreground">Delete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+        </SettingsSection>
+      ) : target !== null ? (
+        <EmptyState
+          variant="plain"
+          title="Nothing parked"
+          detail="A thought parked here or on another device shows up here."
+        />
+      ) : null}
+
+      {target !== null ? (
+        <View className="gap-1 px-2">
+          <Text className="text-sm text-foreground-muted">
+            {targetOnline
+              ? `Saved on ${labelOf(target)}, so your other devices see it too.`
+              : `${labelOf(target)} is not connected. Thoughts parked now are saved when it is back.`}
+          </Text>
+          {accepted.map((environment) => (
+            <Pressable
+              key={environment.environmentId}
+              accessibilityRole="button"
+              onPress={() => setParkedConsent(environment.environmentId, "declined")}
+              className="min-h-11 justify-center active:opacity-70"
+            >
+              <Text className="text-sm text-foreground">
+                {accepted.length === 1 ? "Stop saving" : `Stop saving on ${environment.label}`}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {declinedAvailable.map((environmentId) => (
+        <ParkedSaveToButton
+          key={environmentId}
+          environmentId={environmentId}
+          label={labelOf(environmentId)}
+        />
+      ))}
+    </SettingsScreen>
+  );
+}

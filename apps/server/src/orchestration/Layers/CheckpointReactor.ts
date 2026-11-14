@@ -23,7 +23,7 @@ import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@e6tools/shared/DrainableWorker";
 import { isTemporaryWorktreeBranch } from "@e6tools/shared/git";
 
-import { parseTurnDiffFilesFromNumstat } from "../../checkpointing/Diffs.ts";
+import { parseTurnDiffFilesFromRawNumstat } from "../../checkpointing/Diffs.ts";
 import {
   checkpointRefForThreadTurn,
   resolveThreadWorkspaceCwd,
@@ -305,14 +305,16 @@ const make = Effect.gen(function* () {
             toCheckpointRef: targetCheckpointRef,
             fallbackFromToHead: false,
             ignoreWhitespace: false,
-            format: "numstat",
+            format: "files",
           })
         : Effect.succeed("")
     ).pipe(
       Effect.map((diff) =>
-        parseTurnDiffFilesFromNumstat(diff).map((file) => ({
+        // The real kind lets clients drop deleted files and mark added ones as new; older
+        // clients read `kind` as an opaque string.
+        parseTurnDiffFilesFromRawNumstat(diff).map((file) => ({
           path: file.path,
-          kind: "modified" as const,
+          kind: file.kind,
           additions: file.additions,
           deletions: file.deletions,
         })),

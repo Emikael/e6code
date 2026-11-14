@@ -6,8 +6,17 @@ import {
 } from "../lib/workspaceFocus";
 import { threadPullRequestLinkMode } from "@e6tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@e6tools/shared/threadPullRequests";
+import { useDiffPagingCommandsStore } from "./diffs/diffPagingCommands";
 
-import { scopeProjectRef, scopeThreadRef } from "@e6tools/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@e6tools/client-runtime/environment";
+import {
+  selectSnoozedThreads,
+  selectThreadsToSnoozeExcept,
+} from "@e6tools/client-runtime/state/thread-attention";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -46,12 +55,21 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  AlarmClockIcon,
+  AlarmClockOffIcon,
   ArchiveIcon,
   ArrowLeftIcon,
+  BellDotIcon,
+  FocusIcon,
+  InboxIcon,
+  CheckIcon,
+  HistoryIcon,
+  NotebookPenIcon,
   ChartNoAxesColumnIcon,
   CircleArrowUpIcon,
   CircleStopIcon,
   CornerLeftUpIcon,
+  FileDiffIcon,
   FileSearchIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -91,6 +109,10 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { useThreadActions } from "../hooks/useThreadActions";
+import { getThreadAttention } from "../hooks/useThreadAttention";
+import { goToNextThreadThatNeedsYou } from "../lib/needsYouNavigation";
+import { resolveSnoozePresets } from "./Sidebar.snooze";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
@@ -228,6 +250,10 @@ import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { usePullRequestMergeCommandStore } from "~/components/pullRequest/pullRequestMergeCommand";
 import { useThreadStopCommandsStore } from "~/components/chat/threadStopCommands";
+import { useThreadRecapStore } from "~/threadRecapStore";
+import { requestThreadNote, useThreadNoteActionLabel } from "./chat/ThreadRecapCard";
+import { openCaptureBar, openParkedListDialog } from "~/parkedThoughts";
+import { openDoneToday } from "./DoneTodayDialog";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -653,7 +679,9 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       onOpenCommandPalette((detail) => {
-        if (detail.open === "new-thread-in") {
+        if (detail.open === "files") {
+          toggleMode("files");
+        } else if (detail.open === "new-thread-in") {
           openNewThreadIn();
         } else if (detail.open === "add-project") {
           openAddProject();
@@ -667,7 +695,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [openAddProject, openNewThreadIn, setOpen, toggleMode],
   );
 
   return (
@@ -804,6 +832,11 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const noteActionLabel = useThreadNoteActionLabel(
+    activeThread
+      ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
+      : null,
+  );
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -821,9 +854,12 @@ function OpenCommandPaletteDialog(props: {
       selectThreadRightPanelState(state.byThreadKey, referenceThreadRef, state.restingOpen).isOpen,
   );
   const hasClosedViewHistory = useClosedViewStore((state) => state.entries.length > 0);
+  const diffPagingCommands = useDiffPagingCommandsStore((state) => state.commands);
   const pullRequestMergeCommand = usePullRequestMergeCommandStore((state) => state.command);
   const threadStopCommands = useThreadStopCommandsStore((state) => state.commands);
-  const activeThreadServerConfig = useServerConfigs().get(
+  const serverConfigs = useServerConfigs();
+  const { snoozeThread, unsnoozeThread } = useThreadActions();
+  const activeThreadServerConfig = serverConfigs.get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
   const activeThreadReferenceCopyTarget =
@@ -859,6 +895,8 @@ function OpenCommandPaletteDialog(props: {
     }
   }, [activeThreadReferenceCopyTarget]);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const focusMode = useUiStateStore((store) => store.focusMode);
+  const sidebarProjectScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const {
@@ -1868,6 +1906,49 @@ function OpenCommandPaletteDialog(props: {
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
     });
+
+    // The sidebar's project scope: show one project's threads, or all again.
+    if (projectGroups.length > 1) {
+      const scopeItems: CommandPaletteActionItem[] = [
+        {
+          kind: "action",
+          value: "sidebar-scope:all",
+          searchTerms: ["all projects", "every project", "clear filter"],
+          title: "All projects",
+          ...(sidebarProjectScopeKey === null ? { description: "Showing" } : {}),
+          icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+          run: async () => {
+            useUiStateStore.getState().setSidebarProjectScopeKey(null);
+          },
+        },
+        ...projectGroups.map((group): CommandPaletteActionItem => ({
+          kind: "action",
+          value: `sidebar-scope:${group.projectKey}`,
+          searchTerms: [group.displayName],
+          title: group.displayName,
+          ...(sidebarProjectScopeKey === group.projectKey ? { description: "Showing" } : {}),
+          icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+          run: async () => {
+            useUiStateStore.getState().setSidebarProjectScopeKey(group.projectKey);
+          },
+        })),
+      ];
+      actionItems.push({
+        kind: "submenu",
+        value: "action:sidebar-project-scope",
+        searchTerms: ["filter", "scope", "show threads", "only", "project", "sidebar"],
+        title: "Show threads from...",
+        icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <FolderIcon className={ADDON_ICON_CLASS} />,
+        groups: [
+          {
+            value: "projects",
+            label: "Projects",
+            items: enumerateCommandPaletteItems(scopeItems),
+          },
+        ],
+      });
+    }
   }
 
   if (pullRequestMergeCommand !== null) {
@@ -1952,6 +2033,34 @@ function OpenCommandPaletteDialog(props: {
         runAfterCommandPaletteCloses(requestRightPanelNewMenu);
       },
     });
+  }
+
+  if (diffPagingCommands !== null) {
+    // The Diff tab's paging keys, offered while a Diff tab is open.
+    actionItems.push(
+      ...(
+        [
+          ["next-change", "Diff: Next change", "diff.nextChange", diffPagingCommands.nextChange],
+          ["next-file", "Diff: Next file", "diff.nextFile", diffPagingCommands.nextFile],
+          [
+            "previous-file",
+            "Diff: Previous file",
+            "diff.previousFile",
+            diffPagingCommands.previousFile,
+          ],
+        ] as const
+      ).map(([id, title, shortcutCommand, run]) => ({
+        kind: "action" as const,
+        value: `action:diff-${id}`,
+        searchTerms: ["diff", "review", "change", "file", "next", "previous"],
+        title,
+        icon: <FileDiffIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand,
+        run: async () => {
+          runAfterCommandPaletteCloses(run);
+        },
+      })),
+    );
   }
 
   if (hasClosedViewHistory) {
@@ -2191,6 +2300,203 @@ function OpenCommandPaletteDialog(props: {
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
       run: async () => {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+      },
+    });
+  }
+
+  // Needs you: the next-thread command and the snooze-all pair. They work
+  // without a binding (older servers send no default for the new command).
+  const activeThreadKey = activeThread
+    ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
+    : null;
+  actionItems.push({
+    kind: "action",
+    value: "action:next-needs-you",
+    searchTerms: ["next", "needs you", "blocked", "approval", "question", "waiting", "review"],
+    title: "Go to next thread that needs you",
+    icon: <BellDotIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "thread.nextNeedsYou",
+    run: async () => {
+      goToNextThreadThatNeedsYou({
+        attention: getThreadAttention(),
+        currentThreadKey: activeThreadKey,
+        navigate: (options) => navigate(options),
+      });
+    },
+  });
+  if (activeThreadKey) {
+    // Shows the open thread's "Where you left off" again, whatever the setting says.
+    actionItems.push({
+      kind: "action",
+      value: "action:where-was-i",
+      searchTerms: ["where was i", "recap", "left off", "catch up", "summary", "since"],
+      title: "Where was I?",
+      icon: <HistoryIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useThreadRecapStore.getState().requestRecap(activeThreadKey);
+      },
+    });
+    // The recap can be set to Never; the note to self stays reachable here and in the header.
+    actionItems.push({
+      kind: "action",
+      value: "action:thread-note",
+      searchTerms: ["note", "note to self", "remember", "reminder", "come back", "recap"],
+      title: noteActionLabel,
+      icon: <NotebookPenIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        requestThreadNote(activeThreadKey);
+      },
+    });
+  }
+  // Focus mode: "Enter focus" on a thread, "Exit focus" wherever it is on.
+  if (focusMode || activeThreadKey) {
+    actionItems.push({
+      kind: "action",
+      value: "action:focus-toggle",
+      searchTerms: ["focus", "focus mode", "distraction", "quiet", "one thread", "hide sidebar"],
+      title: focusMode ? "Exit focus" : "Enter focus",
+      icon: <FocusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "focus.toggle",
+      run: async () => {
+        useUiStateStore.getState().toggleFocusMode();
+      },
+    });
+  }
+  // Park it: a stray thought gets a home without leaving the page.
+  actionItems.push({
+    kind: "action",
+    value: "action:park-thought",
+    searchTerms: ["park", "thought", "capture", "later", "note", "idea", "remember", "inbox"],
+    title: "Park a thought",
+    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "capture.park",
+    run: async () => {
+      openCaptureBar();
+    },
+  });
+  // The Parked list, reachable in focus mode and with the sidebar collapsed.
+  actionItems.push({
+    kind: "action",
+    value: "action:parked-list",
+    searchTerms: ["parked", "thoughts", "later", "inbox", "list"],
+    title: "Parked",
+    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openParkedListDialog();
+    },
+  });
+  // Done today: what got finished since midnight, and Wrap up.
+  actionItems.push({
+    kind: "action",
+    value: "action:done-today",
+    searchTerms: ["done", "today", "finished", "wrap up", "end of day", "closure", "settled"],
+    title: "Done today",
+    icon: <CheckIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      openDoneToday();
+    },
+  });
+  const supportsSnooze = (thread: { readonly environmentId: EnvironmentId }) =>
+    serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
+  const paletteNow = new Date();
+  const threadsToSnooze = activeThreadKey
+    ? selectThreadsToSnoozeExcept(threads, {
+        exceptKey: activeThreadKey,
+        now: paletteNow.toISOString(),
+      }).filter(supportsSnooze)
+    : [];
+  const snoozedThreads = selectSnoozedThreads(threads, { now: paletteNow.toISOString() }).filter(
+    supportsSnooze,
+  );
+  if (threadsToSnooze.length > 0) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:snooze-all-except",
+      searchTerms: ["snooze", "everything", "all", "except", "this", "focus", "hide", "quiet"],
+      title: "Snooze everything except this thread",
+      icon: <AlarmClockIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <AlarmClockIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "snooze-until",
+          label: "Snooze until",
+          items: resolveSnoozePresets(paletteNow, clientSettings.timestampFormat).map((preset) => ({
+            kind: "action" as const,
+            value: `snooze-all-except:${preset.id}`,
+            title: `${preset.label} (${preset.whenLabel})`,
+            searchTerms: [preset.label, "snooze"],
+            icon: <AlarmClockIcon className={ITEM_ICON_CLASS} />,
+            run: async () => {
+              const results = await Promise.all(
+                threadsToSnooze.map((thread) =>
+                  snoozeThread(
+                    scopeThreadRef(thread.environmentId, thread.id),
+                    preset.snoozedUntil,
+                    {
+                      undoToast: false,
+                    },
+                  ),
+                ),
+              );
+              // Undo wakes only what this command put to sleep, never an
+              // earlier snooze the user set by hand.
+              const snoozedRefs = threadsToSnooze.flatMap((thread, index) =>
+                results[index]?._tag === "Success"
+                  ? [scopeThreadRef(thread.environmentId, thread.id)]
+                  : [],
+              );
+              const snoozedCount = snoozedRefs.length;
+              const toastId = toastManager.add(
+                stackedThreadToast({
+                  type: snoozedCount === results.length ? "success" : "warning",
+                  title: `Snoozed ${snoozedCount} thread${snoozedCount === 1 ? "" : "s"}`,
+                  description:
+                    snoozedCount === results.length
+                      ? undefined
+                      : `${results.length - snoozedCount} couldn't be snoozed.`,
+                  ...(snoozedCount > 0
+                    ? {
+                        actionProps: {
+                          children: "Undo",
+                          onClick: () => {
+                            toastManager.close(toastId);
+                            void Promise.all(snoozedRefs.map((ref) => unsnoozeThread(ref)));
+                          },
+                        },
+                      }
+                    : {}),
+                }),
+              );
+            },
+          })),
+        },
+      ],
+    });
+  }
+  if (snoozedThreads.length > 0) {
+    actionItems.push({
+      kind: "action",
+      value: "action:wake-all-snoozed",
+      searchTerms: ["wake", "unsnooze", "snoozed", "all", "bring back"],
+      title: "Wake all snoozed threads",
+      icon: <AlarmClockOffIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        const results = await Promise.all(
+          snoozedThreads.map((thread) =>
+            unsnoozeThread(scopeThreadRef(thread.environmentId, thread.id)),
+          ),
+        );
+        const wokeCount = results.filter((result) => result._tag === "Success").length;
+        toastManager.add(
+          stackedThreadToast({
+            type: wokeCount === results.length ? "success" : "warning",
+            title: `Woke ${wokeCount} thread${wokeCount === 1 ? "" : "s"}`,
+            description:
+              wokeCount === results.length
+                ? undefined
+                : `${results.length - wokeCount} couldn't be woken.`,
+          }),
+        );
       },
     });
   }

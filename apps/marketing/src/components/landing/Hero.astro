@@ -1,0 +1,92 @@
+---
+import { shipped } from "../../lib/shipped";
+import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../../lib/site";
+import DownloadButtons from "./DownloadButtons.astro";
+import HeroArt from "./HeroArt.astro";
+import InstallCommand from "./InstallCommand.astro";
+import PhoneActions from "./PhoneActions.astro";
+---
+
+<!-- On iOS and Android the hero follows board 21: the app runs on a computer,
+     so the filled action shares the desktop link and the store is an outline
+     button. landing.css picks the variant from html[data-platform]. -->
+<section id="top" class="wrap hero">
+  <div class="grid2 hero-grid">
+    <div class="stack hero-copy">
+      <p class="eyebrow">Open-source app for coding agents</p>
+      <h1 class="h1">Run your agents in parallel. Know which one needs you.</h1>
+      <p class="lead hero-lead for-desktop">
+        Run Claude Code, Codex, Cursor, Grok Build, OpenCode and Antigravity side by side on your machine, with the
+        subscriptions you already have.{
+          shipped.heroSecondSentence &&
+            " E6 Code notifies you when one is blocked and shows what changed while you were away."
+        }
+      </p>
+      <p class="copy for-phone">
+        E6 Code runs on your computer and drives the coding agents you already pay for. The phone app connects to it.
+      </p>
+      <DownloadButtons class="for-desktop" />
+      <PhoneActions />
+      <InstallCommand class="for-desktop">
+        <p class="t-body muted">Or try it once without installing: <code>npx @e6code/e6@latest</code></p>
+      </InstallCommand>
+      <p class="t-body muted for-desktop">
+        Free. MIT licensed. Also on <a href={IOS_APP_STORE_URL}>iOS</a> and <a href={ANDROID_PLAY_STORE_URL}>Android</a>.
+      </p>
+      <p class="t-caption muted for-phone">
+        Free. MIT licensed. Also on <span class="on-ios"><a href={ANDROID_PLAY_STORE_URL}>Android</a></span><span
+          class="on-android"><a href={IOS_APP_STORE_URL}>iOS</a></span
+        >.
+      </p>
+    </div>
+    <div class="stack hero-art">
+      <HeroArt class="for-desktop" notification={shipped.heroNotification} />
+      <HeroArt class="for-phone" variant="phone" />
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    padding-top: 40px;
+    padding-bottom: 64px;
+  }
+
+  .hero-copy {
+    gap: 20px;
+  }
+
+  .hero-art {
+    gap: 10px;
+  }
+
+  .hero-lead {
+    max-width: 50ch;
+  }
+
+  .hero :global(.install) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  /* Board 21 at 390 by 844: the whole first screen, art included, fits. */
+  @media (max-width: 480px) {
+    .hero {
+      padding-top: 8px;
+    }
+
+    .hero-grid {
+      row-gap: 16px;
+    }
+
+    .hero-copy {
+      gap: 14px;
+    }
+
+    .hero .h1 {
+      font-size: 34px;
+    }
+  }
+</style>

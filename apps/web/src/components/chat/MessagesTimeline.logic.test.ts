@@ -23,10 +23,14 @@ import {
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
+  resolveWorkGroupExpanded,
+  toggleWorkGroupDisclosure,
+  workGroupOpensByItself,
   deriveThinkingTimelineHeading,
   activityGroupHasTimelineSteps,
   formatWorkingTimer,
   findSubagentSpawnRow,
+  EARLIER_TURNS_ROW_ID,
   deriveMessagesTimelineRowsWithState,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
@@ -759,6 +763,33 @@ describe("work entry labels", () => {
     );
     expect(liveWorkEntryLabel(browserEntry, undefined, false)).toBe(
       "Clicked in the preview browser",
+    );
+  });
+
+  it("names the file a file tool works on, as a verb while it runs", () => {
+    const root = "/repo";
+    const edit = {
+      ...entry,
+      label: "File change",
+      toolTitle: "File change",
+      itemType: "file_change" as const,
+      detail: "/repo/packages/shared/src/themePalettes.ts",
+      toolLifecycleStatus: "inProgress" as const,
+    };
+    expect(liveWorkEntryLabel(edit, root, true)).toBe(
+      "Editing repo/packages/shared/src/themePalettes.ts",
+    );
+    const read = {
+      ...entry,
+      toolTitle: "Read file",
+      itemType: "dynamic_tool_call" as const,
+      detail: "/repo/apps/web/src/index.css",
+      toolLifecycleStatus: "completed" as const,
+    };
+    expect(workEntryDisplayLabel(read, root)).toBe("repo/apps/web/src/index.css");
+    // A detail that is not a path stays as written.
+    expect(workEntryDisplayLabel({ ...read, detail: "Read: two files" }, root)).toBe(
+      "Read: two files",
     );
   });
 
@@ -1687,7 +1718,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRows[1]?.assistantCopyStreaming).toBe(true);
   });
 
-  it("projects assistant diff summaries and user revert counts onto the affected rows", () => {
+  it("projects user revert counts onto the affected rows", () => {
     const assistantTurnDiffSummary = {
       turnId: "turn-1" as never,
       completedAt: "2026-01-01T00:00:30Z",
@@ -1745,7 +1776,7 @@ describe("deriveMessagesTimelineRows", () => {
     );
 
     expect(userRow?.revertTurnCount).toBe(1);
-    expect(assistantRow?.assistantTurnDiffSummary).toBe(assistantTurnDiffSummary);
+    expect(assistantRow?.revertTurnCount).toBeUndefined();
   });
 
   it("folds the first assistant message and settled work before the terminal response", () => {
@@ -1821,7 +1852,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(foldRow?.turnId).toBe("turn-1");
     expect(foldRow?.expanded).toBe(false);
     // User message boundary (00:00:00) → terminal message updatedAt (00:00:22).
-    expect(foldRow?.label).toBe("Worked for 22s");
+    expect(foldRow?.label).toBe("Worked for 22s · 1 step");
     expect(collapsedRows.map((row) => row.id)).toEqual([
       "user-entry",
       "turn-fold:turn-1",
@@ -1893,21 +1924,21 @@ describe("deriveMessagesTimelineRows", () => {
         ...(turnUsageByTurnId ? { turnUsageByTurnId } : {}),
       }).find((row) => row.kind === "turn-fold")?.label;
 
-    expect(foldLabel(undefined)).toBe("Worked for 22s");
+    expect(foldLabel(undefined)).toBe("Worked for 22s · 1 step");
     expect(
       foldLabel(
         new Map([
           [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "reported" }],
         ]),
       ),
-    ).toBe("Worked for 22s · 48.6K tokens · $0.12");
+    ).toBe("Worked for 22s · 1 step · 48.6K tokens · $0.12");
     expect(
       foldLabel(
         new Map([
           [turnId, { totalTokens: 48_600, partial: false, costUsd: 0.12, costSource: "estimated" }],
         ]),
       ),
-    ).toBe("Worked for 22s · 48.6K tokens · ≈$0.12");
+    ).toBe("Worked for 22s · 1 step · 48.6K tokens · ≈$0.12");
   });
 
   it("shows usage on the final answer only when its turn has no fold row", () => {
@@ -1968,7 +1999,7 @@ describe("deriveMessagesTimelineRows", () => {
 
     const withTools = rowsFor([user, toolCall, answer]);
     expect(withTools.find((row) => row.kind === "turn-fold")?.label).toBe(
-      "Worked for 22s · 48.6K tokens · $0.12",
+      "Worked for 22s · 1 step · 48.6K tokens · $0.12",
     );
     expect(answerUsage(withTools)).toBeUndefined();
   });
@@ -2601,7 +2632,7 @@ describe("deriveMessagesTimelineRows", () => {
     );
     // User message (00:00:00) → trailing work entry (00:00:12).
     expect(foldRow?.turnId).toBe("turn-1");
-    expect(foldRow?.label).toBe("Worked for 12s");
+    expect(foldRow?.label).toBe("Worked for 12s · 2 steps");
   });
 
   it("uses latest-turn timings and the stopped label for an interrupted latest turn", () => {
@@ -2636,7 +2667,7 @@ describe("deriveMessagesTimelineRows", () => {
       expect.objectContaining({
         kind: "turn-fold",
         turnId: "turn-1",
-        label: "You stopped after 47s",
+        label: "You stopped after 47s · 1 step",
         expanded: false,
       }),
     ]);
@@ -4278,5 +4309,107 @@ describe("activityGroupHasTimelineSteps", () => {
         entries: [{ kind: "work", entry: { ...step, toolLifecycleStatus: "inProgress" } }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("earlier-turn fold", () => {
+  const message = (id: string, role: "user" | "assistant", minute: number) =>
+    ({
+      id: `${id}-entry`,
+      kind: "message",
+      createdAt: `2026-01-01T00:0${minute}:00Z`,
+      message: {
+        id: MessageId.make(id),
+        role,
+        text: `${role} ${id}`,
+        turnId: null,
+        createdAt: `2026-01-01T00:0${minute}:00Z`,
+        updatedAt: `2026-01-01T00:0${minute}:00Z`,
+        streaming: false,
+      },
+    }) as const;
+  const derive = (
+    timelineEntries: ReadonlyArray<ReturnType<typeof message>>,
+    earlierTurns: "folded" | "expanded" | undefined,
+  ) =>
+    deriveMessagesTimelineRows({
+      timelineEntries,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+      earlierTurns,
+    });
+  const thread = [
+    message("u1", "user", 1),
+    message("a1", "assistant", 2),
+    message("u2", "user", 3),
+    message("a2", "assistant", 4),
+    message("u3", "user", 5),
+    message("a3", "assistant", 6),
+  ];
+  const messageIds = (rows: ReadonlyArray<MessagesTimelineRow>) =>
+    rows.flatMap((row) => (row.kind === "message" ? [row.message.id] : []));
+
+  it("folds every turn before your latest message into one row", () => {
+    const rows = derive(thread, "folded");
+    expect(rows[0]).toMatchObject({ kind: "earlier-turns", turnCount: 2, expanded: false });
+    expect(messageIds(rows)).toEqual(["u3", "a3"]);
+  });
+
+  it("keeps the row on top when opened, with every turn under it", () => {
+    const rows = derive(thread, "expanded");
+    expect(rows[0]).toMatchObject({ id: EARLIER_TURNS_ROW_ID, expanded: true });
+    expect(messageIds(rows)).toEqual(["u1", "a1", "u2", "a2", "u3", "a3"]);
+  });
+
+  it("adds nothing to a single turn or outside focus mode", () => {
+    expect(derive(thread.slice(0, 2), "folded").map((row) => row.kind)).toEqual([
+      "message",
+      "message",
+    ]);
+    expect(derive(thread, undefined).some((row) => row.kind === "earlier-turns")).toBe(false);
+  });
+});
+
+describe("agent activity fold defaults", () => {
+  const read = { command: "cat package.json" };
+  it("keeps a working group folded in Summary and opens it in Live", () => {
+    expect(workGroupOpensByItself({ active: true, detail: "summary", entries: [read] })).toBe(
+      false,
+    );
+    expect(workGroupOpensByItself({ active: true, detail: "live", entries: [read] })).toBe(true);
+    // A settled group folds to its summary under either setting.
+    expect(workGroupOpensByItself({ active: false, detail: "live", entries: [read] })).toBe(false);
+  });
+
+  it("keeps approval requests and destructive commands visible in Summary", () => {
+    expect(
+      workGroupOpensByItself({
+        active: true,
+        detail: "summary",
+        entries: [read, { sourceActivityKind: "approval.requested" }],
+      }),
+    ).toBe(true);
+    expect(
+      workGroupOpensByItself({
+        active: true,
+        detail: "summary",
+        entries: [{ command: "git push --force origin main" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("lets the reader fold a group that opened by itself, and open one that did not", () => {
+    const empty = new Set<string>();
+    expect(resolveWorkGroupExpanded(empty, "g", true)).toBe(true);
+    const folded = toggleWorkGroupDisclosure(empty, "g", true);
+    expect(resolveWorkGroupExpanded(folded, "g", true)).toBe(false);
+    const reopened = toggleWorkGroupDisclosure(folded, "g", false);
+    expect(resolveWorkGroupExpanded(reopened, "g", true)).toBe(true);
+    expect(resolveWorkGroupExpanded(toggleWorkGroupDisclosure(empty, "h", false), "h", false)).toBe(
+      true,
+    );
+    expect(resolveWorkGroupExpanded(empty, "h", false)).toBe(false);
   });
 });

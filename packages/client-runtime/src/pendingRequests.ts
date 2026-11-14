@@ -3,6 +3,7 @@ import {
   type OrchestrationThreadActivity,
   ProviderApprovalOption,
   ProviderRequestKind,
+  type ThreadPendingRequestSummary,
   UserInputQuestion,
 } from "@e6tools/contracts";
 import * as Option from "effect/Option";
@@ -11,7 +12,14 @@ import * as Schema from "effect/Schema";
 
 export interface PendingApproval {
   readonly requestId: ApprovalRequestId;
+  /**
+   * What the request asks for. A request the adapter did not name (a dynamic
+   * tool call, an unknown type) reads as "command" here, so the destructive
+   * check still looks at it, and sets `unnamedKind` so wording stays generic.
+   */
   readonly requestKind: ProviderRequestKind;
+  /** True when the request named no kind clients know: say "is waiting for your approval". */
+  readonly unnamedKind?: true;
   readonly createdAt: string;
   readonly detail?: string;
   readonly appName?: string;
@@ -34,7 +42,7 @@ export interface PendingUserInput {
  * What a named subagent is asking for, after its title: "Share link API
  * wants to run a command". Shared so every approval surface says the same.
  */
-export const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
+const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
   command: "wants to run a command",
   "file-read": "wants to read a file",
   "file-change": "wants to change files",
@@ -42,11 +50,96 @@ export const SUBAGENT_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, stri
   permission: "wants an app permission",
 };
 
+/** What any agent's unnamed request says after its name: "OpenCode is waiting for your approval". */
+const GENERIC_APPROVAL_PHRASE = "is waiting for your approval";
+
+/** The kind to word an approval by, or null when it named none: use the generic phrase. */
+export function approvalWordingKind(
+  approval: Pick<PendingApproval, "requestKind" | "unnamedKind">,
+): ProviderRequestKind | null {
+  return approval.unnamedKind ? null : approval.requestKind;
+}
+
+/** "wants to run a command", or the generic phrase for a request with no known kind. */
+export function approvalPhrase(kind: ProviderRequestKind | null): string {
+  return kind === null ? GENERIC_APPROVAL_PHRASE : SUBAGENT_APPROVAL_PHRASE[kind];
+}
+
+const plural = (count: number, word: string) => `${count} ${count === 1 ? word : `${word}s`}`;
+
+/**
+ * What a blocked thread's agent wants, from the shell's request summary:
+ * "Codex wants to run 1 command", "Claude wants to change files". Without a
+ * summary (an older server, or a request the adapter could not name) it says
+ * "Codex is waiting for your approval". No trailing period.
+ */
+export function describePendingApprovalAsk(
+  provider: string,
+  summary: ThreadPendingRequestSummary | undefined,
+): string {
+  const kind = summary?.approvalKind;
+  if (kind === "command") {
+    return `${provider} wants to run ${plural(summary?.approvalKindCount ?? 1, "command")}`;
+  }
+  if (kind !== undefined && isProviderRequestKind(kind)) {
+    return `${provider} ${SUBAGENT_APPROVAL_PHRASE[kind]}`;
+  }
+  return `${provider} ${GENERIC_APPROVAL_PHRASE}`;
+}
+
+/**
+ * What a blocked thread's agent asks, from the shell's request summary:
+ * "Claude asks 1 question: keep the spring animation, or cut to a fade?".
+ * Without the question text it says "Claude asked you a question".
+ * `withQuestion: false` leaves the text out ("Claude asks 1 question"), for
+ * system notifications, which can show on a lock screen.
+ */
+export function describePendingQuestionAsk(
+  provider: string,
+  summary: ThreadPendingRequestSummary | undefined,
+  options: { readonly withQuestion?: boolean } = {},
+): string {
+  if (!summary?.question) return `${provider} asked you a question`;
+  const count = `${provider} asks ${plural(Math.max(1, summary.questionCount), "question")}`;
+  return options.withQuestion === false ? count : `${count}: ${summary.question}`;
+}
+
+/** What one shown request asks for, after the agent's name: "wants to run this command". */
+const SHOWN_APPROVAL_PHRASE: Readonly<Record<ProviderRequestKind, string>> = {
+  command: "wants to run this command",
+  "file-read": "wants to read this file",
+  "file-change": "wants to make this change",
+  "mcp-elicitation": "wants app access",
+  permission: "wants this app permission",
+};
+
+/**
+ * The headline for one approval shown on its own. Alone it reads like the
+ * shell's summary ("Codex wants to run 1 command"); among several it names
+ * the one shown and its place, so it never reads like approve-all:
+ * "Codex wants to run this command · 1 of 2". No trailing period.
+ */
+export function describeShownApprovalAsk(
+  provider: string,
+  requestKind: ProviderRequestKind | null,
+  position: { readonly index: number; readonly total: number },
+): string {
+  if (position.total <= 1) {
+    return requestKind === "command"
+      ? `${provider} wants to run 1 command`
+      : `${provider} ${approvalPhrase(requestKind)}`;
+  }
+  const phrase =
+    requestKind === null ? GENERIC_APPROVAL_PHRASE : SHOWN_APPROVAL_PHRASE[requestKind];
+  return `${provider} ${phrase} · ${position.index + 1} of ${position.total}`;
+}
+
 /** What a subagent is blocked on: the oldest pending request that names it. */
 export type SubagentUserRequest =
   | {
       readonly kind: "approval";
-      readonly requestKind: ProviderRequestKind;
+      /** Null when the request named no known kind. */
+      readonly requestKind: ProviderRequestKind | null;
       readonly detail?: string;
     }
   | { readonly kind: "question"; readonly question: string };
@@ -68,7 +161,7 @@ export function subagentUserRequests(requests: {
   for (const approval of requests.approvals) {
     offer(approval.agentId, approval.createdAt, {
       kind: "approval",
-      requestKind: approval.requestKind,
+      requestKind: approvalWordingKind(approval),
       ...(approval.detail ? { detail: approval.detail } : {}),
     });
   }
@@ -95,9 +188,10 @@ export function describeSubagentUserRequest(request: SubagentUserRequest): {
   readonly code: string | null;
 } {
   if (request.kind === "question") return { text: `asks: ${request.question}`, code: null };
-  const verb = SUBAGENT_REQUEST_VERB[request.requestKind];
+  const verb =
+    request.requestKind === null ? undefined : SUBAGENT_REQUEST_VERB[request.requestKind];
   if (request.detail && verb) return { text: verb, code: request.detail };
-  return { text: SUBAGENT_APPROVAL_PHRASE[request.requestKind], code: request.detail ?? null };
+  return { text: approvalPhrase(request.requestKind), code: request.detail ?? null };
 }
 
 const isRequestId = Schema.is(ApprovalRequestId);
@@ -119,12 +213,15 @@ const decodeQuestion = Schema.decodeUnknownOption(
   }),
 );
 
-/** Older activities use native request types instead of a request kind. */
+/**
+ * Older activities use native request types instead of a request kind. A
+ * dynamic tool call (OpenCode's web fetch, say) is not a command, so it maps
+ * to none, as on the server.
+ */
 export function requestKindFromRequestType(requestType: unknown): ProviderRequestKind | null {
   switch (requestType) {
     case "command_execution_approval":
     case "exec_command_approval":
-    case "dynamic_tool_call":
       return "command";
     case "file_read_approval":
       return "file-read";
@@ -227,6 +324,7 @@ export function derivePendingRequests(activities: ReadonlyArray<OrchestrationThr
         requestId,
         // Older OpenCode approvals do not always include a recognized kind.
         requestKind: requestKind ?? "command",
+        ...(requestKind === null ? { unnamedKind: true as const } : {}),
         createdAt: activity.createdAt,
         ...(typeof payload.detail === "string" && payload.detail ? { detail: payload.detail } : {}),
         ...(typeof payload.appName === "string" && payload.appName

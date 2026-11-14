@@ -5,6 +5,8 @@ export function AndroidHomeFabLayout(props: {
   readonly onStartNewTask: () => void;
   readonly children: ReactNode;
   readonly sidebar?: boolean;
+  /** False where another control starts new work (Home's bottom composer). */
+  readonly showButton?: boolean;
 }) {
   return <>{props.children}</>;
 }

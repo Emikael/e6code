@@ -22,6 +22,8 @@ export function MaterialThreadListToolbar(props: {
   readonly filterCustomized: boolean;
   readonly onFilterAction: NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
   readonly onOpenSettings: () => void;
+  readonly onParkThought: () => void;
+  readonly onOpenParked: () => void;
   readonly onOpenEnvironments: () => void;
   readonly sidebar?: boolean;
   readonly onLayout?: (event: LayoutChangeEvent) => void;
@@ -95,21 +97,34 @@ export function MaterialThreadListToolbar(props: {
           ) : (
             <>
               {/* Match the visible inset of the trailing 48dp icon button. */}
+              {/* Home sets "Threads" and its connection line atop the list (board 8). */}
               <View className="min-w-0 flex-1 pl-4">
-                <WorkspaceConnectionTitle
-                  grow
-                  onPress={props.onOpenEnvironments}
-                  brand={<CompactBrandTitle allowFontScaling={false} />}
-                />
+                {props.sidebar ? (
+                  <WorkspaceConnectionTitle
+                    grow
+                    onPress={props.onOpenEnvironments}
+                    brand={<CompactBrandTitle allowFontScaling={false} />}
+                  />
+                ) : null}
               </View>
+              <AndroidHeaderIconButton
+                accessibilityLabel="Park a thought"
+                icon="lightbulb"
+                onPress={props.onParkThought}
+              />
+              <AndroidHeaderIconButton
+                accessibilityLabel="Parked"
+                icon="tray"
+                onPress={props.onOpenParked}
+              />
               <AndroidHeaderIconButton
                 accessibilityLabel="Search threads"
                 icon="magnifyingglass"
                 onPress={openSearch}
               />
               <AndroidHeaderIconButton
-                accessibilityLabel="Open settings"
-                icon="gearshape"
+                accessibilityLabel="Settings"
+                icon="slider.horizontal.3"
                 onPress={props.onOpenSettings}
               />
             </>

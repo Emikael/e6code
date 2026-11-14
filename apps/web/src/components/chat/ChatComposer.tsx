@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/motion";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -7,6 +8,7 @@ import {
   runtimeModeOptions,
 } from "./runtimeModeConfig";
 import { ComposerPermissionsMenuSection } from "./ComposerPermissionsMenuSection";
+import { ComposerAttachedItems } from "./ComposerAttachedItems";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { AttachmentFilePreview } from "../files/AttachmentFilePreview";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
@@ -122,7 +124,8 @@ import {
   useEffectiveComposerModelState,
 } from "../../composerDraftStore";
 import {
-  MAX_STASH_ENTRIES,
+  PARKED_FULL_MESSAGE,
+  parkedEntryKind,
   partitionStashAttachments,
   usePromptStashStore,
   type PromptStashEntry,
@@ -183,6 +186,7 @@ import {
   getRestingComposerImagePreviewCounts,
   resolveRestingComposerControlsLayout,
   shouldAnimateComposerRestingTransition,
+  resolveComposerFooterSurrender,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
 } from "../composerFooterLayout";
@@ -241,6 +245,8 @@ import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import { composerControlsSummary } from "./composerControlsSummary";
+import { useFocusModeActive } from "../../hooks/useFocusMode";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -268,6 +274,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   hasProviderTraitsControls,
+  providerNonDefaultTraitLabels,
   useProviderEffortSegmentControl,
 } from "./composerProviderState";
 import { EffortSegmentedControl } from "./EffortSegmentedControl";
@@ -276,6 +283,7 @@ import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
   shouldReserveContextWindowMeter,
+  shouldShowContextWindowMeter,
 } from "./ContextWindowMeter.logic";
 import {
   attachVideoThumbnail,
@@ -331,7 +339,9 @@ function ComposerVideoThumbnail({ file }: { file: File }) {
 }
 
 type ComposerCommandMenuPosition = {
-  bottom: number;
+  /** Distance from the viewport's bottom edge (opening upward) or top edge (opening downward). */
+  offset: number;
+  below: boolean;
   left: number;
   maxHeight: number;
   width: number;
@@ -518,7 +528,7 @@ function useComposerRestingTransition(
       const previousHeight = interruptedHeight ?? previousHeightRef.current;
       const targetChanged =
         interruptedTargetHeight === null || Math.abs(interruptedTargetHeight - nextHeight) >= 0.5;
-      const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      const reducedMotion = prefersReducedMotion();
       const shouldAnimate = shouldAnimateComposerRestingTransition({
         hasCompletedInitialLayout: hasCompletedInitialLayoutRef.current,
         stateChanged,
@@ -527,7 +537,7 @@ function useComposerRestingTransition(
 
       if (
         shouldAnimate &&
-        !prefersReducedMotion &&
+        !reducedMotion &&
         previousHeight !== null &&
         Math.abs(previousHeight - nextHeight) >= 0.5
       ) {
@@ -835,11 +845,27 @@ function composerCommandMenuPositionsEqual(
   b: ComposerCommandMenuPosition,
 ): boolean {
   return (
-    a.bottom === b.bottom && a.left === b.left && a.maxHeight === b.maxHeight && a.width === b.width
+    a.offset === b.offset &&
+    a.below === b.below &&
+    a.left === b.left &&
+    a.maxHeight === b.maxHeight &&
+    a.width === b.width
   );
 }
 
-function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children: ReactNode }) {
+/** Space a menu needs below the composer before it opens downward. */
+const MIN_MENU_SPACE_BELOW_PX = 200;
+
+function ComposerCommandMenuLayer(props: {
+  anchor: HTMLElement | null;
+  /**
+   * Open below the composer when there is room: the start screen's composer sits near
+   * the top, where a menu opening upward would cover the header.
+   */
+  preferBelow?: boolean;
+  children: ReactNode | ((placement: "attached" | "floating") => ReactNode);
+}) {
+  const preferBelow = props.preferBelow ?? false;
   const [position, setPosition] = useState<ComposerCommandMenuPosition | null>(null);
 
   useLayoutEffect(() => {
@@ -865,12 +891,23 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
       // the canvas between the drawer mask and the composer's foreground edge.
       // Mirrors --chat-composer-attachment-overlap: calc(1rem + 1px).
       const composerOverlap = rootFontSizePx + 1;
-      const next = {
-        bottom: window.innerHeight - rect.top - composerOverlap,
-        left: rect.left + drawerInset,
-        maxHeight: Math.max(96, rect.top - 24 + composerOverlap),
-        width: Math.max(0, rect.width - drawerInset * 2),
-      };
+      const spaceBelow = window.innerHeight - rect.bottom - 24;
+      const next =
+        preferBelow && spaceBelow >= MIN_MENU_SPACE_BELOW_PX
+          ? {
+              offset: rect.bottom + 6,
+              below: true,
+              left: rect.left,
+              maxHeight: spaceBelow - 6,
+              width: rect.width,
+            }
+          : {
+              offset: window.innerHeight - rect.top - composerOverlap,
+              below: false,
+              left: rect.left + drawerInset,
+              maxHeight: Math.max(96, rect.top - 24 + composerOverlap),
+              width: Math.max(0, rect.width - drawerInset * 2),
+            };
       setPosition((current) =>
         current && composerCommandMenuPositionsEqual(current, next) ? current : next,
       );
@@ -898,7 +935,7 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [props.anchor]);
+  }, [preferBelow, props.anchor]);
 
   if (!position) return null;
 
@@ -907,13 +944,15 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
       className="pointer-events-auto fixed z-40 flex flex-col"
       data-composer-drawer-layer="true"
       style={{
-        bottom: position.bottom,
+        ...(position.below ? { top: position.offset } : { bottom: position.offset }),
         left: position.left,
         maxHeight: position.maxHeight,
         width: position.width,
       }}
     >
-      {props.children}
+      {typeof props.children === "function"
+        ? props.children(position.below ? "floating" : "attached")
+        : props.children}
     </div>,
     document.body,
   );
@@ -924,6 +963,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
   FileIcon,
+  InboxIcon,
   BotIcon,
   CircleAlertIcon,
   PlusIcon,
@@ -971,6 +1011,8 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "../../state/server";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import { ShortcutKeyCaps } from "../ShortcutKeyCaps";
+import { OpenThreadReminder } from "./OpenThreadReminder";
 
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
 
@@ -1352,6 +1394,8 @@ export interface ChatComposerProps {
   isServerThread: boolean;
   isLocalDraftThread: boolean;
   forceExpandedOnMobile: boolean;
+  /** The start screen: the / and @ menus open below the composer when there is room. */
+  commandMenuBelow?: boolean;
   projectSelectionRequired: boolean;
 
   // Session phase
@@ -1395,6 +1439,8 @@ export interface ChatComposerProps {
   activePendingDraftAnswers: Record<string, PendingUserInputDraftAnswer>;
   activePendingQuestionIndex: number;
   respondingRequestIds: ApprovalRequestId[];
+  /** "Sent. Waiting for Codex." once the shown approval is answered, until it resolves. */
+  approvalSentLabel?: string | null;
 
   // Plan
   showPlanFollowUpPrompt: boolean;
@@ -1432,6 +1478,11 @@ export interface ChatComposerProps {
   restingControlsHost: HTMLDivElement | null;
   restingControlsHaveLeadingContext: boolean;
   onRestingControlsVisibilityChange: (visible: boolean) => void;
+  /**
+   * Why this composer's provider cannot take a message (no provider, Antigravity not signed
+   * in), or null when it can. Sends from outside the composer (Retry) follow the same rule.
+   */
+  onProviderSendUnavailableReasonChange: (reason: string | null) => void;
   /** Whether the timeline has more content than fits above the composer. */
   timelineOverflows: boolean;
   onComposerOverlayHeightChange: (height: number) => void;
@@ -1516,6 +1567,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isServerThread: _isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
+    commandMenuBelow = false,
     projectSelectionRequired,
     phase,
     isConnecting,
@@ -1536,6 +1588,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activePendingDraftAnswers,
     activePendingQuestionIndex,
     respondingRequestIds,
+    approvalSentLabel = null,
     showPlanFollowUpPrompt,
     activeProposedPlan,
     runtimeMode,
@@ -1560,6 +1613,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     restingControlsHost,
     restingControlsHaveLeadingContext,
     onRestingControlsVisibilityChange,
+    onProviderSendUnavailableReasonChange,
     timelineOverflows,
     onComposerOverlayHeightChange,
     onRestingChange,
@@ -2124,6 +2178,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
+  const [footerSurrender, setFooterSurrender] = useState(() =>
+    resolveComposerFooterSurrender(null),
+  );
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
   const isMobileViewport = useMediaQuery("max-sm");
   const [isComposerFocused, setIsComposerFocused] = useState(false);
@@ -3283,12 +3340,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return {
         primaryActionsCompact,
         footerCompact,
+        surrender: resolveComposerFooterSurrender(composerFormWidth),
       };
     };
 
     const initialCompactness = measureFooterCompactness();
     setIsComposerPrimaryActionsCompact(initialCompactness.primaryActionsCompact);
     setIsComposerFooterCompact(initialCompactness.footerCompact);
+    setFooterSurrender(initialCompactness.surrender);
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       const nextCompactness = measureFooterCompactness();
@@ -3299,6 +3358,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       );
       setIsComposerFooterCompact((previous) =>
         previous === nextCompactness.footerCompact ? previous : nextCompactness.footerCompact,
+      );
+      setFooterSurrender((previous) =>
+        previous.parkLabel === nextCompactness.surrender.parkLabel &&
+        previous.modeSummary === nextCompactness.surrender.modeSummary
+          ? previous
+          : nextCompactness.surrender,
       );
     });
 
@@ -4159,7 +4224,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Prompt stash (⌘S)
   // ------------------------------------------------------------------
   // Files remain tied to the environment that owns their uploaded bytes.
-  const stashQueue = usePromptStashStore((state) => state.entries);
+  const parkedEntries = usePromptStashStore((state) => state.entries);
+  // The composer's own menu holds only drafts parked with Mod+S. Thoughts live in the
+  // sidebar's Parked list (with its Undo and count); notes stay with their recap.
+  const stashQueue = useMemo(
+    () => parkedEntries.filter((entry) => parkedEntryKind(entry) === "draft"),
+    [parkedEntries],
+  );
   const stashEntryToQueue = usePromptStashStore((state) => state.stashEntry);
   const takeStashEntry = usePromptStashStore((state) => state.takeEntry);
   const finalizeStashEntryImages = usePromptStashStore((state) => state.finalizeEntryImages);
@@ -4191,7 +4262,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (filesToVerify.some((file) => file.environmentId !== environmentId)) {
         toastManager.add({
           type: "error",
-          title: "Stashed files belong to another environment",
+          title: "Parked files belong to another environment",
           description: "Restore this prompt in the environment that received its files.",
         });
         return;
@@ -4231,7 +4302,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!durable) {
         toastManager.add({
           type: "warning",
-          title: "Restored prompt may reappear in the stash",
+          title: "Restored prompt may reappear in Parked",
           description:
             "Browser storage rejected the update, so this entry could still be there after a reload.",
           data: { hideCopyButton: true },
@@ -4433,7 +4504,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const missingImageReasons: string[] = [];
       if (entry.droppedImageNames.length > 0) {
         missingImageReasons.push(
-          `${entry.droppedImageNames.join(", ")} exceeded the stash size limit when this prompt was saved.`,
+          `${entry.droppedImageNames.join(", ")} exceeded the Parked size limit when this prompt was parked.`,
         );
       }
       if (entry.unreadableImageNames && entry.unreadableImageNames.length > 0) {
@@ -4453,7 +4524,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       if (expiredFileNames.length > 0) {
         missingImageReasons.push(
-          `${expiredFileNames.join(", ")}: stashed files are kept for 24 hours and this upload expired. Attach the file again.`,
+          `${expiredFileNames.join(", ")}: parked files are kept for 24 hours and this upload expired. Attach the file again.`,
         );
       }
       if (missingImageReasons.length > 0) {
@@ -4505,7 +4576,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!durable) {
         toastManager.add({
           type: "warning",
-          title: "Stash entry may come back",
+          title: "Parked draft may come back",
           description:
             "Browser storage rejected the delete, so this prompt could reappear after a reload.",
           data: { hideCopyButton: true },
@@ -4522,7 +4593,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       toastManager.add({
         type: "info",
         title: "Still bringing a pasted attachment into this message.",
-        description: "Stash again once its chip resolves.",
+        description: "Park it again once its chip resolves.",
       });
       return;
     }
@@ -4543,7 +4614,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ),
     ];
     if (prompt.length === 0 && images.length === 0 && files.length === 0) {
-      const entries = usePromptStashStore.getState().entries;
+      const entries = usePromptStashStore
+        .getState()
+        .entries.filter((candidate) => parkedEntryKind(candidate) === "draft");
       const entry = entries.length === 1 ? entries[0] : undefined;
       if (entry && !entry.pendingImageCount) {
         await restoreStashEntry(entry);
@@ -4557,7 +4630,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (composerFileNeedsReattach(file)) {
         toastManager.add({
           type: "error",
-          title: "Attach dropped files again or remove them before stashing",
+          title: "Attach dropped files again or remove them before parking",
         });
         return;
       }
@@ -4565,7 +4638,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (upload?.status !== "ready" || upload.environmentId !== environmentId) {
         toastManager.add({
           type: "error",
-          title: "Wait for file uploads before stashing this prompt",
+          title: "Wait for file uploads before parking this prompt",
         });
         return;
       }
@@ -4600,7 +4673,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       // mid-encode still leaves the prompt recoverable, while clearing before
       // the async image work means edits typed during encoding are not wiped.
       // Images are appended to the stored entry as they finish encoding.
-      const { evicted, written, durable } = stashEntryToQueue({
+      const { refused, written, durable } = stashEntryToQueue({
         id: entryId,
         createdAt: new Date().toISOString(),
         prompt,
@@ -4612,6 +4685,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ...(stashedRecords.length > 0 ? { records: stashedRecords } : {}),
       });
 
+      // Parked is full: nothing is evicted to make room, and the draft stays put.
+      if (refused) {
+        toastManager.add({
+          type: "error",
+          title: PARKED_FULL_MESSAGE,
+          description: "Your draft is still in the composer.",
+          data: { hideCopyButton: true },
+        });
+        return;
+      }
       // Clearing the composer is only safe once the write actually landed.
       // If it was rejected (quota) the store has already rolled itself back,
       // so leave the composer untouched rather than making it the second
@@ -4619,7 +4702,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!written) {
         toastManager.add({
           type: "error",
-          title: "Could not stash this prompt",
+          title: "Could not park this prompt",
           description:
             "Browser storage rejected the write, so the composer was left as-is. Free up site data and try again.",
           data: { hideCopyButton: true },
@@ -4632,9 +4715,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (!durable) {
         toastManager.add({
           type: "warning",
-          title: "Stashed prompt will not survive a reload",
+          title: "Parked prompt will not survive a reload",
           description:
-            "Browser storage is unavailable, so this stash is kept in memory only for this session.",
+            "Browser storage is unavailable, so this parked draft is kept in memory only for this session.",
           data: { hideCopyButton: true },
         });
       }
@@ -4657,22 +4740,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       setComposerCursor(0);
       setComposerTrigger(null);
       pulseStashBadge();
-
-      if (evicted) {
-        for (const file of evicted.files ?? []) {
-          releasePersistedAttachmentUpload({
-            id: file.id,
-            environmentId: file.environmentId,
-            attachmentId: file.attachmentId,
-          });
-        }
-        toastManager.add({
-          type: "warning",
-          title: "Oldest stashed prompt discarded",
-          description: `The stash holds ${MAX_STASH_ENTRIES} prompts; the oldest was removed to make room.`,
-          data: { hideCopyButton: true },
-        });
-      }
 
       // Images are re-encoded for the stash rather than stored verbatim: the
       // composer allows up to 10MB per image, but localStorage gives the whole
@@ -4719,9 +4786,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         if (!imagesDurable && durable && images.length > 0) {
           toastManager.add({
             type: "warning",
-            title: "Stashed images were not saved",
+            title: "Parked images were not saved",
             description:
-              "The prompt was stashed, but browser storage rejected its images. They will be missing if you reload.",
+              "The prompt was parked, but browser storage rejected its images. They will be missing if you reload.",
             data: { hideCopyButton: true },
           });
         }
@@ -4731,7 +4798,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         // them evaporate.
         toastManager.add({
           type: "warning",
-          title: "Stashed images did not attach",
+          title: "Parked images did not attach",
           description: `That prompt was restored or deleted before ${kept.length} image${kept.length === 1 ? "" : "s"} finished saving. Re-attach ${kept.length === 1 ? "it" : "them"} if you still need ${kept.length === 1 ? "it" : "them"}.`,
           data: { hideCopyButton: true },
         });
@@ -4795,6 +4862,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useLayoutEffect(() => {
     onRestingChange(isComposerResting);
   }, [isComposerResting, onRestingChange]);
+  // The same rule `getSendContext().providerAvailable` applies, said in words.
+  const providerSendUnavailableReason =
+    multipleModelSelections !== null
+      ? null
+      : noProviderAvailable
+        ? "The agent is not available right now, so Retry cannot send."
+        : providerSendBlockReason;
+  useLayoutEffect(() => {
+    onProviderSendUnavailableReasonChange(providerSendUnavailableReason);
+  }, [providerSendUnavailableReason, onProviderSendUnavailableReasonChange]);
   const restingImagePreviewCounts = getRestingComposerImagePreviewCounts(
     standaloneComposerImages.length,
   );
@@ -4871,9 +4948,42 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onComposerOverlayHeightChange,
   );
 
+  const focusModeActive = useFocusModeActive();
+  // "Composer controls: Compact" folds effort, permissions and Plan or Build into the
+  // overflow chip at every width; the measured layout only decides in Full.
+  const composerControlsCompact =
+    settings.composerControls === "compact" && !composerControlsInStrip;
+  const shownContextWindow =
+    settings.contextWindowMeterEnabled &&
+    activeContextWindow &&
+    shouldShowContextWindowMeter({
+      usedPercentage: activeContextWindow.usedPercentage,
+      compact: composerControlsCompact,
+    })
+      ? activeContextWindow
+      : null;
+  const reserveShownContextWindowMeter = reserveContextWindowMeter && !composerControlsCompact;
+  // A narrow footer folds the chip to "…" but never hides a risky permission: Full access
+  // stays spelled out (plan, F-composer: "a risky permission is never hidden").
+  const composerControlsSummaryParts = (() => {
+    if (!composerControlsCompact) return null;
+    const parts = composerControlsSummary({
+      effort: effortSegmentControl,
+      traits: providerNonDefaultTraitLabels(providerTraitsPickerInput),
+      runtimeMode,
+      interactionMode: planModeUiEnabled ? interactionMode : null,
+    });
+    if (footerSurrender.modeSummary) return parts;
+    const risky = parts.filter((part) => part.risky);
+    return risky.length > 0 ? risky : null;
+  })();
   const restingHiddenBlockCount = composerControlsInStrip
     ? restingControlsHiddenBlockCount
-    : expandedControlsLayout.hiddenBlockCount;
+    : composerControlsCompact
+      ? providerTraitsPicker
+        ? 2
+        : 1
+      : expandedControlsLayout.hiddenBlockCount;
   const iconOnlyBlockCount = composerControlsInStrip
     ? restingControlsIconOnlyBlockCount
     : expandedControlsLayout.iconOnlyBlockCount;
@@ -5013,11 +5123,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         keybindings={keybindings}
         modelOptionsByInstance={modelOptionsByInstance}
         size={composerControlsInStrip ? "xs" : "sm"}
-        {...(composerControlsInStrip ? {} : { triggerVariant: "outline" as const })}
+        {...(composerControlsInStrip || composerControlsCompact
+          ? {}
+          : { triggerVariant: "outline" as const })}
         triggerClassName={
           composerControlsInStrip
             ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
-            : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
+            : composerControlsCompact
+              ? "h-7 min-h-7 min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-7"
+              : "h-[30px] min-h-[30px] min-w-13 rounded-lg px-2.5 text-xs font-medium text-foreground shadow-none sm:h-[30px]"
         }
         terminalOpen={terminalOpen}
         open={isComposerModelPickerOpen}
@@ -5043,6 +5157,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }}
         onOpenProviderSetup={onOpenProviderSetup}
         effortControl={effortSegmentControl}
+        hideEffortInLabel={composerControlsCompact}
       />
 
       <>
@@ -5082,6 +5197,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             runtimeMode={runtimeMode}
             size={composerControlsInStrip ? "xs" : "sm"}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
+            {...(composerControlsSummaryParts ? { summary: composerControlsSummaryParts } : {})}
             showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
             traitsMenuContent={
               hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
@@ -5111,6 +5227,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setIsStashMenuOpen(false);
   }, [prompt]);
 
+  // Mod+S and the footer's "Park it" button: stash the draft, or with an
+  // empty draft open (or restore) what was stashed.
+  const parkDraft = useCallback(() => {
+    if (isRevertingCheckpoint) return;
+    if (pendingUserInputs.length > 0 && !isComposerApprovalState) {
+      setIsStashMenuOpen((open) => !open);
+      return;
+    }
+    if (isComposerApprovalState || projectSelectionRequired || activePendingProgress !== null) {
+      return;
+    }
+    void stashCurrentPrompt();
+  }, [
+    activePendingProgress,
+    isComposerApprovalState,
+    isRevertingCheckpoint,
+    pendingUserInputs.length,
+    projectSelectionRequired,
+    stashCurrentPrompt,
+  ]);
+
+  const parkShortcutLabel = shortcutLabelForCommand(keybindings, "composer.stash", {
+    context: { terminalFocus: false, terminalOpen, modelPickerOpen: false },
+  });
+
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
       const command = resolveShortcutCommand(event, keybindings, {
@@ -5125,31 +5266,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       // even when the composer is in a state that can't stash.
       event.preventDefault();
       event.stopPropagation();
-      if (isCommandPaletteOpen() || isRevertingCheckpoint) {
-        return;
-      }
-      if (pendingUserInputs.length > 0 && !isComposerApprovalState) {
-        setIsStashMenuOpen((open) => !open);
-        return;
-      }
-      if (isComposerApprovalState || projectSelectionRequired || activePendingProgress !== null) {
-        return;
-      }
-      void stashCurrentPrompt();
+      if (isCommandPaletteOpen()) return;
+      parkDraft();
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [
-    activePendingProgress,
-    isComposerApprovalState,
-    isComposerModelPickerOpen,
-    keybindings,
-    pendingUserInputs.length,
-    projectSelectionRequired,
-    stashCurrentPrompt,
-    isRevertingCheckpoint,
-    terminalOpen,
-  ]);
+  }, [isComposerModelPickerOpen, keybindings, parkDraft, terminalOpen]);
 
   // ------------------------------------------------------------------
   // Callbacks: attachments
@@ -6112,6 +6234,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             : null
                         }
                         onRespondToApproval={onRespondToApproval}
+                        sentLabel={approvalSentLabel}
                       />
                     </ComposerBanner.Actions>
                   </ComposerBanner.Row>
@@ -6294,13 +6417,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               ref={setComposerMenuAnchor}
               data-chat-composer-body="true"
               className={cn(
-                "relative px-3 pb-2 transition-[padding] duration-150 sm:px-4",
-                "pt-3.5 sm:pt-4",
+                // Board 1/2 composer: 12px above the input, the footer right under it, 8px below.
+                "relative px-3 pb-2 transition-[padding] duration-150 sm:px-4 sm:pb-0",
+                "pt-3.5 sm:pt-3",
                 isComposerApprovalState && "pb-3 sm:pb-4",
                 isComposerCollapsedMobile && "hidden",
                 isComposerResting && "py-2 sm:py-2",
               )}
             >
+              {/* New threads only: how many are already open, never a gate on Send. */}
+              {routeKind === "draft" && !isComposerApprovalState && !isComposerResting ? (
+                <OpenThreadReminder />
+              ) : null}
               {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
                 <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
                   <ComposerStashMenu
@@ -6320,17 +6448,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               )}
 
               {composerMenuOpen && !isComposerApprovalState && (
-                <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
-                  <ComposerCommandMenu
-                    items={composerMenuItems}
-                    resolvedTheme={resolvedTheme}
-                    isLoading={isComposerMenuLoading}
-                    triggerKind={composerTriggerKind}
-                    emptyStateText={composerMenuEmptyState}
-                    activeItemId={activeComposerMenuItem?.id ?? null}
-                    onHighlightedItemChange={onComposerMenuItemHighlighted}
-                    onSelect={onSelectComposerItem}
-                  />
+                <ComposerCommandMenuLayer
+                  anchor={composerMenuAnchor}
+                  preferBelow={commandMenuBelow}
+                >
+                  {(placement) => (
+                    <ComposerCommandMenu
+                      items={composerMenuItems}
+                      resolvedTheme={resolvedTheme}
+                      isLoading={isComposerMenuLoading}
+                      triggerKind={composerTriggerKind}
+                      emptyStateText={composerMenuEmptyState}
+                      activeItemId={activeComposerMenuItem?.id ?? null}
+                      onHighlightedItemChange={onComposerMenuItemHighlighted}
+                      onSelect={onSelectComposerItem}
+                      placement={placement}
+                    />
+                  )}
                 </ComposerCommandMenuLayer>
               )}
 
@@ -6672,13 +6806,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   </div>
                 )}
 
+              {!isComposerCollapsedMobile && !isComposerApprovalState ? (
+                <ComposerAttachedItems target={composerDraftTarget} />
+              ) : null}
               <div
                 className={cn(
                   "relative",
                   isComposerResting && "flex min-w-0 items-center gap-1",
                   isComposerResting &&
-                    ((settings.contextWindowMeterEnabled && activeContextWindow) ||
-                    reserveContextWindowMeter
+                    (shownContextWindow || reserveShownContextWindowMeter
                       ? "pr-28"
                       : showComposerAttachAction
                         ? "pr-20"
@@ -6739,6 +6875,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         : composerCursor
                     }
                     contextRecords={composerContextRecords}
+                    attachedItemsShownElsewhere={
+                      !isComposerCollapsedMobile && !isComposerApprovalState
+                    }
                     buildContextClipboardFragment={buildContextClipboardFragment}
                     importContextFragment={importContextFragment}
                     skills={selectedProviderSkills}
@@ -6773,6 +6912,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       projectSelectionRequired,
                       providerUnavailable: showProviderUnavailable,
                       phase,
+                      focusMode: focusModeActive,
                     })}
                     disabled={
                       isConnecting ||
@@ -6832,7 +6972,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
                 className={cn(
-                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-2.5 transition-[padding] duration-150 sm:px-4 sm:pb-3",
+                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-2.5 transition-[padding] duration-150 sm:px-4 sm:pb-2",
                   pendingUserInputs.length > 0 && "pt-2",
                   isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                   showMobilePendingAnswerActions && "hidden sm:flex",
@@ -6865,16 +7005,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         render={
                           <Button
                             type="button"
-                            variant="outline"
+                            variant={composerControlsCompact ? "ghost" : "outline"}
                             size="icon-sm"
-                            className="size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            // Board 1: a 28px ghost icon button with a 16px plus, like the
+                            // compact footer's chips.
+                            className={
+                              composerControlsCompact
+                                ? "size-7 rounded-lg shadow-none sm:size-7"
+                                : "size-[30px] rounded-lg shadow-none sm:size-[30px]"
+                            }
                             onPointerDown={(event) => event.preventDefault()}
                             onClick={() => attachmentInputRef.current?.click()}
                             aria-label="Attach files"
                           />
                         }
                       >
-                        <PlusIcon className="size-3.5" />
+                        <PlusIcon className={composerControlsCompact ? "size-4" : "size-3.5"} />
                       </TooltipTrigger>
                       <TooltipPopup>Attach files</TooltipPopup>
                     </Tooltip>
@@ -6903,12 +7049,52 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {/* Hidden while an approval holds the composer, where it does nothing. With an
+                      empty draft it does what Mod+S does there: brings back what was parked. It is
+                      disabled only when there is nothing to park and nothing to bring back. */}
+                  {pendingUserInputs.length === 0 &&
+                  !projectSelectionRequired &&
+                  !isComposerApprovalState ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="px-2 text-xs leading-[18px] sm:text-xs"
+                            disabled={
+                              !composerSendState.hasSendableContent && stashQueue.length === 0
+                            }
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={parkDraft}
+                            {...(footerSurrender.parkLabel ? {} : { "aria-label": "Park it" })}
+                          />
+                        }
+                      >
+                        {/* A narrow footer keeps the inbox icon; the label goes first. */}
+                        {footerSurrender.parkLabel ? (
+                          "Park it"
+                        ) : (
+                          <InboxIcon aria-hidden className="size-3.5" />
+                        )}
+                        {/* Board 3: focus mode shows the key beside it. */}
+                        {focusModeActive && footerSurrender.parkLabel ? (
+                          <ShortcutKeyCaps label={parkShortcutLabel} />
+                        ) : null}
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        {composerSendState.hasSendableContent || stashQueue.length === 0
+                          ? "Keep this draft for later"
+                          : "Bring back a parked draft"}
+                        {parkShortcutLabel ? ` (${parkShortcutLabel})` : ""}
+                      </TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
-                    activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
-                    }
-                    reserveContextWindowMeter={reserveContextWindowMeter}
+                    activeContextWindow={shownContextWindow}
+                    reserveContextWindowMeter={reserveShownContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}

@@ -6,9 +6,10 @@ import { useSettingsRestore } from "../components/settings/SettingsPanels";
 
 import { SettingsScopeBreadcrumb } from "../components/settings/SettingsBreadcrumb";
 import { SettingsPageNotice } from "../components/settings/settingsLayout";
-import { SidebarInset } from "../components/ui/sidebar";
+import { SidebarInset, useSidebar } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { isElectron } from "../env";
+import { workspaceTopBarShows } from "../workspaceTitlebar";
 import {
   SettingsScopeProvider,
   useSettingsScope,
@@ -46,6 +47,7 @@ function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void })
 /** Pages whose every row is saved on this client; the scope selects are hidden there. */
 const DEVICE_ONLY_PATHS = new Set([
   "/settings/appearance",
+  "/settings/attention",
   "/settings/snap-shot",
   "/settings/connections",
 ]);
@@ -112,6 +114,15 @@ function SettingsContentLayout() {
   const { environments } = useEnvironments();
   const [restoreSignal, setRestoreSignal] = useState(0);
   const showScope = !DEVICE_ONLY_PATHS.has(location.pathname);
+  const showRestore = location.pathname === "/settings/general";
+  const { isMobile, state: sidebarState } = useSidebar();
+  // Board 6 opens the page on its title: on the web an empty bar would only push it down.
+  const showTopBar = workspaceTopBarShows({
+    electron: isElectron,
+    hasContent: showScope || showRestore,
+    isMobile,
+    state: sidebarState,
+  });
   const navigateBackWithinApp = useSettingsBackNavigation();
 
   useEffect(() => {
@@ -136,26 +147,31 @@ function SettingsContentLayout() {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        <WorkspacePageHeader electron={isElectron}>
-          <div className="flex w-full items-center gap-3">
-            {showScope ? (
-              <SettingsScopeBreadcrumb
-                value={search}
-                groups={groups}
-                environments={environments}
-                onChange={selectScope}
-              />
-            ) : null}
-            {location.pathname === "/settings/general" ? (
-              <div className="ms-auto flex shrink-0 items-center">
-                <RestoreDeviceDefaultsButton
-                  onRestored={() => setRestoreSignal((value) => value + 1)}
+      <div
+        className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground"
+        data-top-bar-hidden={showTopBar ? undefined : ""}
+      >
+        {showTopBar ? (
+          <WorkspacePageHeader electron={isElectron}>
+            <div className="flex w-full items-center gap-3">
+              {showScope ? (
+                <SettingsScopeBreadcrumb
+                  value={search}
+                  groups={groups}
+                  environments={environments}
+                  onChange={selectScope}
                 />
-              </div>
-            ) : null}
-          </div>
-        </WorkspacePageHeader>
+              ) : null}
+              {showRestore ? (
+                <div className="ms-auto flex shrink-0 items-center">
+                  <RestoreDeviceDefaultsButton
+                    onRestored={() => setRestoreSignal((value) => value + 1)}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </WorkspacePageHeader>
+        ) : null}
 
         <div
           key={`${JSON.stringify(search)}:${restoreSignal}`}

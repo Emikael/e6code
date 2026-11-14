@@ -342,8 +342,10 @@ export function ReviewThreadCard({
                   <Button size="xs" variant="ghost" onClick={() => setReplying(false)}>
                     Cancel
                   </Button>
+                  {/* Outline, like a comment draft's: the review footer's step holds the fill. */}
                   <Button
                     size="xs"
+                    variant="outline"
                     disabled={pending || reply.trim().length === 0}
                     onClick={() => void send()}
                   >

@@ -1,5 +1,3 @@
-import { DEFAULT_CLIENT_SETTINGS } from "@e6tools/contracts/settings";
-
 import { MOBILE_CODE_SURFACE, MOBILE_TYPOGRAPHY } from "./typography";
 import {
   DEFAULT_TERMINAL_FONT_SIZE,
@@ -28,7 +26,7 @@ export interface AppearancePreferences {
   readonly terminalFontSize: number | null;
   readonly codeFontSize: number | null;
   readonly codeWordBreak: boolean;
-  /** Device-local mirror of the web `showThinkingTimeline` client setting. */
+  /** Draws an opened work log as a rail with one dot per step. Mobile keeps its own choice. */
   readonly showThinkingTimeline: boolean;
 }
 
@@ -128,11 +126,9 @@ export function resolveAppearancePreferences(
         ? normalizeCodeFontSize(stored.codeFontSize)
         : null,
     codeWordBreak: normalizeCodeWordBreak(stored?.codeWordBreak),
-    // Same default as web; anything but an explicit boolean reads as the default.
+    // On by default, as web always draws the rail; anything but an explicit boolean reads as on.
     showThinkingTimeline:
-      typeof stored?.showThinkingTimeline === "boolean"
-        ? stored.showThinkingTimeline
-        : DEFAULT_CLIENT_SETTINGS.showThinkingTimeline,
+      typeof stored?.showThinkingTimeline === "boolean" ? stored.showThinkingTimeline : true,
   };
 }
 

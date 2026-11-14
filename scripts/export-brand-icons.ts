@@ -14,7 +14,13 @@ import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { BRAND_ASSET_PATHS, DEVELOPMENT_PUBLIC_ICON_OVERRIDES } from "./lib/brand-assets.ts";
-import { encodePngIco, readPngDimensions, WINDOWS_ICON_SIZES } from "./lib/icon-export.ts";
+import {
+  encodePngIco,
+  isSmallIconSize,
+  readPngDimensions,
+  WINDOWS_ICON_SIZES,
+  withoutSmallSizeLayers,
+} from "./lib/icon-export.ts";
 
 const DESIGN_GENERATION = 26;
 const ICON_COMPOSER_EXECUTABLE_PARTS = [
@@ -81,6 +87,7 @@ export class IconExportFileSystemError extends Schema.TaggedError<IconExportFile
       "check-path",
       "read-directory",
       "read-file",
+      "copy-directory",
       "make-directory",
       "make-temp-directory",
       "make-temp-file",
@@ -547,6 +554,42 @@ const renderIcon = Effect.fn("iconExport.renderIcon")(function* (
   return buffer;
 });
 
+/** Copies an Icon Composer project and drops the layers that smudge at small sizes. */
+const prepareSmallIconProject = Effect.fn("iconExport.prepareSmallIconProject")(function* (
+  sourcePath: string,
+  targetPath: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  yield* fs
+    .copy(sourcePath, targetPath)
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new IconExportFileSystemError({ operation: "copy-directory", path: sourcePath, cause }),
+      ),
+    );
+  const iconJsonPath = path.join(targetPath, "icon.json");
+  const iconJson = yield* fs
+    .readFileString(iconJsonPath)
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new IconExportFileSystemError({ operation: "read-file", path: iconJsonPath, cause }),
+      ),
+    );
+  // A project without the expected detail layer is a source mistake, so it fails loudly.
+  const smallIconJson = yield* Effect.sync(() => withoutSmallSizeLayers(iconJson));
+  yield* fs
+    .writeFileString(iconJsonPath, smallIconJson)
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new IconExportFileSystemError({ operation: "write-file", path: iconJsonPath, cause }),
+      ),
+    );
+});
+
 const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
   toolPath: string,
   repositoryRoot: string,
@@ -570,6 +613,9 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
     return yield* new IconExportSourceMissingError({ sourcePath: variant.source });
   }
 
+  const smallSourcePath = path.join(temporaryDirectory, `${variant.label}-small.icon`);
+  yield* prepareSmallIconProject(sourcePath, smallSourcePath);
+
   const renditionCache = new Map<string, Buffer>();
   const render = Effect.fn("iconExport.renderVariant.rendition")(function* (
     platform: IconPlatform,
@@ -580,7 +626,13 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
     if (cached) return cached;
 
     const outputPath = path.join(temporaryDirectory, `${variant.label}-${platform}-${size}.png`);
-    const contents = yield* renderIcon(toolPath, sourcePath, outputPath, platform, size);
+    const contents = yield* renderIcon(
+      toolPath,
+      isSmallIconSize(size) ? smallSourcePath : sourcePath,
+      outputPath,
+      platform,
+      size,
+    );
     renditionCache.set(cacheKey, contents);
     return contents;
   });

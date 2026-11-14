@@ -2208,7 +2208,11 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         });
         const opened = Option.getOrThrow(yield* Fiber.join(openedFiber));
         NodeAssert.ok(opened.type === "request.opened");
-        NodeAssert.equal(opened.payload.requestType, "command_execution_approval");
+        // Only a shell permission is a command; the rest stay generic tool approvals.
+        NodeAssert.equal(
+          opened.payload.requestType,
+          permission === "bash" ? "command_execution_approval" : "dynamic_tool_call",
+        );
         NodeAssert.equal(opened.payload.detail, permission.replaceAll("_", " "));
         NodeAssert.deepEqual(
           opened.payload.options?.map((option) => option.label),

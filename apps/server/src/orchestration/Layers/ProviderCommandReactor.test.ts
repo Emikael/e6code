@@ -659,6 +659,17 @@ describe("ProviderCommandReactor", () => {
             `;
           }),
         ),
+      readPendingApproval: (requestId: string) =>
+        runtime!.runPromise(
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            return yield* sql<{ readonly status: string; readonly decision: string | null }>`
+              SELECT status, decision
+              FROM projection_pending_approvals
+              WHERE request_id = ${requestId}
+            `;
+          }),
+        ),
       tryHandlePromptCommand,
       startSession,
       sendTurn,
@@ -4540,6 +4551,152 @@ describe("ProviderCommandReactor", () => {
           detail: expect.stringContaining("Stale pending approval request: approval-request-1"),
         });
       }),
+  );
+
+  // A request with an open approval, answered once with "accept".
+  const answerApprovalOnce = Effect.gen(function* () {
+    const harness = yield* Effect.promise(() => createHarness());
+    const now = "2026-01-01T00:00:00.000Z";
+    yield* harness.engine.dispatch({
+      type: "thread.session.set",
+      commandId: CommandId.make("cmd-session-set-for-second-answer"),
+      threadId: ThreadId.make("thread-1"),
+      session: {
+        threadId: ThreadId.make("thread-1"),
+        status: "running",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: now,
+      },
+      createdAt: now,
+    });
+    yield* harness.engine.dispatch({
+      type: "thread.activity.append",
+      commandId: CommandId.make("cmd-second-answer-requested"),
+      threadId: ThreadId.make("thread-1"),
+      activity: {
+        id: EventId.make("activity-second-answer-requested"),
+        tone: "approval",
+        kind: "approval.requested",
+        summary: "Command approval requested",
+        payload: { requestId: "approval-request-1", requestKind: "command" },
+        turnId: null,
+        createdAt: now,
+      },
+      createdAt: now,
+    });
+    const answer = {
+      type: "thread.approval.respond",
+      commandId: CommandId.make("cmd-first-answer"),
+      threadId: ThreadId.make("thread-1"),
+      requestId: asApprovalRequestId("approval-request-1"),
+      decision: "accept",
+      createdAt: now,
+    } as const;
+    const first = yield* harness.engine.dispatch(answer);
+    yield* Effect.promise(() => harness.drain());
+    return { harness, answer, first };
+  });
+
+  const failedResponseActivities = (harness: Awaited<ReturnType<typeof createHarness>>) =>
+    Effect.promise(() => harness.readModel()).pipe(
+      Effect.map((readModel) =>
+        (
+          readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"))?.activities ??
+          []
+        ).filter((activity) => activity.kind === "provider.approval.respond.failed"),
+      ),
+    );
+
+  effectIt.effect("refuses a second answer to an approval and keeps the first", () =>
+    Effect.gen(function* () {
+      const { harness, answer } = yield* answerApprovalOnce;
+      const error = yield* harness.engine
+        .dispatch({
+          ...answer,
+          commandId: CommandId.make("cmd-second-answer"),
+          decision: "decline",
+        })
+        .pipe(Effect.flip);
+      yield* Effect.promise(() => harness.drain());
+
+      expect(error._tag).toBe("OrchestrationRequestAlreadyAnsweredError");
+      expect(harness.respondToRequest).toHaveBeenCalledTimes(1);
+      expect(harness.respondToRequest.mock.calls[0]?.[0]).toMatchObject({ decision: "accept" });
+      expect(
+        yield* Effect.promise(() => harness.readPendingApproval("approval-request-1")),
+      ).toEqual([{ status: "resolved", decision: "accept" }]);
+      expect(yield* failedResponseActivities(harness)).toEqual([]);
+    }),
+  );
+
+  effectIt.effect("replays a retried approval answer from its receipt", () =>
+    Effect.gen(function* () {
+      const { harness, answer, first } = yield* answerApprovalOnce;
+      const retry = yield* harness.engine.dispatch(answer);
+      yield* Effect.promise(() => harness.drain());
+
+      expect(retry).toEqual(first);
+      expect(harness.respondToRequest).toHaveBeenCalledTimes(1);
+      expect(yield* failedResponseActivities(harness)).toEqual([]);
+    }),
+  );
+
+  effectIt.effect("refuses an answer to an approval the provider already resolved", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() => createHarness());
+      const now = "2026-01-01T00:00:00.000Z";
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-resolved-requested"),
+        threadId: ThreadId.make("thread-1"),
+        activity: {
+          id: EventId.make("activity-resolved-requested"),
+          tone: "approval",
+          kind: "approval.requested",
+          summary: "Command approval requested",
+          payload: { requestId: "approval-request-1", requestKind: "command" },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("cmd-resolved-by-provider"),
+        threadId: ThreadId.make("thread-1"),
+        activity: {
+          id: EventId.make("activity-resolved-by-provider"),
+          tone: "approval",
+          kind: "approval.resolved",
+          summary: "Approval resolved",
+          payload: { requestId: "approval-request-1", decision: "decline" },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      });
+      const error = yield* harness.engine
+        .dispatch({
+          type: "thread.approval.respond",
+          commandId: CommandId.make("cmd-answer-after-resolution"),
+          threadId: ThreadId.make("thread-1"),
+          requestId: asApprovalRequestId("approval-request-1"),
+          decision: "accept",
+          createdAt: now,
+        })
+        .pipe(Effect.flip);
+      yield* Effect.promise(() => harness.drain());
+
+      expect(error._tag).toBe("OrchestrationRequestAlreadyAnsweredError");
+      expect(harness.respondToRequest).not.toHaveBeenCalled();
+      expect(
+        yield* Effect.promise(() => harness.readPendingApproval("approval-request-1")),
+      ).toEqual([{ status: "resolved", decision: "decline" }]);
+      expect(yield* failedResponseActivities(harness)).toEqual([]);
+    }),
   );
 
   it("forwards user input answers without reading unrelated message bodies", async () => {

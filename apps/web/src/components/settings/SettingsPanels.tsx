@@ -2,7 +2,6 @@ import { SettingsGroup } from "./SettingsGroup";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
 import { Spinner } from "~/components/ui/spinner";
-import { NotificationSettings } from "./NotificationSettings";
 import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
@@ -675,9 +674,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
         ? ["Effort display"]
         : []),
-      ...(settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline
-        ? ["Thinking timeline"]
-        : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -688,11 +684,46 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
-      ...(settings.notificationMode !== DEFAULT_UNIFIED_SETTINGS.notificationMode
-        ? ["Thread notifications"]
+      ...(settings.attentionNotifications !== DEFAULT_UNIFIED_SETTINGS.attentionNotifications
+        ? ["Notify me"]
         : []),
-      ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
-        ? ["In-app notifications"]
+      ...(settings.notifyWatchedThreads !== DEFAULT_UNIFIED_SETTINGS.notifyWatchedThreads
+        ? ["Tell me when my thread finishes"]
+        : []),
+      ...(settings.holdFinishedUntilBreakpoint !==
+      DEFAULT_UNIFIED_SETTINGS.holdFinishedUntilBreakpoint
+        ? ["Hold other finished threads until a pause"]
+        : []),
+      ...(settings.attentionSoundEnabled !== DEFAULT_UNIFIED_SETTINGS.attentionSoundEnabled
+        ? ["Sound"]
+        : []),
+      ...(settings.needsYouSectionEnabled !== DEFAULT_UNIFIED_SETTINGS.needsYouSectionEnabled
+        ? ["Needs you section"]
+        : []),
+      ...(settings.sidebarElapsedTimeEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled
+        ? ["Elapsed time in the thread list"]
+        : []),
+      ...(settings.recapTrigger !== DEFAULT_UNIFIED_SETTINGS.recapTrigger
+        ? ["Show where you left off"]
+        : []),
+      ...(settings.openThreadReminderAt !== DEFAULT_UNIFIED_SETTINGS.openThreadReminderAt
+        ? ["Open-thread reminder"]
+        : []),
+      ...(settings.agentActivityDetail !== DEFAULT_UNIFIED_SETTINGS.agentActivityDetail
+        ? ["Agent activity"]
+        : []),
+      ...(settings.composerControls !== DEFAULT_UNIFIED_SETTINGS.composerControls
+        ? ["Composer controls"]
+        : []),
+      ...(settings.interfaceMotion !== DEFAULT_UNIFIED_SETTINGS.interfaceMotion ? ["Motion"] : []),
+      ...(settings.focusHoldsFinished !== DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished
+        ? ["Hold finished threads in focus mode"]
+        : []),
+      ...(settings.sessionClockEnabled !== DEFAULT_UNIFIED_SETTINGS.sessionClockEnabled
+        ? ["Session clock"]
+        : []),
+      ...(settings.breakReminderMinutes !== DEFAULT_UNIFIED_SETTINGS.breakReminderMinutes
+        ? ["Break reminder"]
         : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
@@ -793,7 +824,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffColorScheme,
       settings.chatWidth,
       settings.effortDisplay,
-      settings.showThinkingTimeline,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -830,10 +860,22 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadOrganization,
       settings.sidebarThreadPreviewCount,
+      settings.needsYouSectionEnabled,
+      settings.sidebarElapsedTimeEnabled,
+      settings.recapTrigger,
+      settings.composerControls,
+      settings.interfaceMotion,
+      settings.focusHoldsFinished,
+      settings.openThreadReminderAt,
+      settings.sessionClockEnabled,
+      settings.breakReminderMinutes,
+      settings.agentActivityDetail,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
-      settings.notificationMode,
-      settings.inAppNotificationsEnabled,
+      settings.attentionNotifications,
+      settings.notifyWatchedThreads,
+      settings.holdFinishedUntilBreakpoint,
+      settings.attentionSoundEnabled,
       settings.wordWrap,
       followSystem,
       theme,
@@ -909,10 +951,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
       effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
-      showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
-      notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
-      inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
+      attentionNotifications: DEFAULT_UNIFIED_SETTINGS.attentionNotifications,
+      notifyWatchedThreads: DEFAULT_UNIFIED_SETTINGS.notifyWatchedThreads,
+      holdFinishedUntilBreakpoint: DEFAULT_UNIFIED_SETTINGS.holdFinishedUntilBreakpoint,
+      attentionSoundEnabled: DEFAULT_UNIFIED_SETTINGS.attentionSoundEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
@@ -927,6 +970,16 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+      needsYouSectionEnabled: DEFAULT_UNIFIED_SETTINGS.needsYouSectionEnabled,
+      sidebarElapsedTimeEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarElapsedTimeEnabled,
+      recapTrigger: DEFAULT_UNIFIED_SETTINGS.recapTrigger,
+      composerControls: DEFAULT_UNIFIED_SETTINGS.composerControls,
+      interfaceMotion: DEFAULT_UNIFIED_SETTINGS.interfaceMotion,
+      focusHoldsFinished: DEFAULT_UNIFIED_SETTINGS.focusHoldsFinished,
+      openThreadReminderAt: DEFAULT_UNIFIED_SETTINGS.openThreadReminderAt,
+      sessionClockEnabled: DEFAULT_UNIFIED_SETTINGS.sessionClockEnabled,
+      breakReminderMinutes: DEFAULT_UNIFIED_SETTINGS.breakReminderMinutes,
+      agentActivityDetail: DEFAULT_UNIFIED_SETTINGS.agentActivityDetail,
       sidebarThreadOrganization: DEFAULT_UNIFIED_SETTINGS.sidebarThreadOrganization,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
@@ -1388,31 +1441,6 @@ export function AppearanceSettingsPanel() {
                 </RadioPrimitive.Root>
               ))}
             </RadioGroupPrimitive>
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("thinking-timeline")}
-          description="Show an opened work log as a timeline, with each step's duration and line changes."
-          resetAction={
-            settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline ? (
-              <SettingResetButton
-                label="thinking timeline"
-                onClick={() =>
-                  updateSettings({
-                    showThinkingTimeline: DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.showThinkingTimeline}
-              onCheckedChange={(checked) =>
-                updateSettings({ showThinkingTimeline: Boolean(checked) })
-              }
-              aria-label="Show the thinking timeline"
-            />
           }
         />
       </SettingsSection>
@@ -2624,18 +2652,6 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="behavior" title="Behavior">
-        <NotificationSettings />
-        <SettingsRow
-          {...searchableSetting("in-app-notifications")}
-          description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
-          control={
-            <Switch
-              checked={settings.inAppNotificationsEnabled}
-              onCheckedChange={(checked) => updateSettings({ inAppNotificationsEnabled: checked })}
-              aria-label="In-app notifications"
-            />
-          }
-        />
         <SettingsRow
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."

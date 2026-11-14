@@ -9,7 +9,9 @@ import {
   MenuSeparator as MenuDivider,
   MenuTrigger,
 } from "../ui/menu";
-import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
+import { cn } from "~/lib/utils";
+import { ComposerControl, ComposerControlChevron, ComposerControlIcon } from "./ComposerControl";
+import type { ComposerControlsSummaryPart } from "./composerControlsSummary";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 
@@ -25,12 +27,18 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
    * open menu closes when its trigger hides.
    */
   hidden?: boolean;
+  /**
+   * With "Composer controls: Compact" the trigger is a chip that spells out
+   * the current values instead of an ellipsis.
+   */
+  summary?: ReadonlyArray<ComposerControlsSummaryPart>;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
+  const summary = props.summary;
 
   return (
     <Menu open={open} onOpenChange={setOpen}>
@@ -40,14 +48,35 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             size={size}
             variant="ghost"
             className={size === "xs" ? "shrink-0" : "shrink-0 px-2"}
-            aria-label="More composer controls"
+            aria-label={
+              summary
+                ? `Composer controls: ${summary.map((part) => part.text).join(", ")}`
+                : "More composer controls"
+            }
             data-composer-shortcut={
               props.traitsMenuContent ? "composer.mode composer.effort" : "composer.mode"
             }
           />
         }
       >
-        <ComposerControlIcon icon={EllipsisIcon} size={size} />
+        {summary ? (
+          <>
+            <span className="whitespace-nowrap">
+              {summary.map((part, index) => (
+                <span
+                  key={part.text}
+                  className={cn(part.risky && "font-medium text-warning-foreground")}
+                >
+                  {index > 0 ? " · " : null}
+                  {part.text}
+                </span>
+              ))}
+            </span>
+            <ComposerControlChevron size={size} />
+          </>
+        ) : (
+          <ComposerControlIcon icon={EllipsisIcon} size={size} />
+        )}
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
         {props.traitsMenuContent ? (
@@ -66,7 +95,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
                 props.onToggleInteractionMode();
               }}
             >
-              <MenuRadioItem value="default">Chat</MenuRadioItem>
+              <MenuRadioItem value="default">Build</MenuRadioItem>
               <MenuRadioItem value="plan">Plan</MenuRadioItem>
             </MenuRadioGroup>
             <MenuDivider />

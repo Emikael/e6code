@@ -1,5 +1,9 @@
 import { HoldToAllowButton } from "./HoldToAllowButton";
 import { RequestActionButton } from "./RequestActionButton";
+import {
+  approvalAnsweredLabel,
+  type ApprovalAnswerState,
+} from "@e6tools/client-runtime/approval-answers";
 import { readApprovalFeedbackDraft } from "@e6tools/client-runtime/approval-feedback";
 import { classifyDestructiveApproval } from "@e6tools/client-runtime/destructive-commands";
 import type {
@@ -18,7 +22,10 @@ export interface PendingApprovalCardProps {
   readonly approval: PendingApproval;
   /** Title of the subagent that asked; null when the main agent asked. */
   readonly agentTitle?: string | null;
-  readonly respondingApprovalId: ApprovalRequestId | null;
+  /** In flight or acknowledged on any surface: the actions are not offered again. */
+  readonly answerState: ApprovalAnswerState | null;
+  /** "Codex", for "Sent. Waiting for Codex." or "Already answered. Waiting for Codex." */
+  readonly agentName: string;
   /** Agent that decline instructions go to; null hides the instructions field. */
   readonly feedbackAgentName?: string | null;
   readonly onRespond: (
@@ -49,7 +56,10 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   // The card is keyed by request, so instructions never carry to the next one.
   const [feedbackText, setFeedbackText] = useState("");
   const feedbackDraft = readApprovalFeedbackDraft(feedbackText);
-  const responding = props.respondingApprovalId === props.approval.requestId;
+  const responding = props.answerState !== null;
+  // Settled: sent from here, or refused because another answer got there first.
+  const answered =
+    props.answerState === null || props.answerState === "sending" ? null : props.answerState;
   // Opaque for the same reason as PendingUserInputCard: nothing blurs the feed
   // behind this card, so a translucent surface bleeds messages through it.
   return (
@@ -73,7 +83,8 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
         </Text>
       )}
       <Text className="font-e6-bold text-lg text-foreground">
-        {props.approval.appName ?? props.approval.requestKind}
+        {props.approval.appName ??
+          (props.approval.unnamedKind ? "approval" : props.approval.requestKind)}
       </Text>
       {destructive ? (
         <View className="flex-row items-center gap-1.5">
@@ -110,57 +121,68 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
           {`Shorten your instructions to ${feedbackDraft.maxChars.toLocaleString()} characters.`}
         </Text>
       ) : null}
-      <View className="flex-row flex-wrap gap-2.5">
-        {options.flatMap((option) => {
-          if (option.decision === "accept" && destructive !== null) {
-            return [
-              <HoldToAllowButton
+      {answered ? (
+        // Answered; the provider has not resolved it yet. Words, not a stuck control.
+        <Text
+          accessibilityLiveRegion="polite"
+          className="font-sans text-sm leading-normal text-foreground-secondary"
+        >
+          {approvalAnsweredLabel([answered], props.agentName)}
+        </Text>
+      ) : null}
+      {answered ? null : (
+        <View className="flex-row flex-wrap gap-2.5">
+          {options.flatMap((option) => {
+            if (option.decision === "accept" && destructive !== null) {
+              return [
+                <HoldToAllowButton
+                  key={option.decision}
+                  reason={destructive.reason}
+                  disabled={responding}
+                  onConfirm={() => void props.onRespond(props.approval.requestId, "accept")}
+                />,
+              ];
+            }
+            const button = (
+              <RequestActionButton
                 key={option.decision}
-                reason={destructive.reason}
+                label={option.label}
+                tone={
+                  option.decision === "accept"
+                    ? "primary"
+                    : option.decision === "decline"
+                      ? "danger"
+                      : "secondary"
+                }
                 disabled={responding}
-                onConfirm={() => void props.onRespond(props.approval.requestId, "accept")}
+                onPress={() => void props.onRespond(props.approval.requestId, option.decision)}
+              />
+            );
+            // Typed instructions add "Decline and tell <agent>" beside a plain
+            // Decline, so declining without them never means clearing the field.
+            if (
+              option.decision !== "decline" ||
+              feedbackAgentName === null ||
+              feedbackDraft.status === "empty"
+            ) {
+              return [button];
+            }
+            return [
+              button,
+              <RequestActionButton
+                key="decline-with-feedback"
+                label={`Decline and tell ${feedbackAgentName}`}
+                tone="danger"
+                disabled={responding || feedbackDraft.status !== "ready"}
+                onPress={() => {
+                  if (feedbackDraft.status !== "ready") return;
+                  void props.onRespond(props.approval.requestId, "decline", feedbackDraft.feedback);
+                }}
               />,
             ];
-          }
-          const button = (
-            <RequestActionButton
-              key={option.decision}
-              label={option.label}
-              tone={
-                option.decision === "accept"
-                  ? "primary"
-                  : option.decision === "decline"
-                    ? "danger"
-                    : "secondary"
-              }
-              disabled={responding}
-              onPress={() => void props.onRespond(props.approval.requestId, option.decision)}
-            />
-          );
-          // Typed instructions add "Decline and tell <agent>" beside a plain
-          // Decline, so declining without them never means clearing the field.
-          if (
-            option.decision !== "decline" ||
-            feedbackAgentName === null ||
-            feedbackDraft.status === "empty"
-          ) {
-            return [button];
-          }
-          return [
-            button,
-            <RequestActionButton
-              key="decline-with-feedback"
-              label={`Decline and tell ${feedbackAgentName}`}
-              tone="danger"
-              disabled={responding || feedbackDraft.status !== "ready"}
-              onPress={() => {
-                if (feedbackDraft.status !== "ready") return;
-                void props.onRespond(props.approval.requestId, "decline", feedbackDraft.feedback);
-              }}
-            />,
-          ];
-        })}
-      </View>
+          })}
+        </View>
+      )}
     </View>
   );
 }

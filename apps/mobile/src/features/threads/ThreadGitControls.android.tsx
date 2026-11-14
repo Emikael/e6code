@@ -1,24 +1,15 @@
 import type {
-  ThreadGitControls as IosThreadGitControls,
+  ThreadGitControlsProps,
   ThreadGitMenu as IosThreadGitMenu,
-  useThreadGitRightHeaderItems as useIosThreadGitRightHeaderItems,
+  useThreadGitCenterHeaderItems as useIosThreadGitCenterHeaderItems,
 } from "./ThreadGitControls";
 
-export type { ThreadGitMenuProps } from "./ThreadGitControls";
+export type { ThreadGitControlsProps, ThreadGitMenuProps } from "./ThreadGitControls";
 
-type ThreadGitControlsProps = Parameters<typeof IosThreadGitControls>[0];
-const EMPTY_HEADER_ITEMS: ReturnType<typeof useIosThreadGitRightHeaderItems> = [];
-
-export function useThreadGitRightHeaderItems(_props: ThreadGitControlsProps) {
-  return EMPTY_HEADER_ITEMS;
-}
+const EMPTY_HEADER_ITEMS: ReturnType<typeof useIosThreadGitCenterHeaderItems> = [];
 
 export function useThreadGitCenterHeaderItems(_props: ThreadGitControlsProps) {
   return EMPTY_HEADER_ITEMS;
-}
-
-export function ThreadGitControls(_props: ThreadGitControlsProps) {
-  return null;
 }
 
 export function ThreadGitMenu(_props: Parameters<typeof IosThreadGitMenu>[0]) {

@@ -1,0 +1,306 @@
+import { TurnId } from "@e6tools/contracts";
+import { describe, expect, it } from "vite-plus/test";
+
+import type { WorkLogEntry } from "./workLogEntries.ts";
+import {
+  deriveThreadRecap,
+  latestThreadActivityAt,
+  RECAP_BREAK_MS,
+  selectRecapAsk,
+  shouldShowThreadRecap,
+  THREAD_DETAIL_ACTIVITY_CAP,
+  type RecapCheckpoint,
+  type RecapMessage,
+} from "./threadRecap.ts";
+
+const at = (minute: number) => `2026-11-11T14:${String(minute).padStart(2, "0")}:00.000Z`;
+
+const message = (id: string, text: string, minute: number, role = "user"): RecapMessage => ({
+  id,
+  role,
+  text,
+  createdAt: at(minute),
+});
+
+const step = (id: string, minute: number, overrides: Partial<WorkLogEntry> = {}): WorkLogEntry => ({
+  id,
+  createdAt: at(minute),
+  label: "Read file",
+  tone: "tool",
+  requestKind: "file-read",
+  ...overrides,
+});
+
+const checkpoint = (
+  turnId: string,
+  minute: number,
+  files: RecapCheckpoint["files"],
+): RecapCheckpoint => ({ turnId, completedAt: at(minute), files });
+
+const LONG_ASK = "Switch the default accent to Graphite and keep the built-in themes working.";
+
+describe("shouldShowThreadRecap", () => {
+  const base = {
+    trigger: "after-break" as const,
+    previousVisitAt: at(2),
+    latestActivityAt: at(5),
+    nowMs: Date.parse(at(2)) + RECAP_BREAK_MS,
+  };
+
+  it("shows after a break of five minutes with something new", () => {
+    expect(shouldShowThreadRecap(base)).toBe(true);
+  });
+
+  it("stays quiet when you were here moments ago", () => {
+    expect(shouldShowThreadRecap({ ...base, nowMs: Date.parse(at(2)) + RECAP_BREAK_MS - 1 })).toBe(
+      false,
+    );
+  });
+
+  it("stays quiet when nothing happened since the visit", () => {
+    expect(shouldShowThreadRecap({ ...base, latestActivityAt: at(1) })).toBe(false);
+    expect(shouldShowThreadRecap({ ...base, latestActivityAt: null })).toBe(false);
+  });
+
+  it("needs a previous visit", () => {
+    expect(shouldShowThreadRecap({ ...base, previousVisitAt: null })).toBe(false);
+  });
+
+  it("decides what is new on the server's clock and the break on this device's", () => {
+    // This device's clock runs 30 minutes behind the server's.
+    const skewed = {
+      ...base,
+      previousVisitAt: at(2),
+      previousSeenActivityAt: at(40),
+      nowMs: Date.parse(at(2)) + RECAP_BREAK_MS,
+    };
+    expect(shouldShowThreadRecap({ ...skewed, latestActivityAt: at(40) })).toBe(false);
+    expect(shouldShowThreadRecap({ ...skewed, latestActivityAt: at(41) })).toBe(true);
+  });
+
+  it("follows the setting", () => {
+    const soon = { ...base, nowMs: Date.parse(at(3)) };
+    expect(shouldShowThreadRecap({ ...soon, trigger: "always" })).toBe(true);
+    expect(shouldShowThreadRecap({ ...base, trigger: "never" })).toBe(false);
+  });
+});
+
+describe("selectRecapAsk", () => {
+  it("takes your most recent message of three or more words", () => {
+    expect(
+      selectRecapAsk([
+        message("m1", "Fix it", 1),
+        message("m2", LONG_ASK, 2),
+        message("m3", "Also update the mobile tokens.", 3),
+        message("m4", "go ahead", 4),
+        message(
+          "a1",
+          "A long assistant reply that is certainly over forty characters.",
+          4,
+          "assistant",
+        ),
+      ]),
+    ).toEqual({ messageId: "m3", text: "Also update the mobile tokens." });
+  });
+
+  it("falls back to the thread's first message", () => {
+    expect(
+      selectRecapAsk([
+        message("m1", "Fix the relay", 1),
+        message("m2", "go on", 2),
+        message("m3", "ok", 3),
+      ]),
+    ).toEqual({
+      messageId: "m1",
+      text: "Fix the relay",
+    });
+  });
+
+  it("is null without a message from you", () => {
+    expect(selectRecapAsk([message("a1", "Hello", 1, "assistant")])).toBeNull();
+  });
+});
+
+describe("deriveThreadRecap", () => {
+  const input = {
+    since: at(2),
+    messages: [message("m1", LONG_ASK, 1)],
+    workLogEntries: [] as WorkLogEntry[],
+    checkpoints: [] as RecapCheckpoint[],
+    provider: "Claude",
+    activityCount: 12,
+    note: null,
+  };
+
+  it("omits rows that have no data", () => {
+    expect(deriveThreadRecap(input)).toEqual({
+      since: at(2),
+      youAsked: { messageId: "m1", text: LONG_ASK },
+      sinceThen: null,
+      note: null,
+    });
+    expect(deriveThreadRecap({ ...input, messages: [] })).toBeNull();
+  });
+
+  it("heads the card with the visit time", () => {
+    const recap = deriveThreadRecap({
+      ...input,
+      visitedAt: at(30),
+      workLogEntries: [
+        step("s1", 1),
+        step("s2", 3, { turnId: TurnId.make("turn-2") }),
+        step("s3", 4),
+      ],
+    });
+    expect(recap?.since).toBe(at(30));
+    expect(recap?.sinceThen?.summary).toBe("Claude read 2 files.");
+  });
+
+  it("summarizes only the steps after the visit, with the files they changed", () => {
+    const recap = deriveThreadRecap({
+      ...input,
+      workLogEntries: [
+        step("old", 1),
+        step("r1", 3),
+        step("r2", 4),
+        step("e1", 5, { label: "Edit", requestKind: "file-change", changedFiles: ["a.ts"] }),
+      ],
+      checkpoints: [
+        checkpoint("t0", 1, [{ path: "old.ts", additions: 9, deletions: 9 }]),
+        checkpoint("t1", 4, [
+          { path: "a.ts", additions: 2, deletions: 1 },
+          { path: "b.ts", additions: 18, deletions: 4 },
+        ]),
+        checkpoint("t2", 6, [
+          { path: "a.ts", additions: 1, deletions: 0 },
+          { path: "c.ts", additions: 1, deletions: 1 },
+          { path: "d.ts", additions: 1, deletions: 0 },
+        ]),
+      ],
+    });
+    expect(recap?.sinceThen?.summary).toBe("Claude read 2 files and changed 1 file.");
+    expect(recap?.sinceThen?.files).toEqual([
+      { path: "b.ts", additions: 18, deletions: 4, turnId: "t1", running: false, counted: true },
+      { path: "a.ts", additions: 3, deletions: 1, turnId: "t2", running: false, counted: true },
+      { path: "c.ts", additions: 1, deletions: 1, turnId: "t2", running: false, counted: true },
+    ]);
+    expect(recap?.sinceThen?.moreFiles).toBe(1);
+  });
+
+  it("lists the files a running turn changed before its checkpoint lands", () => {
+    const running = TurnId.make("t-running");
+    const edit = (id: string, minute: number, overrides: Partial<WorkLogEntry>) =>
+      step(id, minute, {
+        label: "Edit",
+        requestKind: "file-change",
+        turnId: running,
+        ...overrides,
+      });
+    const recap = deriveThreadRecap({
+      ...input,
+      workLogEntries: [
+        // Before the visit: already seen.
+        edit("before", 1, { changedFiles: ["/repo/packages/old.ts"] }),
+        step("r1", 3, { turnId: running }),
+        edit("e1", 4, {
+          changedFiles: ["/repo/packages/shared/src/themePalettes.ts"],
+          diffStat: { additions: 18, deletions: 4 },
+        }),
+        edit("e2", 5, {
+          changedFiles: ["/repo/apps/mobile/src/mobileTheme.ts", "/repo/apps/mobile/src/b.ts"],
+          fileDiffStats: [
+            { path: "/repo/apps/mobile/src/mobileTheme.ts", additions: 6, deletions: 2 },
+            { path: "/repo/apps/mobile/src/b.ts", additions: 1, deletions: 0 },
+          ],
+          diffStat: { additions: 7, deletions: 2 },
+        }),
+        // The provider did not count this edit's lines.
+        edit("e3", 6, { changedFiles: ["/repo/notes.md"] }),
+        // Still running: only its detail names the file.
+        edit("e4", 7, {
+          itemType: "file_change",
+          toolLifecycleStatus: "inProgress",
+          detail: "/repo/apps/web/src/index.css",
+        }),
+      ],
+    });
+    expect(recap?.sinceThen?.summary).toBe("Claude read 1 file and changed 5 files.");
+    expect(recap?.sinceThen?.files).toEqual([
+      {
+        path: "/repo/packages/shared/src/themePalettes.ts",
+        additions: 18,
+        deletions: 4,
+        turnId: running,
+        running: true,
+        counted: true,
+      },
+      {
+        path: "/repo/apps/mobile/src/mobileTheme.ts",
+        additions: 6,
+        deletions: 2,
+        turnId: running,
+        running: true,
+        counted: true,
+      },
+      {
+        path: "/repo/apps/mobile/src/b.ts",
+        additions: 1,
+        deletions: 0,
+        turnId: running,
+        running: true,
+        counted: true,
+      },
+    ]);
+    // notes.md and index.css, named but not counted.
+    expect(recap?.sinceThen?.moreFiles).toBe(2);
+  });
+
+  it("adds a running turn's edits to the same file an earlier turn changed", () => {
+    const recap = deriveThreadRecap({
+      ...input,
+      workLogEntries: [
+        step("e1", 7, {
+          label: "Edit",
+          requestKind: "file-change",
+          turnId: TurnId.make("t2"),
+          changedFiles: ["/repo/src/a.ts"],
+        }),
+      ],
+      checkpoints: [checkpoint("t1", 4, [{ path: "src/a.ts", additions: 2, deletions: 1 }])],
+    });
+    // One file, named as the checkpoint names it; its counts are partial, so none show.
+    expect(recap?.sinceThen?.files).toEqual([
+      { path: "src/a.ts", additions: 2, deletions: 1, turnId: "t2", running: true, counted: false },
+    ]);
+  });
+
+  it("says At least when thread detail hit its activity cap", () => {
+    const recap = deriveThreadRecap({
+      ...input,
+      activityCount: THREAD_DETAIL_ACTIVITY_CAP,
+      workLogEntries: [step("r1", 3)],
+    });
+    expect(recap?.sinceThen?.summary).toBe("At least: Claude read 1 file.");
+  });
+
+  it("keeps a note to self", () => {
+    expect(deriveThreadRecap({ ...input, messages: [], note: " Check dark mode " })?.note).toBe(
+      "Check dark mode",
+    );
+  });
+});
+
+describe("latestThreadActivityAt", () => {
+  it("takes the newest message, step or checkpoint", () => {
+    expect(
+      latestThreadActivityAt({
+        messages: [message("m1", "hi", 1)],
+        workLogEntries: [step("s", 7)],
+        checkpoints: [checkpoint("t", 5, [])],
+      }),
+    ).toBe(at(7));
+    expect(
+      latestThreadActivityAt({ messages: [], workLogEntries: [], checkpoints: [] }),
+    ).toBeNull();
+  });
+});

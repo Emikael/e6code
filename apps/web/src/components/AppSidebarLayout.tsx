@@ -3,6 +3,8 @@ import { moveWorkspaceFocus, startWorkspaceFocus, workspaceAreaProps } from "../
 import * as Schema from "effect/Schema";
 import {
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -17,8 +19,18 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
+import {
+  canAnimate,
+  EASE_IN_OUT,
+  MOTION_MS,
+  playTransient,
+  prefersReducedMotion,
+  type TransientMotion,
+} from "../lib/motion";
 import { isMacPlatform } from "../lib/utils";
+import { useUiStateStore } from "../uiStateStore";
 import { primaryServerKeybindingsAtom } from "../state/server";
+import { useFocusModeActive } from "../hooks/useFocusMode";
 import { useLegacySidebarEnabled } from "../hooks/useSettings";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import {
@@ -31,7 +43,6 @@ import { showsAppNavRail } from "./appNavRail.logic";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
-import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { useProjects } from "../state/entities";
 import {
   resolveInitialThreadSidebarWidth,
@@ -41,7 +52,10 @@ import {
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
 import { Sidebar, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar } from "./ui/sidebar";
+import { sidebarReopenControlShows } from "../workspaceTitlebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+
+function ignoreSidebarOpenChange() {}
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
 
@@ -66,9 +80,15 @@ function readInitialThreadSidebarWidth(): number {
   }
 }
 
+/**
+ * The sidebar toggle's shortcut, and the window-edge control that reopens a
+ * collapsed sidebar. While the sidebar shows, its header carries the toggle
+ * (board 1), so the window-edge control leaves. Narrow windows keep it: the
+ * sidebar there is a sheet that this control opens.
+ */
 function SidebarControl() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { toggleSidebar } = useSidebar();
+  const { isMobile, state, toggleSidebar } = useSidebar();
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle");
 
   useEffect(() => {
@@ -101,6 +121,8 @@ function SidebarControl() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [keybindings, toggleSidebar]);
 
+  if (!sidebarReopenControlShows({ isMobile, state })) return null;
+
   return (
     // The right-side layout controls carry mr-px (border compensation inside
     // the panel), so the trigger mirrors it: both clusters sit one extra pixel
@@ -112,11 +134,15 @@ function SidebarControl() {
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarTrigger className="pointer-events-auto" aria-label="Toggle main sidebar" />
+            <SidebarTrigger
+              className="pointer-events-auto"
+              aria-label={isMobile ? "Toggle main sidebar" : "Show sidebar"}
+            />
           }
         />
         <TooltipPopup side="bottom">
-          Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
+          {isMobile ? "Toggle main sidebar" : "Show sidebar"}
+          {shortcutLabel ? ` (${shortcutLabel})` : ""}
         </TooltipPopup>
       </Tooltip>
     </div>
@@ -160,6 +186,70 @@ function WorkspaceFocusControl() {
   return null;
 }
 
+const APP_SIDEBAR_CONTAINER = '[data-slot="sidebar-container"][data-app-sidebar]';
+
+/**
+ * Board 10: entering focus fades the sidebar that was showing, drifting 8px
+ * left over 200ms, while the layout snaps (the sidebar's width never animates).
+ * Leaving focus brings it back at once. Opt-in panel animations already slide
+ * it, so the fade stays out of their way.
+ */
+function useFocusEntrySidebarFade(focusModeActive: boolean, panelAnimationsActive: boolean) {
+  // The width of the sidebar that showed when focus turned on, read before the collapse renders.
+  const pendingWidthRef = useRef<number | null>(null);
+  const fadeRef = useRef<TransientMotion | null>(null);
+  useEffect(
+    () =>
+      useUiStateStore.subscribe((state, previous) => {
+        if (!state.focusMode || previous.focusMode) return;
+        const container = document.querySelector<HTMLElement>(APP_SIDEBAR_CONTAINER);
+        const shown =
+          container?.closest('[data-slot="sidebar"]')?.getAttribute("data-state") === "expanded";
+        pendingWidthRef.current = container && shown ? container.offsetWidth : null;
+      }),
+    [],
+  );
+  // Every commit: the focus toggle re-renders this layout, so the next commit is its own.
+  useLayoutEffect(() => {
+    if (!focusModeActive) {
+      fadeRef.current?.cancel();
+      fadeRef.current = null;
+    }
+    const width = pendingWidthRef.current;
+    pendingWidthRef.current = null;
+    if (width === null || !focusModeActive || panelAnimationsActive || prefersReducedMotion()) {
+      return;
+    }
+    const container = document.querySelector(APP_SIDEBAR_CONTAINER);
+    if (!canAnimate(container) || !(container instanceof HTMLElement)) return;
+    // While it fades it still sits over the content: it takes no clicks and
+    // leaves the tab order until the fade ends.
+    const wasInert = container.inert;
+    container.inert = true;
+    container.style.pointerEvents = "none";
+    const release = () => {
+      container.inert = wasInert;
+      container.style.pointerEvents = "";
+    };
+    // Collapsed, the container sits a sidebar's width off screen; the fade starts where it was.
+    const fade = playTransient(container, {
+      opacity: [1, 0],
+      transform: [`translateX(${width}px)`, `translateX(${width - 8}px)`],
+      duration: MOTION_MS.state,
+      ease: EASE_IN_OUT,
+    });
+    void fade.finished.then(release);
+    fadeRef.current = {
+      finished: fade.finished,
+      cancel: () => {
+        fade.cancel();
+        release();
+      },
+    };
+  });
+  useEffect(() => () => fadeRef.current?.cancel(), []);
+}
+
 // Settings swaps the thread sidebar out of the tree. Keep the lightweight
 // project projection subscribed so returning to a draft never renders the
 // zero-project state while the environment snapshot reconnects.
@@ -184,6 +274,10 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // Narrow windows keep the sheet sidebar, which already carries the same destinations.
   const isMobile = useIsMobile();
   const showsRail = showsAppNavRail(pathname) && !isMobile;
+  // Focus mode renders the thread sidebar collapsed but keeps it mounted (it owns next and
+  // previous thread), and never writes its open state, so exit restores it as it was.
+  const focusModeActive = useFocusModeActive() && !showsRail;
+  useFocusEntrySidebarFade(focusModeActive, routePanelAnimationsActive);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
   // and a clamped drag ends with an unchanged width, which skips the re-render
@@ -207,17 +301,28 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   // Window-fixed controls follow the floating sidebar's header in by a panel
   // gap. On macOS the desktop shell moves the traffic lights by the same inset
   // (apps/desktop/src/window/DesktopWindow.ts), so the controls stay beside them.
+  // The sidebar header's content starts 16px into the panel (board 1), or past the
+  // traffic lights where they sit over it.
   const controlsPlacement: Record<string, string> =
     isMacosDesktop && !isWindowFullscreen
       ? {
           "--workspace-controls-left": `calc(${MACOS_TRAFFIC_LIGHTS_LEFT_INSET} + var(--floating-controls-left))`,
           "--workspace-controls-top": "var(--floating-controls-top)",
+          "--sidebar-header-inset": MACOS_TRAFFIC_LIGHTS_LEFT_INSET,
         }
-      : { "--workspace-controls-top": "var(--floating-controls-top)" };
+      : {
+          "--workspace-controls-top": "var(--floating-controls-top)",
+          "--sidebar-header-inset": "1rem",
+        };
   const sidebarProviderStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
     "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
     ...controlsPlacement,
+    // Focus mode has no sidebar control to make room for (board 3); the header keeps only its
+    // usual inset, or the window controls' where they sit at the left.
+    ...(focusModeActive
+      ? { "--workspace-titlebar-content-left": "max(1.25rem, var(--workspace-controls-left))" }
+      : {}),
   } as CSSProperties;
 
   useEffect(() => {
@@ -266,6 +371,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         // The rail cannot be hidden, so the layout reads as an open sidebar while it shows. The
         // thread sidebar's own open state is left as the reader set it.
         {...(showsRail ? { open: true } : {})}
+        {...(focusModeActive ? { open: false, onOpenChange: ignoreSidebarOpenChange } : {})}
         style={sidebarProviderStyle}
       >
         <ProjectProjectionRetention />
@@ -295,10 +401,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             }}
           >
             {isOnSettings ? (
-              <>
-                <SidebarChromeHeader isElectron={isElectron} />
-                <SettingsSidebarNav pathname={pathname} />
-              </>
+              // Board 6: the settings nav opens on "Back to threads", without the app title strip.
+              <SettingsSidebarNav pathname={pathname} />
             ) : legacySidebarEnabled ? (
               <LegacyThreadSidebar />
             ) : (
@@ -308,7 +412,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           </Sidebar>
         )}
         {children}
-        {showsRail ? null : <SidebarControl />}
+        {showsRail || focusModeActive ? null : <SidebarControl />}
       </SidebarProvider>
     </PanelAnimationSuppressionProvider>
   );

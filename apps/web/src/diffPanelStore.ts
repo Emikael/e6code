@@ -17,9 +17,28 @@ export type DiffPanelGitScope = "uncommitted" | "staged" | "unstaged" | "branch"
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 
+/**
+ * Where the Diff panel should land when it next renders for a thread: one working-tree file, or
+ * the commit box. Run details sets it before opening Diff; the panel consumes it once.
+ */
+export type DiffPanelFocusTarget =
+  | { readonly kind: "file"; readonly path: string }
+  | { readonly kind: "commit" };
+
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  /** Not persisted: a request outlives neither the page nor its first handling. */
+  focusRequestByThreadKey: Record<string, DiffPanelFocusTarget>;
+  /**
+   * Not persisted: how many files the Diff panel last showed for its selected scope, for the Diff
+   * tab's label. Absent while the panel shows everything uncommitted, which the tab counts from
+   * the live working-tree status instead.
+   */
+  scopeFileCountByThreadKey: Record<string, number>;
+  reportScopeFileCount: (ref: ScopedThreadRef, count: number | null) => void;
+  requestFocus: (ref: ScopedThreadRef, target: DiffPanelFocusTarget) => void;
+  consumeFocusRequest: (ref: ScopedThreadRef) => void;
   selectGitScope: (ref: ScopedThreadRef, scope: DiffPanelGitScope) => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
@@ -37,6 +56,32 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      focusRequestByThreadKey: {},
+      scopeFileCountByThreadKey: {},
+      reportScopeFileCount: (ref, count) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          if (state.scopeFileCountByThreadKey[threadKey] === (count ?? undefined)) return state;
+          const { [threadKey]: _previous, ...rest } = state.scopeFileCountByThreadKey;
+          return {
+            scopeFileCountByThreadKey: count === null ? rest : { ...rest, [threadKey]: count },
+          };
+        }),
+      requestFocus: (ref, target) =>
+        set((state) => ({
+          focusRequestByThreadKey: {
+            ...state.focusRequestByThreadKey,
+            [scopedThreadKey(ref)]: target,
+          },
+        })),
+      consumeFocusRequest: (ref) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          if (!(threadKey in state.focusRequestByThreadKey)) return state;
+          const { [threadKey]: _consumed, ...focusRequestByThreadKey } =
+            state.focusRequestByThreadKey;
+          return { focusRequestByThreadKey };
+        }),
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -143,4 +188,25 @@ export function selectThreadDiffPanelSelection(
 ): DiffPanelSelection {
   if (!ref) return DEFAULT_SELECTION;
   return byThreadKey[scopedThreadKey(ref)] ?? DEFAULT_SELECTION;
+}
+
+/**
+ * The Diff tab's file count: the files the Diff panel shows for its selected scope, so the label
+ * agrees with the rail and the footer; everything uncommitted until the panel has said otherwise.
+ */
+export function useDiffTabFileCount(
+  ref: ScopedThreadRef | null | undefined,
+  workingTreeFileCount: number,
+): number {
+  return useDiffPanelStore((state) =>
+    selectDiffTabFileCount(state.scopeFileCountByThreadKey, ref, workingTreeFileCount),
+  );
+}
+
+export function selectDiffTabFileCount(
+  scopeFileCountByThreadKey: Record<string, number>,
+  ref: ScopedThreadRef | null | undefined,
+  workingTreeFileCount: number,
+): number {
+  return (ref && scopeFileCountByThreadKey[scopedThreadKey(ref)]) ?? workingTreeFileCount;
 }

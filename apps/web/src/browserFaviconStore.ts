@@ -4,14 +4,12 @@ import {
   scopeProjectRef,
 } from "@e6tools/client-runtime/environment";
 import type { DesktopPreviewFavicon, ScopedProjectRef, ScopedThreadRef } from "@e6tools/contracts";
-import * as Option from "effect/Option";
 import { useMemo } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { normalizeHostname } from "~/browser/browserTargetResolver";
 import { useThreadShell } from "~/state/entities";
-import { usePreparedConnection } from "~/state/session";
 
 import {
   BROWSER_FAVICON_MAX_ALIASES_PER_ENTRY,
@@ -297,17 +295,6 @@ export function flushPendingFaviconsForThread(
     return { pendingByThreadKey };
   });
   return Object.keys(remaining).length === 0;
-}
-
-export function useFaviconForThreadUrl(threadRef: ScopedThreadRef, url: string): string | null {
-  const projectRef = useFaviconProjectRefForThread(threadRef);
-  const preparedConnection = usePreparedConnection(threadRef.environmentId);
-  const environmentHostname = Option.isSome(preparedConnection)
-    ? new URL(preparedConnection.value.httpBaseUrl).hostname
-    : null;
-  return useBrowserFaviconStore((state) =>
-    lookupFavicon(state.byKey, projectRef, url, environmentHostname),
-  );
 }
 
 export function lookupFavicon(

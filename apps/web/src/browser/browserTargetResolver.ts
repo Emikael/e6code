@@ -75,11 +75,22 @@ export function resolveBrowserNavigationTarget(
   return resolveEnvironmentPortTarget(environmentId, target, readEnvironmentUrl(environmentId));
 }
 
-export function resolveDiscoveredServerUrl(environmentId: EnvironmentId, rawUrl: string): string {
+/**
+ * Where a local address the environment printed (a dev server's `http://localhost:5733/`)
+ * opens from this client. A local environment keeps localhost; a private-network one
+ * (LAN or Tailscale) swaps in its own host; one reached through a tunnel or a public address
+ * cannot expose the port, so the answer is null. Other addresses come back normalized.
+ */
+export function resolveLocalAddressForEnvironment(
+  environmentHttpBaseUrl: string | null,
+  environmentId: EnvironmentId,
+  rawUrl: string,
+): string | null {
   try {
     const normalizedUrl = normalizePreviewUrl(rawUrl);
     const parsed = new URL(normalizedUrl);
     if (!isLoopbackHost(parsed.hostname)) return normalizedUrl;
+    if (environmentHttpBaseUrl === null) return null;
     return resolveEnvironmentPortTarget(
       environmentId,
       {
@@ -88,11 +99,24 @@ export function resolveDiscoveredServerUrl(environmentId: EnvironmentId, rawUrl:
         protocol: parsed.protocol === "https:" ? "https" : "http",
         path: `${parsed.pathname}${parsed.search}${parsed.hash}`,
       },
-      readEnvironmentUrl(environmentId),
+      new URL(environmentHttpBaseUrl),
       rawUrl,
       parsed,
     ).resolvedUrl;
   } catch {
-    return rawUrl;
+    return null;
   }
+}
+
+/** `resolveLocalAddressForEnvironment` for a connected environment; null when it cannot open. */
+export function resolveLocalServerUrl(environmentId: EnvironmentId, rawUrl: string): string | null {
+  return resolveLocalAddressForEnvironment(
+    readPreparedConnection(environmentId)?.httpBaseUrl ?? null,
+    environmentId,
+    rawUrl,
+  );
+}
+
+export function resolveDiscoveredServerUrl(environmentId: EnvironmentId, rawUrl: string): string {
+  return resolveLocalServerUrl(environmentId, rawUrl) ?? rawUrl;
 }

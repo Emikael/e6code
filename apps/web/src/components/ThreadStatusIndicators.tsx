@@ -14,7 +14,7 @@ import {
   visibleThreadPullRequests,
   type ThreadPullRequestBadge,
 } from "@e6tools/shared/threadPullRequests";
-import { FolderGit2Icon, TerminalIcon } from "lucide-react";
+import { FolderGit2Icon, MessageCircleQuestionIcon, PauseIcon, TerminalIcon } from "lucide-react";
 import { useMemo, type MouseEvent } from "react";
 import { buttonVariants, InlineButton } from "./ui/button";
 import { cn } from "../lib/utils";
@@ -407,6 +407,21 @@ export function ThreadWorktreeIndicator({
   );
 }
 
+/** The pill's leading mark: its glyph when it has one, else the shaped dot. */
+export function ThreadStatusPillMark({
+  status,
+  dotSizeClassName,
+}: {
+  status: ThreadStatusPill;
+  dotSizeClassName: string;
+}) {
+  if (status.glyph === "question") {
+    return <MessageCircleQuestionIcon aria-hidden className="size-3 shrink-0" />;
+  }
+  if (status.glyph === "pause") return <PauseIcon aria-hidden className="size-3 shrink-0" />;
+  return <span className={`${dotSizeClassName} ${status.dotClass}`} />;
+}
+
 export function ThreadStatusLabel({
   status,
   compact = false,
@@ -425,7 +440,7 @@ export function ThreadStatusLabel({
             />
           }
         >
-          <span className={`size-[9px] rounded-full ${status.dotClass}`} />
+          <ThreadStatusPillMark status={status} dotSizeClassName="size-[9px]" />
         </TooltipTrigger>
         <TooltipPopup side="top">{status.label}</TooltipPopup>
       </Tooltip>
@@ -442,7 +457,7 @@ export function ThreadStatusLabel({
           />
         }
       >
-        <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
+        <ThreadStatusPillMark status={status} dotSizeClassName="h-1.5 w-1.5" />
         <span className="hidden md:inline">{status.label}</span>
       </TooltipTrigger>
       <TooltipPopup side="top">{status.label}</TooltipPopup>

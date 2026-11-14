@@ -84,11 +84,18 @@ vi.mock("~/browser/browserDefaults", () => ({
 
 vi.mock("~/composerDraftStore", () => ({
   useComposerDraftStore: (
-    select: (store: { addPreviewAnnotation: () => void; addImage: () => void }) => unknown,
+    select: (store: {
+      addPreviewAnnotation: () => void;
+      addImage: () => void;
+      removePreviewAnnotation: () => void;
+      getComposerDraft: () => null;
+    }) => unknown,
   ) =>
     select({
       addPreviewAnnotation: mocks.addPreviewAnnotation,
       addImage: mocks.addImage,
+      removePreviewAnnotation: () => {},
+      getComposerDraft: () => null,
     }),
 }));
 
@@ -219,18 +226,21 @@ vi.mock("./PreviewChromeRow", () => ({
   PreviewChromeRow: (props: {
     onSubmit: (url: string) => void;
     onPickElement?: () => void;
-    onPictureInPicture?: () => void;
-    pictureInPicture?: boolean;
+    // Float over chat lives in the More menu, the header's trailing action.
     trailingActions?: {
-      props: { onNativePictureInPicture?: () => void };
+      props: {
+        onNativePictureInPicture?: () => void;
+        onPictureInPicture?: () => void;
+        pictureInPicture?: boolean;
+      };
     };
   }) => {
     mocks.submittedUrl = props.onSubmit;
     mocks.toggleAnnotation = props.onPickElement ?? null;
-    mocks.togglePictureInPicture = props.onPictureInPicture ?? null;
+    mocks.togglePictureInPicture = props.trailingActions?.props.onPictureInPicture ?? null;
     mocks.toggleNativePictureInPicture =
       props.trailingActions?.props.onNativePictureInPicture ?? null;
-    mocks.pictureInPicturePressed = props.pictureInPicture ?? false;
+    mocks.pictureInPicturePressed = props.trailingActions?.props.pictureInPicture ?? false;
     return null;
   },
 }));
@@ -582,6 +592,30 @@ describe("PreviewView navigation", () => {
     mocks.toggleAnnotation?.();
 
     await vi.waitFor(() => expect(onSendAnnotation).toHaveBeenCalledWith(annotation, null));
+    expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, annotation);
+  });
+
+  it("stays in annotate mode after a note, arming the picker for the next one", async () => {
+    const annotation = {
+      id: "annotation-4",
+      pageUrl: "https://example.com/settings",
+      pageTitle: "Settings",
+      comment: "This switch is hard to see when it is off.",
+      elements: [],
+      regions: [],
+      strokes: [],
+      styleChanges: [],
+      screenshot: null,
+      createdAt: "2026-07-27T00:00:00.000Z",
+    };
+    mocks.pickElement
+      .mockResolvedValueOnce({ annotation, submission: "attach" })
+      .mockReturnValueOnce(new Promise(() => {}));
+
+    renderToStaticMarkup(<PreviewView threadRef={TEST_THREAD_REF} tabId="tab-1" visible />);
+    mocks.toggleAnnotation?.();
+
+    await vi.waitFor(() => expect(mocks.pickElement).toHaveBeenCalledTimes(2));
     expect(mocks.addPreviewAnnotation).toHaveBeenCalledWith(TEST_THREAD_REF, annotation);
   });
 

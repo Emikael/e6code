@@ -518,7 +518,8 @@ export function PullRequestDiffStat({
   className?: string;
 }) {
   // Not every host reports line counts. Showing "+0 −0" would read as an empty change set
-  // rather than as a missing one, so the stat is left out instead.
+  // rather than as a missing one, so the stat is left out instead. Counts in lists and
+  // summaries are neutral: the signs say which is which, and hue is kept for the diff body.
   if (!hasNonZeroStat({ additions, deletions })) {
     return null;
   }
@@ -527,6 +528,7 @@ export function PullRequestDiffStat({
       additions={additions}
       deletions={deletions}
       notation="full"
+      tone="neutral"
       className={cn("items-baseline", className)}
     />
   );

@@ -1,3 +1,4 @@
+import { useReducedMotion } from "~/hooks/useReducedMotion";
 import { ArrowUpIcon, ClockIcon } from "lucide-react";
 import { observeResize } from "~/lib/observeResize";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
@@ -179,11 +180,6 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { ChangedFilesCard } from "./ChangedFilesTree";
-import { useAtomValue } from "@effect/atom-react";
-import { useFileContextMenuHandler } from "../../fileContextMenu";
-import { useProject, useThread } from "../../state/entities";
-import { serverEnvironment } from "../../state/server";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
   readTimelinePosition,
@@ -225,6 +221,7 @@ import {
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
   shouldPreserveAssistantLineBreaks,
+  toggleWorkGroupDisclosure,
   toolGroupAction,
   workEntryDisplayLabel,
   workEntryIsVisibleInGroup,
@@ -237,6 +234,9 @@ import {
   buildToolCallExpandedBody,
   workEntryRawCommand,
   resolveWorkingRowStatus,
+  findRevealRowIndex,
+  EARLIER_TURNS_ROW_ID,
+  type TimelineRevealTarget,
 } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
@@ -287,7 +287,6 @@ import { createContextPresentationRegistry } from "../contextPresentationRegistr
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
-import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { type SubagentThreadTarget, useSubagentSelectionStore } from "~/subagentSelectionStore";
 import { toastManager } from "../ui/toast";
 import { cn } from "~/lib/utils";
@@ -331,8 +330,6 @@ interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
   listRef: React.RefObject<LegendListRef | null>;
   timestampFormat: TimestampFormat;
-  /** Opened work logs draw as a rail with one dot per step (Settings › Appearance). */
-  thinkingTimeline: boolean;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
@@ -348,7 +345,9 @@ interface TimelineRowSharedState {
   openPullRequest: (event: MouseEvent<HTMLElement>, url: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleTurnFold: (turnId: TurnId) => void;
-  onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
+  onToggleEarlierTurns: () => void;
+  /** `expanded` is the group's state now; the toggle flips it. */
+  onToggleWorkGroup: (groupId: string, anchorKey: string, expanded: boolean) => void;
   onToggleWorkEntry: (anchorKey: string, collapsed: boolean) => void;
   onToggleSpawnRow: (entryId: string, expanded: boolean) => void;
   onToggleReasoning: (messageId: string, expanded: boolean, anchorKey: string) => void;
@@ -389,6 +388,14 @@ interface TimelineRowActivityState {
   agentState: ThreadAgentState | null;
   /** A live thinking timeline already reads "Working for …", so the plain working row stands down. */
   liveTimelineHeading: boolean;
+  /** The running turn has logged steps: with a now bar, its group carries the action line. */
+  liveWorkGroup: boolean;
+  /**
+   * Set while the now bar shows above the timeline: it owns the status word
+   * and the ticking time, so the working row keeps only this action text.
+   * Undefined when there is no now bar.
+   */
+  nowBarAction: string | null | undefined;
 }
 
 const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
@@ -402,8 +409,6 @@ interface WorkGroupViewState {
 const WorkGroupViewCtx = createContext<{
   state: WorkGroupViewState;
   onToggleEntry: (collapsed: boolean) => void;
-  /** Draw each entry as a step on the thinking timeline's rail. */
-  timeline: boolean;
   /** The running step, ringed on the rail. */
   liveEntryId: string | null;
 } | null>(null);
@@ -524,6 +529,13 @@ interface MessagesTimelineProps {
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
   activeTurnStartedAt: string | null;
+  /** The now bar's current action; see {@link TimelineRowActivityState.nowBarAction}. */
+  nowBarAction?: string | null | undefined;
+  /** Scrolls to a message or step once per nonce, e.g. the recap's "You asked". */
+  revealMessageRequest?: {
+    readonly target: TimelineRevealTarget;
+    readonly nonce: number;
+  } | null;
   /** Live bootstrap progress for this thread, or null when none is tracked. */
   worktreeSetup?: WorktreeSetupSnapshot | null;
   onCancelWorktreeSetup?: () => void;
@@ -588,6 +600,8 @@ interface MessagesTimelineProps {
   frontierResolution?: ReactNode;
   /** Thread state shown after the last row: background work and sync status. */
   threadNow?: ReactNode;
+  /** Focus mode: turns before your latest message fold into one row. */
+  foldEarlierTurns?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +620,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isPreparingWorktree = false,
   isCompacting = false,
   activeTurnStartedAt,
+  nowBarAction,
+  revealMessageRequest = null,
   agentPanelModel,
   onOpenAgents = NOOP_OPEN_AGENTS,
   subagentProviderKind = null,
@@ -650,6 +666,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   frontierResolution,
   threadNow,
+  foldEarlierTurns = false,
 }: MessagesTimelineProps) {
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
@@ -672,7 +689,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     rememberedPosition?.atEnd === false ? null : listIdentityKey,
   );
   const restoringThreadPosition = positionedThreadKey !== listIdentityKey;
-  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const reducedMotion = useReducedMotion();
   const listIdentityRef = useRef(listIdentityKey);
   const previousLatestTurnRef = useRef(latestTurn);
   // The list stays mounted across thread switches. Its first end pins on the
@@ -786,6 +803,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [shouldRestoreVisibleContentPosition],
   );
 
+  // Which thread's earlier turns you opened in focus mode; another thread starts folded.
+  const [earlierTurnsOpenFor, setEarlierTurnsOpenFor] = useState<string | null>(null);
+  const earlierTurns = foldEarlierTurns
+    ? earlierTurnsOpenFor === listIdentityKey
+      ? "expanded"
+      : "folded"
+    : undefined;
+  const onToggleEarlierTurns = useCallback(() => {
+    suspendEndScrollMaintenanceForDisclosure(EARLIER_TURNS_ROW_ID);
+    setEarlierTurnsOpenFor((current) => (current === listIdentityKey ? null : listIdentityKey));
+  }, [listIdentityKey, suspendEndScrollMaintenanceForDisclosure]);
+  // A link into the thread (a citation, "Show in thread") opens whatever hides its target:
+  // the cited turn's own fold and, in focus mode, the earlier-turns fold around it.
+  const openEarlierTurns = useCallback(
+    () => setEarlierTurnsOpenFor(listIdentityKey),
+    [listIdentityKey],
+  );
+  const expandCitedTurnAndEarlier = useCallback(
+    (turnId: TurnId) => {
+      expandCitedTurn(turnId);
+      if (earlierTurns === "folded") openEarlierTurns();
+    },
+    [earlierTurns, expandCitedTurn, openEarlierTurns],
+  );
+
   const onToggleTurnFold = useCallback(
     (turnId: TurnId) => {
       suspendEndScrollMaintenanceForDisclosure(`turn-fold:${turnId}`);
@@ -802,17 +844,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [suspendEndScrollMaintenanceForDisclosure],
   );
   const onToggleWorkGroup = useCallback(
-    (groupId: string, anchorKey: string) => {
+    (groupId: string, anchorKey: string, expanded: boolean) => {
       suspendEndScrollMaintenanceForDisclosure(anchorKey);
-      setExpandedWorkGroupIds((existing) => {
-        const next = new Set(existing);
-        if (next.has(groupId)) {
-          next.delete(groupId);
-        } else {
-          next.add(groupId);
-        }
-        return next;
-      });
+      setExpandedWorkGroupIds((existing) => toggleWorkGroupDisclosure(existing, groupId, expanded));
     },
     [expandedWorkGroupIds, suspendEndScrollMaintenanceForDisclosure],
   );
@@ -887,6 +921,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         : new Set(liveAgentTaskKey.length > 0 ? liveAgentTaskKey.split("\n") : []),
     [liveAgentTaskKey],
   );
+  // "Agent activity": this thread's choice from its More menu, else the setting.
+  const defaultAgentActivityDetail = useClientSettings((settings) => settings.agentActivityDetail);
+  const threadAgentActivityDetail = useUiStateStore(
+    (state) => state.agentActivityDetailByThreadKey[routeThreadKey],
+  );
+  const agentActivityDetail = threadAgentActivityDetail ?? defaultAgentActivityDetail;
   const rawRows = useMemo(() => {
     const previous = rowsProjectionRef.current;
     const projection = deriveMessagesTimelineRowsWithState(
@@ -904,6 +944,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         worktreeSetup,
         queuedMessages,
         turnUsageByTurnId,
+        earlierTurns,
+        agentActivityDetail,
       },
       previous?.threadKey === listIdentityKey && previous.workspaceRoot === workspaceRoot
         ? previous.projection
@@ -920,6 +962,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     runningTurnId,
     paintedExpandedTurnIds,
     paintedExpandedWorkGroupIds,
+    agentActivityDetail,
     isWorking,
     activeTurnStartedAt,
     turnDiffSummaries,
@@ -928,14 +971,54 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     worktreeSetup,
     queuedMessages,
     turnUsageByTurnId,
+    earlierTurns,
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+
+  const handledRevealNonceRef = useRef(revealMessageRequest?.nonce ?? 0);
+  useEffect(() => {
+    if (!revealMessageRequest || revealMessageRequest.nonce === handledRevealNonceRef.current) {
+      return;
+    }
+    const index = findRevealRowIndex(rows, revealMessageRequest.target);
+    if (index < 0 && earlierTurns === "folded") {
+      // Folded away in focus mode: open the earlier turns, then look again.
+      openEarlierTurns();
+      return;
+    }
+    handledRevealNonceRef.current = revealMessageRequest.nonce;
+    if (index < 0) {
+      toastManager.add({
+        type: "info",
+        title: "Not in the loaded part of the thread",
+        description: "Load earlier messages to find it.",
+      });
+      return;
+    }
+    onManualNavigation();
+    void listRef.current?.scrollToIndex({
+      index,
+      animated: !reducedMotion,
+      viewOffset: 24,
+    });
+  }, [
+    earlierTurns,
+    listRef,
+    onManualNavigation,
+    openEarlierTurns,
+    reducedMotion,
+    revealMessageRequest,
+    rows,
+  ]);
 
   // "Show in thread" from Run details: open the subagent's card, scroll to
   // it and light its row for a moment. Only requests made while this list is
   // mounted count; an older one is not replayed.
   const [highlight, setHighlight] = useState<SubagentThreadTarget | null>(null);
+  // A "Show in thread" that waits for the earlier-turns fold to open.
+  const [subagentTargetAfterUnfold, setSubagentTargetAfterUnfold] =
+    useState<SubagentThreadTarget | null>(null);
   const highlightedSubagentId = highlight?.agentId ?? null;
   // A ref, refreshed after every commit, so the store callback below always
   // reads this render's rows. (useEffectEvent kept the first render's rows
@@ -959,6 +1042,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         new Set(agent?.parentAgentId ? [agentId, agent.parentAgentId] : [agentId]),
       );
       if (!match) {
+        if (earlierTurns === "folded") {
+          // Only folded away in focus mode: open the earlier turns, then look again.
+          openEarlierTurns();
+          setSubagentTargetAfterUnfold(target);
+          return;
+        }
         toastManager.add({
           type: "info",
           title: "Not in the loaded part of the thread",
@@ -977,7 +1066,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onManualNavigation();
       setHighlight(target);
       void listRef.current
-        ?.scrollToIndex({ index: match.index, animated: !prefersReducedMotion, viewOffset: 24 })
+        ?.scrollToIndex({ index: match.index, animated: !reducedMotion, viewOffset: 24 })
         .then(() => {
           requestAnimationFrame(() => {
             const row = document.querySelector<HTMLElement>(
@@ -998,6 +1087,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }),
     [],
   );
+  useEffect(() => {
+    if (subagentTargetAfterUnfold === null || earlierTurns === "folded") return;
+    setSubagentTargetAfterUnfold(null);
+    showSubagentInThreadRef.current(subagentTargetAfterUnfold);
+  }, [earlierTurns, rows, subagentTargetAfterUnfold]);
   useEffect(() => {
     if (highlight === null) return;
     const timer = window.setTimeout(() => setHighlight(null), 2000);
@@ -1132,7 +1226,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   // Re-measure the minimap gutter when the chat column changes width without a viewport resize.
   const chatWidth = useClientSettings((settings) => settings.chatWidth);
-  const thinkingTimeline = useClientSettings((settings) => settings.showThinkingTimeline);
   const {
     target: readyCitationRequest,
     positioning: citationPositioning,
@@ -1146,7 +1239,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     viewport: timelineViewportElement,
     historyLoading: citationHistoryLoading,
     loadEarlier,
-    onExpandTurn: expandCitedTurn,
+    onExpandTurn: expandCitedTurnAndEarlier,
     onManualNavigation,
   });
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
@@ -1356,7 +1449,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       citationRequest: readyCitationRequest,
       listRef,
       timestampFormat,
-      thinkingTimeline,
       routeThreadKey,
       // Keep Markdown callbacks memoized during unrelated activity updates.
       threadRef: citationThreadRef,
@@ -1373,6 +1465,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       openPullRequest,
       onOpenTurnDiff,
       onToggleTurnFold,
+      onToggleEarlierTurns,
       onToggleWorkGroup,
       onToggleWorkEntry: suspendEndScrollMaintenanceForDisclosure,
       onToggleSpawnRow,
@@ -1395,7 +1488,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       readyCitationRequest,
       listRef,
       timestampFormat,
-      thinkingTimeline,
       routeThreadKey,
       citationThreadRef,
       markdownCwd,
@@ -1411,6 +1503,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       openPullRequest,
       onOpenTurnDiff,
       onToggleTurnFold,
+      onToggleEarlierTurns,
       onToggleWorkGroup,
       suspendEndScrollMaintenanceForDisclosure,
       onToggleSpawnRow,
@@ -1440,11 +1533,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // Keyed by value: the shell object, and so this field, is new on every
   // thread-shell patch, and the activity context re-renders every row.
   const agentStateKey = agentState === null ? null : JSON.stringify(agentState);
-  const liveTimelineHeading =
-    thinkingTimeline &&
-    rows.some(
-      (row) => row.kind === "activity-group" && row.active && activityGroupHasTimelineSteps(row),
-    );
+  const liveTimelineHeading = rows.some(
+    (row) => row.kind === "activity-group" && row.active && activityGroupHasTimelineSteps(row),
+  );
+  const liveWorkGroup = rows.some(
+    (row) =>
+      (row.kind === "work-live" && row.active) ||
+      (row.kind === "activity-group" &&
+        row.active &&
+        row.entries.some((entry) => entry.kind === "work")),
+  );
   const activityState = useMemo<TimelineRowActivityState>(
     () => ({
       isWorking,
@@ -1459,10 +1557,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       pendingAttention,
       agentState: agentStateKey === null ? null : (JSON.parse(agentStateKey) as ThreadAgentState),
       liveTimelineHeading,
+      liveWorkGroup,
+      nowBarAction,
     }),
     [
       backgroundWorktreeSetup,
       liveTimelineHeading,
+      liveWorkGroup,
+      nowBarAction,
       pendingAttention,
       agentStateKey,
       isCompacting,
@@ -1542,7 +1644,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               !liveFollowEnabled ||
               disclosureToggleSettling
                 ? false
-                : isWorking && !prefersReducedMotion && settlingListIdentity === null
+                : isWorking && !reducedMotion && settlingListIdentity === null
                   ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
                   : TIMELINE_MAINTAIN_SCROLL_AT_END
             }
@@ -1560,7 +1662,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               topFadeEnabled && "topbar-scroll-fade",
             )}
             ListHeaderComponent={
-              loadEarlier !== null ? (
+              // While focus mode folds the earlier turns, loading more would only grow the
+              // fold's count; the header comes back once the fold is open.
+              loadEarlier !== null && earlierTurns !== "folded" ? (
                 <TimelineLoadEarlierHeader
                   loading={loadEarlier.loading}
                   onLoadEarlier={loadEarlier.onLoadEarlier}
@@ -1931,18 +2035,20 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
             ? "pb-0"
             : row.kind === "turn-fold" || row.kind === "working"
               ? "pb-1.5"
-              : (row.kind === "message" &&
-                    row.message.role === "assistant" &&
-                    !row.showAssistantMeta) ||
-                  (row.kind === "message" && row.message.role === "reasoning") ||
-                  row.kind === "work" ||
-                  row.kind === "work-live" ||
-                  row.kind === "work-toggle" ||
-                  row.kind === "activity-group" ||
-                  row.kind === "thinking" ||
-                  row.kind === "worktree-setup"
-                ? "pb-2"
-                : "pb-4",
+              : row.kind === "earlier-turns"
+                ? "pb-4"
+                : (row.kind === "message" &&
+                      row.message.role === "assistant" &&
+                      !row.showAssistantMeta) ||
+                    (row.kind === "message" && row.message.role === "reasoning") ||
+                    row.kind === "work" ||
+                    row.kind === "work-live" ||
+                    row.kind === "work-toggle" ||
+                    row.kind === "activity-group" ||
+                    row.kind === "thinking" ||
+                    row.kind === "worktree-setup"
+                  ? "pb-2"
+                  : "pb-4",
         (row.kind === "message" && row.message.role === "assistant") ||
           row.kind === "assistant-meta"
           ? "group/assistant"
@@ -1967,6 +2073,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "activity-group" ? <ActivityGroupTimelineRow row={row} /> : null}
       {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
       {row.kind === "turn-fold" ? <TurnFoldTimelineRow row={row} /> : null}
+      {row.kind === "earlier-turns" ? <EarlierTurnsTimelineRow row={row} /> : null}
       {row.kind === "context-compaction" ? <ContextCompactionTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "user" ? <UserTimelineRow row={row} /> : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
@@ -2366,7 +2473,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   );
 
   return (
-    <div className="group flex flex-col items-end gap-1">
+    <div className="group flex flex-col items-end">
       <div
         ref={bubbleRef}
         className="relative max-w-[80%] origin-bottom-right rounded-[14px_14px_4px_14px] bg-message px-3.5 py-2.5 text-message-foreground"
@@ -2482,40 +2589,44 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             markdownCwd={ctx.markdownCwd}
           />
         </div>
-      </div>
-      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
-        <div className="flex shrink-0 items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
-              {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
-            </TooltipTrigger>
-            <TooltipPopup>
-              {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
-            </TooltipPopup>
-          </Tooltip>
-          <div className="flex items-center gap-0.5">
-            {typeof revertTurnCount === "number" && (
-              <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
-            )}
-            {resolvedContext.text && (
-              <MessageCopyButton
-                // Structured paste needs the canonical links to retain their positions.
-                text={
-                  contextClipboardFragment
-                    ? resolvedContext.text
-                    : replaceComposerContextReferences(
-                        resolvedContext.text,
-                        (reference) => reference.label,
-                      )
-                }
-                {...(contextClipboardFragment
-                  ? {
-                      extraFlavors: { [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment },
-                    }
-                  : {})}
-                variant="ghost"
-              />
-            )}
+        {/* Time and actions sit beside the bubble, in the room its 80% cap leaves, so they
+            reserve no height under it and nothing moves when they appear (board 2). */}
+        <div className="absolute right-full bottom-0 me-2 flex items-center text-xs whitespace-nowrap tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+          <div className="flex shrink-0 items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
+                {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {formatChatTimestampTooltip(row.message.createdAt, ctx.timestampFormat)}
+              </TooltipPopup>
+            </Tooltip>
+            <div className="flex items-center gap-0.5">
+              {typeof revertTurnCount === "number" && (
+                <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
+              )}
+              {resolvedContext.text && (
+                <MessageCopyButton
+                  // Structured paste needs the canonical links to retain their positions.
+                  text={
+                    contextClipboardFragment
+                      ? resolvedContext.text
+                      : replaceComposerContextReferences(
+                          resolvedContext.text,
+                          (reference) => reference.label,
+                        )
+                  }
+                  {...(contextClipboardFragment
+                    ? {
+                        extraFlavors: {
+                          [COMPOSER_CONTEXT_CLIPBOARD_MIME]: contextClipboardFragment,
+                        },
+                      }
+                    : {})}
+                  variant="ghost"
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -2613,6 +2724,34 @@ function TimelineRowTimestamp({
   );
 }
 
+/**
+ * Focus mode's "Earlier in this thread · 1 turn" (board 3): one quiet line in
+ * place of every turn before yours. A heading holding the toggle, so it reads
+ * as a section in the outline.
+ */
+function EarlierTurnsTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "earlier-turns" }>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <h2 className="flex">
+      <button
+        type="button"
+        aria-expanded={row.expanded}
+        data-scroll-anchor-ignore
+        onClick={ctx.onToggleEarlierTurns}
+        className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-xs leading-4 text-muted-foreground tabular-nums hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Icon aria-hidden className="size-3.5" />
+        Earlier in this thread · {row.turnCount} {row.turnCount === 1 ? "turn" : "turns"}
+      </button>
+    </h2>
+  );
+}
+
 function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-fold" }> }) {
   const ctx = use(TimelineRowCtx);
   const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
@@ -2637,24 +2776,25 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   }, [row.turnId]);
 
   return (
-    <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">
+    // Board 2: a quiet caption, chevron first. The landing stripe still plays along its foot.
+    <div className="group/timeline-row relative flex items-center gap-1 pb-1 pe-0.5">
       <span
         ref={stripeRef}
         aria-hidden
         className="pointer-events-none absolute inset-x-0 -bottom-px flex h-px opacity-0"
       >
-        <span className="flex-1 origin-left bg-(--brand-cyan)" />
-        <span className="flex-1 origin-left bg-(--brand-orange)" />
+        <span className="flex-1 origin-left bg-border" />
+        <span className="flex-1 origin-left bg-border" />
       </span>
       <button
         type="button"
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 text-xs leading-4 text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
+        <Icon aria-hidden className="size-3.5" />
         <span ref={labelRef}>{row.label}</span>
-        <Icon className="size-3.5" />
       </button>
       <TimelineRowTimestamp
         createdAt={row.createdAt}
@@ -2693,12 +2833,6 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             onImageExpand={ctx.onImageExpand}
           />
         </AssistantCitationSource>
-        <AssistantChangedFilesSection
-          turnSummary={row.assistantTurnDiffSummary}
-          routeThreadKey={ctx.routeThreadKey}
-          resolvedTheme={ctx.resolvedTheme}
-          onOpenTurnDiff={ctx.onOpenTurnDiff}
-        />
         {row.showAssistantMeta ? (
           <AssistantMessageMeta
             className="mt-1.5"
@@ -2836,6 +2970,8 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     pendingAttention,
     agentState,
     liveTimelineHeading,
+    liveWorkGroup,
+    nowBarAction,
   } = use(TimelineRowActivityCtx);
   const status = resolveWorkingRowStatus({
     isPreparingWorktree,
@@ -2852,6 +2988,22 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   // The live thinking timeline already says "Working for …"; setup, compacting and waiting
   // states, and a setup chip, still need this row.
   if (status.kind === "working" && liveTimelineHeading && !backgroundWorktreeSetup) return null;
+  if (nowBarAction !== undefined && !setupOrCompacting) {
+    // The now bar says Working, blocked or paused and ticks the time; this row keeps
+    // only what the agent is doing, unless the live thinking timeline shows it already.
+    const action = liveTimelineHeading || liveWorkGroup ? null : nowBarAction;
+    if (action === null && !backgroundWorktreeSetup) return null;
+    return (
+      <div className="border-b border-border/60 pb-2 pt-1">
+        <div className="flex h-6 min-w-0 items-center gap-2 px-1 text-xs text-muted-foreground">
+          {action !== null ? <span className="min-w-0 truncate">{action}</span> : null}
+          {backgroundWorktreeSetup ? (
+            <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
   const label =
     status.kind === "preparing" ? (
       "Setting up worktree…"
@@ -2989,7 +3141,7 @@ function ActivityGroupTimelineRow({
   const runningWork = trailingWork.findLast(workEntryIsActiveTurnActivity);
   const liveWork = runningWork ?? trailingWork.at(-1);
   // Reasoning with no header has no step to put on a rail.
-  const timeline = ctx.thinkingTimeline && work.length > 0;
+  const timeline = work.length > 0;
   const liveEntryId = row.active ? (runningWork?.id ?? null) : null;
   const iconWork = row.active ? liveWork : work.at(-1);
   const failed = iconWork !== undefined && workEntryDisplayIndicatesToolFailure(iconWork);
@@ -3008,6 +3160,10 @@ function ActivityGroupTimelineRow({
       })
     : null;
   const failedStepCount = heading ? work.filter(workEntryDisplayIndicatesToolFailure).length : 0;
+  // With the now bar showing it owns "Working" and the time; the live group reads as board 2:
+  // a quiet summary of the steps so far, then what the agent is doing now.
+  const { nowBarAction } = use(TimelineRowActivityCtx);
+  const nowBarCaption = row.active && !heading && work.length > 0 && nowBarAction !== undefined;
   const details: ReactNode[] = [];
   if (row.expanded) {
     for (let index = 0; index < row.entries.length; index += 1) {
@@ -3055,7 +3211,7 @@ function ActivityGroupTimelineRow({
         className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         aria-label={!heading && failed ? `${label}, tool call failed` : undefined}
         aria-expanded={row.expanded}
-        onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+        onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
       >
         {heading ? (
           <ThinkingTimelineHeading
@@ -3064,6 +3220,15 @@ function ActivityGroupTimelineRow({
             failedStepCount={failedStepCount}
             expanded={row.expanded}
           />
+        ) : nowBarCaption ? (
+          <span className="flex min-h-6 min-w-0 items-center gap-1.5 px-0.5 text-xs leading-4 text-muted-foreground group-hover/live-work:text-foreground">
+            {row.expanded ? (
+              <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
+            ) : (
+              <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+            )}
+            <span className="min-w-0 truncate">{summarizeToolGroup(work)}</span>
+          </span>
         ) : (
           <LiveActivityRow
             label={label}
@@ -3074,6 +3239,11 @@ function ActivityGroupTimelineRow({
           />
         )}
       </button>
+      {nowBarCaption && nowBarAction ? (
+        <p className="mt-2 truncate px-0.5 text-xs leading-4 text-muted-foreground">
+          {nowBarAction}
+        </p>
+      ) : null}
       {row.expanded ? (
         timeline ? (
           <ThinkingTimelineRail className="mt-2">{details}</ThinkingTimelineRail>
@@ -3123,11 +3293,13 @@ function ThinkingTimelineHeading({
   failedStepCount: number;
   expanded: boolean;
 }) {
+  // With the now bar showing, its timer is the only one that ticks.
+  const { nowBarAction } = use(TimelineRowActivityCtx);
   return (
     <span className="flex min-h-6 min-w-0 items-center gap-2 px-0.5 text-sm leading-relaxed">
       <span className="shrink-0 font-medium text-foreground tabular-nums">
         {active ? (
-          heading.startedAt ? (
+          heading.startedAt && nowBarAction === undefined ? (
             <>
               Working for <WorkingTimer createdAt={heading.startedAt} />
             </>
@@ -3508,14 +3680,11 @@ const WorkGroupSection = memo(function WorkGroupSection({
   /** The running step; when omitted, the newest running entry of the unsettled turn. */
   liveEntryId?: string | null;
 }) {
-  const { workspaceRoot, routeThreadKey, onToggleWorkEntry, thinkingTimeline } =
-    use(TimelineRowCtx);
+  const { workspaceRoot, routeThreadKey, onToggleWorkEntry } = use(TimelineRowCtx);
   // Only a railed list that must find its own live step subscribes to activity
   // changes; collapsed and plain sections stay off that context.
   const activity =
-    isExpandedToolGroup && thinkingTimeline && liveEntryId === undefined
-      ? use(TimelineRowActivityCtx)
-      : null;
+    isExpandedToolGroup && liveEntryId === undefined ? use(TimelineRowActivityCtx) : null;
   const onToggleStandaloneEntry = useCallback(
     (collapsed: boolean) => onToggleWorkEntry(disclosureAnchorKey, collapsed),
     [disclosureAnchorKey, onToggleWorkEntry],
@@ -3543,11 +3712,11 @@ const WorkGroupSection = memo(function WorkGroupSection({
         disclosureAnchorKey={disclosureAnchorKey}
         entries={nonEmptyEntries}
         workspaceRoot={workspaceRoot}
-        timeline={thinkingTimeline}
         liveEntryId={resolvedLiveEntryId}
       />
     );
-    return thinkingTimeline && !railed ? <ThinkingTimelineRail>{list}</ThinkingTimelineRail> : list;
+    // An opened work log is always drawn as a rail; "Agent activity" decides what opens.
+    return railed ? list : <ThinkingTimelineRail>{list}</ThinkingTimelineRail>;
   }
 
   return (
@@ -3573,14 +3742,12 @@ function ExpandedWorkGroupEntries({
   disclosureAnchorKey,
   entries,
   workspaceRoot,
-  timeline,
   liveEntryId,
 }: {
   anchorKey: string;
   disclosureAnchorKey: string;
   entries: TimelineWorkEntry[];
   workspaceRoot: string | undefined;
-  timeline: boolean;
   liveEntryId: string | null;
 }) {
   const { workGroupViewState: viewState, onToggleWorkEntry } = use(TimelineRowCtx);
@@ -3608,10 +3775,9 @@ function ExpandedWorkGroupEntries({
     () => ({
       state: viewState,
       onToggleEntry: (collapsed: boolean) => onToggleWorkEntry(disclosureAnchorKey, collapsed),
-      timeline,
       liveEntryId,
     }),
-    [disclosureAnchorKey, onToggleWorkEntry, viewState, timeline, liveEntryId],
+    [disclosureAnchorKey, onToggleWorkEntry, viewState, liveEntryId],
   );
   const updateScrollFades = useCallback(() => {
     const element = listRef.current?.getScrollableNode();
@@ -3809,6 +3975,7 @@ function LiveActivityContent({
 
 function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "work-live" }> }) {
   const ctx = use(TimelineRowCtx);
+  const { nowBarAction } = use(TimelineRowActivityCtx);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const shownEntryIdRef = useRef(row.entry.id);
   // The live row is reused as each tool call arrives; a remount (scroll,
@@ -3837,6 +4004,32 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
   const label = liveWorkEntryLabel(row.entry, ctx.workspaceRoot, row.active);
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
 
+  // With the now bar showing it owns "Working" and the time; the run reads as board 2: a quiet
+  // summary of its steps, then what the agent is doing now.
+  if (row.active && nowBarAction !== undefined && !row.entry.questionAnswer) {
+    return (
+      <div>
+        <button
+          ref={buttonRef}
+          type="button"
+          className="group/live-work flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 text-left text-xs leading-4 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          aria-expanded={row.expanded}
+          onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
+        >
+          {row.expanded ? (
+            <ChevronDownIcon aria-hidden className="size-3.5 shrink-0" />
+          ) : (
+            <ChevronRightIcon aria-hidden className="size-3.5 shrink-0" />
+          )}
+          <span className="min-w-0 truncate">{summarizeToolGroup(row.groupedEntries)}</span>
+        </button>
+        <p className="mt-2 truncate px-0.5 text-xs leading-4 text-muted-foreground">
+          {nowBarAction ?? label}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <button
       ref={buttonRef}
@@ -3844,7 +4037,7 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
       className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={failed ? `${label}, tool call failed` : undefined}
       aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
     >
       <LiveActivityRow
         label={
@@ -3912,6 +4105,10 @@ function toolGroupSummaryIconName(
   }
 }
 
+/**
+ * A folded run of tool calls (board 2): "Read 3 files, changed 2 files" in quiet caption text
+ * with a chevron that turns when opened. A failed call is named in its accessible label.
+ */
 function WorkGroupToggleTimelineRow({
   row,
 }: {
@@ -3922,115 +4119,22 @@ function WorkGroupToggleTimelineRow({
     <button
       type="button"
       data-expanded={row.expanded ? "true" : "false"}
-      className="group/tool-group group/timeline-row relative flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left text-sm leading-relaxed transition-colors duration-150 hover:bg-surface-raised/75 data-[expanded=true]:bg-surface-raised/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      className="group/tool-group group/timeline-row relative flex min-h-6 w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-1 text-left text-xs leading-4 text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={row.hasFailure ? `${row.summary}, tool call failed` : undefined}
       aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id, row.expanded)}
     >
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-well/60 text-icon-muted ring-1 ring-border/40 transition-colors group-hover/tool-group:text-foreground">
-        <ToolActivityIconView
-          icon={row.toolIcon}
-          fallbackName={
-            row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)
-          }
-          className="size-3.5 shrink-0 stroke-[1.8]"
-          muted
-        />
-      </span>
-      <span className="min-w-0 flex-1 truncate font-medium text-secondary-label transition-colors group-hover/tool-group:text-foreground">
-        {row.summary}
-      </span>
+      <ChevronRightIcon
+        aria-hidden
+        className={cn(
+          "size-3.5 shrink-0 transition-transform duration-200 motion-reduce:transition-none",
+          row.expanded && "rotate-90",
+        )}
+      />
+      <span className="min-w-0 truncate">{row.summary}</span>
+      <span className="flex-1" />
       <TimelineRowTimestamp createdAt={row.createdAt} timestampFormat={ctx.timestampFormat} />
     </button>
-  );
-}
-
-/** Subscribes directly to the UI state store for expand/collapse state,
- *  so toggling re-renders only this component — not the entire list. */
-const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection({
-  turnSummary,
-  routeThreadKey,
-  resolvedTheme,
-  onOpenTurnDiff,
-}: {
-  turnSummary: TurnDiffSummary | undefined;
-  routeThreadKey: string;
-  resolvedTheme: "light" | "dark";
-  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-}) {
-  if (!turnSummary) return null;
-  const checkpointFiles = turnSummary.files;
-  if (checkpointFiles.length === 0) return null;
-
-  return (
-    <AssistantChangedFilesSectionInner
-      turnSummary={turnSummary}
-      checkpointFiles={checkpointFiles}
-      routeThreadKey={routeThreadKey}
-      resolvedTheme={resolvedTheme}
-      onOpenTurnDiff={onOpenTurnDiff}
-    />
-  );
-});
-
-/** Inner component that only mounts when there are actual changed files,
- *  so the store subscription is unconditional (no hooks after early return). */
-function AssistantChangedFilesSectionInner({
-  turnSummary,
-  checkpointFiles,
-  routeThreadKey,
-  resolvedTheme,
-  onOpenTurnDiff,
-}: {
-  turnSummary: TurnDiffSummary;
-  checkpointFiles: TurnDiffSummary["files"];
-  routeThreadKey: string;
-  resolvedTheme: "light" | "dark";
-  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-}) {
-  const ctx = use(TimelineRowCtx);
-  const persistedExpanded = useUiStateStore(
-    (store) => store.threadChangedFilesExpandedById[routeThreadKey]?.[turnSummary.turnId],
-  );
-  const setExpanded = useUiStateStore((store) => store.setThreadChangedFilesExpanded);
-  const allDirectoriesExpanded = persistedExpanded ?? false;
-
-  const thread = useThread(ctx.threadRef);
-  const activeProject = useProject(
-    thread && thread.projectId
-      ? { environmentId: thread.environmentId, projectId: thread.projectId }
-      : null,
-  );
-  const serverConfig = useAtomValue(
-    serverEnvironment.configValueAtom(ctx.activeThreadEnvironmentId),
-  );
-  const onFileContextMenu = useFileContextMenuHandler(ctx.activeThreadEnvironmentId);
-
-  return (
-    <ChangedFilesCard
-      turnId={turnSummary.turnId}
-      files={checkpointFiles}
-      allDirectoriesExpanded={allDirectoriesExpanded}
-      resolvedTheme={resolvedTheme}
-      onToggleAllDirectories={() =>
-        setExpanded(routeThreadKey, turnSummary.turnId, !allDirectoriesExpanded)
-      }
-      onOpenTurnDiff={onOpenTurnDiff}
-      onFileContextMenu={(filePath, event) =>
-        onFileContextMenu(
-          {
-            environmentId: ctx.activeThreadEnvironmentId,
-            filePath,
-            workspaceRoot: ctx.workspaceRoot,
-            repositoryRoot:
-              thread?.worktreePath == null
-                ? activeProject?.repositoryIdentity?.rootPath
-                : undefined,
-          },
-          event,
-        )
-      }
-    />
   );
 }
 
@@ -5258,7 +5362,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
                 </Fragment>
               ))}
               <span className="text-muted-foreground"> · </span>
-              <SubagentElapsed agent={batchSpan} className="text-muted-foreground" />
+              <SubagentElapsed agent={batchSpan} minutes className="text-muted-foreground" />
             </span>
           </span>
         </span>
@@ -5336,7 +5440,11 @@ function SubagentInlineRow({
             {agent.title}
           </span>
           <SubagentStatusWord tone={tone} />
-          <SubagentElapsed agent={agent} className="shrink-0 text-xs text-muted-foreground" />
+          <SubagentElapsed
+            agent={agent}
+            minutes
+            className="shrink-0 text-xs text-muted-foreground"
+          />
         </span>
         <SubagentActivityLine agent={agent} tone={tone} />
       </span>
@@ -5385,12 +5493,13 @@ function SubagentBatchRow({
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
             {agent.title}
           </span>
-          {/* Narrow cards keep the shape-distinct glyph; the word returns with room. */}
-          <SubagentStatusGlyph tone={tone} className="size-3 @[26rem]/spawn:hidden" />
-          <SubagentStatusWord tone={tone} className="hidden @[26rem]/spawn:inline-flex" />
+          {/* A status is never a bare dot: the word always stays, and in a narrow card the
+              elapsed time gives way instead (it is in Run details too). */}
+          <SubagentStatusWord tone={tone} />
           <SubagentElapsed
             agent={agent}
-            className="min-w-14 shrink-0 text-right text-xs text-muted-foreground"
+            minutes
+            className="hidden min-w-14 shrink-0 text-right text-xs text-muted-foreground @[26rem]/spawn:block"
           />
         </span>
         <SubagentActivityLine agent={agent} tone={tone} />
@@ -5457,7 +5566,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     }
     setExpanded(next);
   };
-  const timeline = groupView?.timeline === true;
+  // Rows of an opened work log sit on its rail; a standalone row stays plain.
+  const timeline = groupView !== null;
   const { meta: stepMeta, inlineDiffStat } = resolveWorkRowStats(workEntry, timeline);
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";

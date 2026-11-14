@@ -131,30 +131,36 @@ for custom configuration.
 
 ## Inspect agent work
 
-On web and desktop, the right panel rests on **Run details** whenever no other tab is showing:
-the agent's plan, how full the context window is, what the thread has cost, the working tree's
-changes, and its subagents. Opening Diff, Terminal, Browser, Files, or another tab replaces it;
-close that tab, or choose **Run details** beside the open tabs, to come back. Hiding the panel
-on one thread hides it on threads you have not opened tabs in, until you show it again.
+On web and desktop, **Run details** is always the first tab of the right panel, and it never
+closes. Select it to come back from Diff, Terminal, Browser, Files, or another tab. The panel
+starts hidden. Showing or hiding it on one thread does the same on threads you have not opened
+tabs in.
+On mobile, tap **Run details** in a thread's top bar.
+
+Its sections answer what the agent is doing (**Plan**), what changed (**Changes**), who else is
+working (**Subagents**), and what the thread is using (**Usage**). Plan and Changes start open;
+Usage and Subagents start closed, and Subagents opens by itself when a subagent starts working.
+Open or close any section and it stays that way on this device.
+
+**Changes** lists the working tree's changed files and how many you have reviewed. Select a file
+to open its diff, or choose **Review changes** to open the Diff tab. **Commit** takes you to the
+commit box, and **Push**, with the number of commits, sends what the remote does not have yet. See
+[Source control](./source-control.md#review-changes-in-the-diff-tab).
+
+**Usage** shows how full the context window is, once the provider reports it (Claude and Codex
+do; other providers show no context reading). Below it are the tokens and cost of every turn in
+the thread, how long the latest turn ran, and the model. A cost marked `≈` is approximate: some
+turns' costs were estimated from model prices, or some turns reported no cost at all. The
+provider's limit window that is closest to running out reads as a share used, such as `38% used`,
+with when it resets, and says **Close to the limit** when little is left or you are spending
+faster than the window elapses. Providers that report no usage or limits leave these rows out; see
+[Usage](./usage.md) for every window.
 
 Subagents appear as a card in the conversation while they work. Select a subagent to show it in
 **Run details**, which lists every subagent the thread spawned and the selected one's latest
 activity, tokens, tool calls, and the files it changed. Select a file to open its diff. On
-mobile, tap **Run details** in a thread's top bar to see the same plan, context, cost, changes,
-and each subagent's status and running time; tap a subagent to list its files. Files are
-listed for Claude and Codex subagents.
-
-On every client, **Run details** also shows how full the thread's context window is, once the
-provider reports usage. Claude and Codex threads report it; other
-providers show no context section.
-
-**This thread** totals the tokens and cost of every turn in the thread. A cost marked `≈` is
-approximate: some turns' costs were estimated from model prices, or some turns reported no
-cost at all. Below it, a card shows the provider's limit window with the least quota left, when
-it resets, and whether you are spending faster than the window elapses. When more than one
-account or proxy reports limits for the provider, the card names the account it shows, as on
-**Usage**. Providers that report no usage or limits leave these rows out; see **Usage** for
-every window.
+mobile, Run details shows each subagent's status and running time; tap a subagent to list its
+files. Files are listed for Claude and Codex subagents.
 
 To stop one running subagent without stopping the turn, choose **Stop** on its card or in its
 row's menu, or press `mod+.` while it is selected. On mobile, select the subagent and tap
@@ -165,9 +171,23 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
+## Read and edit files
+
+On web and desktop, the right panel's **Files** tab opens on the files the thread changed, when
+there are any; choose **All** to see the whole project, or **Browse all files** to search it.
+Edits you make there save themselves after a short pause. **Undo** beside **Your edit saved** takes
+back your last edit, and **Revert my edits** in the tab's **More** menu returns the file to how it
+was before you started, until the agent's next turn begins. If the agent writes a file you are
+editing, your text is kept and you choose **Keep mine** or take the agent's version.
+
 ## Snooze until later
 
 Choose **Snooze → Custom…** from a thread's menu to pick a date and time in your
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+
+## Get notified
+
+E6 Code tells you when an agent is blocked on you and holds other finished threads until you
+pause. See [Attention](./attention.md#get-notified) for what notifies you and how to change it.

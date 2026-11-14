@@ -38,6 +38,7 @@ import {
   readThreadShells,
 } from "../state/entities";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { useFileEditStore } from "../components/files/fileEditStore";
 import { useUiStateStore } from "../uiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
@@ -46,6 +47,8 @@ import { useClientSettings } from "./useSettings";
 import * as ThreadUndo from "./threadUndo";
 import { showUndoToast } from "./showUndoToast";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useDiffReviewStore } from "../diffReviewStore";
+import { usePromptStashStore } from "../promptStashStore";
 
 export class ThreadArchiveBlockedError extends Schema.TaggedError<ThreadArchiveBlockedError>()(
   "ThreadArchiveBlockedError",
@@ -313,6 +316,10 @@ export function useThreadActions() {
         markThreadVisited(scopedThreadKey(threadRef), wokeAt);
       }
       refreshArchivedThreadsForEnvironment(threadRef.environmentId);
+      // Review marks are per device and advisory; an archived thread's are not kept.
+      useDiffReviewStore.getState().forgetThread(scopedThreadKey(threadRef));
+      // The thread's note stays: Undo and unarchive bring the thread back with it.
+      // Only deleting a thread removes its note.
       opts.onArchived?.();
       if (opts.silent) {
         action.finish();
@@ -359,6 +366,7 @@ export function useThreadActions() {
         });
         if (result._tag === "Success") {
           refreshArchivedThreadsForEnvironment(target.environmentId);
+          usePromptStashStore.getState().setThreadNote(scopedThreadKey(target), "");
         }
         return result;
       }
@@ -456,6 +464,13 @@ export function useThreadActions() {
         threadRef,
       );
       clearTerminalUiState(threadRef);
+      useDiffReviewStore.getState().forgetThread(scopedThreadKey(threadRef));
+      // So do the reader's file edits, held text included.
+      useFileEditStore.getState().forgetThread(scopedThreadKey(threadRef));
+      // The thread's own "Agent activity" choice goes with it.
+      useUiStateStore.getState().setThreadAgentActivityDetail(scopedThreadKey(threadRef), null);
+      // A note to self lives only in its thread's recap; it goes with the thread.
+      usePromptStashStore.getState().setThreadNote(scopedThreadKey(threadRef), "");
 
       if (shouldNavigateToFallback) {
         const fallbackThread = fallbackThreadId

@@ -12,10 +12,8 @@ import {
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
-  filterSidebarProjectScopeItems,
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
-  reduceSidebarProjectScopeMenuState,
   getFallbackThreadIdAfterDelete,
   getProjectSortTimestamp,
   hasUnseenCompletion,
@@ -27,14 +25,14 @@ import {
   resolveThreadRowClassName,
   resolveSidebarEnvironmentReach,
   resolveSidebarRowStatus,
+  isSidebarThreadPlanReady,
+  runningThreadMarkKind,
+  THREAD_STATUS_MARKS,
   resolveSidebarThreadStatus,
   resolveSidebarThreadTitleTone,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
-  searchSidebarThreads,
-  formatWorkingDurationLabel,
   shouldClearThreadSelectionOnMouseDown,
-  shouldRecedeSidebarThread,
   sortLogicalProjectsForSidebar,
   sortSettledThreadsForSidebar,
   resolveSidebarDropTarget,
@@ -55,7 +53,6 @@ import {
   type SidebarSection,
   resolveSidebarDropVerb,
 } from "./Sidebar.logic";
-import { threadSearchMatchKey } from "@e6tools/client-runtime/state/thread-search";
 import {
   EnvironmentId,
   OrchestrationLatestTurn,
@@ -358,88 +355,26 @@ describe("hasUnseenCompletion", () => {
   });
 });
 
-describe("shouldRecedeSidebarThread", () => {
-  it.each(["working", "monitoring", "paused"] as const)(
-    "recedes an inactive %s thread even when it is unread and woke",
-    (status) => {
-      expect(
-        shouldRecedeSidebarThread({
-          status,
-          isUnread: true,
-          isWoke: true,
-          isActive: false,
-          isSelected: false,
-        }),
-      ).toBe(true);
-    },
-  );
-
-  it.each(["ready", "approval", "input"] as const)(
-    "keeps an unread %s thread prominent",
-    (status) => {
-      expect(
-        shouldRecedeSidebarThread({
-          status,
-          isUnread: true,
-          isWoke: false,
-          isActive: false,
-          isSelected: false,
-        }),
-      ).toBe(false);
-    },
-  );
-
-  it("keeps active and selected working threads prominent", () => {
-    const input = {
-      status: "working" as const,
-      isUnread: true,
-      isWoke: true,
-      isActive: false,
-      isSelected: false,
-    };
-
-    expect(shouldRecedeSidebarThread({ ...input, isActive: true })).toBe(false);
-    expect(shouldRecedeSidebarThread({ ...input, isSelected: true })).toBe(false);
-  });
-
-  it.each([false, true])("keeps input-required threads prominent with unread=%s", (isUnread) => {
-    expect(
-      shouldRecedeSidebarThread({
-        status: "input",
-        isUnread,
-        isWoke: false,
-        isActive: false,
-        isSelected: false,
-      }),
-    ).toBe(false);
-  });
-});
-
 describe("resolveSidebarThreadTitleTone", () => {
   const base = {
     variant: "card" as const,
-    recedes: false,
     status: "ready" as const,
-    isUnread: false,
     isWoke: false,
     isActive: false,
   };
 
-  it.each(["card", "slim"] as const)("marks an unread %s row as unread", (variant) => {
-    expect(resolveSidebarThreadTitleTone({ ...base, variant, isUnread: true })).toBe("unread");
-  });
+  it.each(["ready", "paused", "working", "failed"] as const)(
+    "draws a %s card title at full strength, as board 1 draws idle rows",
+    (status) => {
+      expect(resolveSidebarThreadTitleTone({ ...base, status })).toBe("emphasis");
+    },
+  );
 
-  it("keeps receded background work quiet even with an unseen completion", () => {
-    expect(
-      resolveSidebarThreadTitleTone({ ...base, status: "working", recedes: true, isUnread: true }),
-    ).toBe("read");
-  });
-
-  it.each(["card", "slim"] as const)("reads a seen receded %s row as read", (variant) => {
-    expect(resolveSidebarThreadTitleTone({ ...base, variant, recedes: true })).toBe("read");
-  });
-
-  it("emphasizes the open, woke, and input-required rows without calling them unread", () => {
+  it("keeps settled slim rows read unless they are open, woke or waiting on an answer", () => {
+    expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim" })).toBe("read");
+    expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", status: "failed" })).toBe(
+      "read",
+    );
     expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", isActive: true })).toBe(
       "emphasis",
     );
@@ -448,13 +383,6 @@ describe("resolveSidebarThreadTitleTone", () => {
     );
     expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", status: "input" })).toBe(
       "emphasis",
-    );
-  });
-
-  it("keeps a non-receded card strong but a settled slim row read", () => {
-    expect(resolveSidebarThreadTitleTone({ ...base, status: "failed" })).toBe("emphasis");
-    expect(resolveSidebarThreadTitleTone({ ...base, variant: "slim", status: "failed" })).toBe(
-      "read",
     );
   });
 });
@@ -808,6 +736,19 @@ describe("resolveSidebarThreadStatus", () => {
 
   const idle = { hasPendingApprovals: false, hasPendingUserInput: false };
 
+  it("marks retrying and usage-limit waits apart from live work", () => {
+    expect(runningThreadMarkKind({ ...idle, session })).toBe("working");
+    expect(runningThreadMarkKind({ ...idle, session, agentState: { kind: "retrying" } })).toBe(
+      "retrying",
+    );
+    expect(runningThreadMarkKind({ ...idle, session, agentState: { kind: "rate-limited" } })).toBe(
+      "paused",
+    );
+    // Neither is drawn in the live accent or in amber.
+    expect(THREAD_STATUS_MARKS.retrying.tone).toBe("muted");
+    expect(THREAD_STATUS_MARKS.paused.tone).toBe("muted");
+  });
+
   it("prioritizes approval over a running session", () => {
     expect(resolveSidebarThreadStatus({ ...idle, hasPendingApprovals: true, session })).toBe(
       "approval",
@@ -879,119 +820,6 @@ describe("resolveSidebarThreadStatus", () => {
 
   it("defaults to ready with no session", () => {
     expect(resolveSidebarThreadStatus({ ...idle, session: null })).toBe("ready");
-  });
-});
-
-describe("searchSidebarThreads", () => {
-  const searchThread = (id: string, title: string, project: string) => ({
-    environmentId: localEnvironmentId,
-    id: ThreadId.make(id),
-    title,
-    project,
-  });
-  const threads = [
-    searchThread("thread-1", "Fix workspace search", "Alpha"),
-    searchThread("thread-2", "Review providers", "Workspace"),
-    searchThread("thread-3", "WORKTREE cleanup", "Beta"),
-  ];
-  const contentKeys = (...ids: ReadonlyArray<string>) =>
-    new Set(
-      ids.map((id) =>
-        threadSearchMatchKey({ environmentId: localEnvironmentId, threadId: ThreadId.make(id) }),
-      ),
-    );
-
-  it("matches thread titles case-insensitively and preserves their order", () => {
-    expect(searchSidebarThreads(threads, "work")).toEqual([threads[0], threads[2]]);
-  });
-
-  it("does not match project metadata", () => {
-    expect(searchSidebarThreads(threads, "workspace")).toEqual([threads[0]]);
-  });
-
-  it("returns no results for an empty query", () => {
-    expect(searchSidebarThreads(threads, "   ")).toEqual([]);
-  });
-
-  it("appends content-only matches after every title match", () => {
-    expect(searchSidebarThreads(threads, "work", contentKeys("thread-2"))).toEqual([
-      threads[0],
-      threads[2],
-      threads[1],
-    ]);
-  });
-
-  it("lists a thread matching both title and content once", () => {
-    expect(searchSidebarThreads(threads, "work", contentKeys("thread-1"))).toEqual([
-      threads[0],
-      threads[2],
-    ]);
-  });
-
-  it("ignores content matches for threads outside the sidebar collection", () => {
-    expect(searchSidebarThreads(threads, "work", contentKeys("thread-missing"))).toEqual([
-      threads[0],
-      threads[2],
-    ]);
-  });
-});
-
-describe("filterSidebarProjectScopeItems", () => {
-  const items = [
-    { value: "all", label: "All projects" },
-    { value: "alpha", label: "Alpha workspace" },
-    { value: "beta", label: "Beta tools" },
-  ] as const;
-  const filter = (query: string) =>
-    filterSidebarProjectScopeItems({
-      items,
-      query,
-      matches: (item, candidate) =>
-        item.label.toLocaleLowerCase().includes(candidate.toLocaleLowerCase()),
-    });
-
-  it("shows the default row first while the query is empty", () => {
-    expect(filter("")).toEqual(items);
-    expect(filter("   ")).toEqual(items);
-  });
-
-  it("hides the default row while filtering", () => {
-    expect(filter("all")).toEqual([]);
-  });
-
-  it("returns matching projects in source order and supports no-match results", () => {
-    expect(filter("WORK")).toEqual([items[1]]);
-    expect(filter("missing")).toEqual([]);
-  });
-});
-
-describe("reduceSidebarProjectScopeMenuState", () => {
-  const queriedOpenState = { open: true, query: "alpha" };
-
-  it("clears the query when the combobox closes through onOpenChange", () => {
-    expect(
-      reduceSidebarProjectScopeMenuState(queriedOpenState, {
-        type: "open-changed",
-        open: false,
-      }),
-    ).toEqual({ open: false, query: "" });
-  });
-
-  it("clears the query when project settings closes the combobox", () => {
-    expect(
-      reduceSidebarProjectScopeMenuState(queriedOpenState, {
-        type: "project-settings-opened",
-      }),
-    ).toEqual({ open: false, query: "" });
-  });
-
-  it("keeps the popup open while the query changes", () => {
-    expect(
-      reduceSidebarProjectScopeMenuState(
-        { open: true, query: "" },
-        { type: "query-changed", query: "beta" },
-      ),
-    ).toEqual({ open: true, query: "beta" });
   });
 });
 
@@ -2008,20 +1836,6 @@ describe("resolveWorkingStartedAt", () => {
   });
 });
 
-describe("formatWorkingDurationLabel", () => {
-  it("formats seconds, minutes, and hours", () => {
-    expect(formatWorkingDurationLabel(0)).toBe("0s");
-    expect(formatWorkingDurationLabel(42_000)).toBe("42s");
-    expect(formatWorkingDurationLabel(5 * 60_000)).toBe("5m");
-    expect(formatWorkingDurationLabel(90 * 60_000)).toBe("1h 30m");
-  });
-
-  it("clamps negative and non-finite elapsed values to zero", () => {
-    expect(formatWorkingDurationLabel(-5_000)).toBe("0s");
-    expect(formatWorkingDurationLabel(Number.NaN)).toBe("0s");
-  });
-});
-
 describe("resolveThreadStatusPill", () => {
   const baseThread = {
     hasActionableProposedPlan: false,
@@ -2070,7 +1884,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Paused" });
   });
 
-  it("asks for an answer when plan mode is blocked on user answers", () => {
+  it("asks for an answer in the same warning roles as an approval", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -2078,7 +1892,11 @@ describe("resolveThreadStatusPill", () => {
           hasPendingUserInput: true,
         },
       }),
-    ).toMatchObject({ label: "Needs your answer" });
+    ).toMatchObject({
+      label: "Needs your answer",
+      colorClass: "text-warning-foreground",
+      dotClass: "rounded-[1px] rotate-45 scale-[0.8] bg-warning-foreground",
+    });
   });
 
   it("falls back to working when the thread is actively running without blockers", () => {
@@ -2103,7 +1921,11 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Plan Ready" });
+    ).toMatchObject({
+      label: "Plan ready",
+      colorClass: "text-muted-foreground",
+      dotClass: "rounded-full bg-muted-foreground",
+    });
   });
 
   it("does not manufacture completed state without a client visit marker", () => {
@@ -2214,12 +2036,12 @@ describe("resolveProjectStatusIndicator", () => {
           dotClass: "bg-success",
         },
         {
-          label: "Plan Ready",
-          colorClass: "text-primary-text",
-          dotClass: "bg-primary",
+          label: "Plan ready",
+          colorClass: "text-muted-foreground",
+          dotClass: "bg-muted-foreground",
         },
       ]),
-    ).toMatchObject({ label: "Plan Ready", dotClass: "bg-primary" });
+    ).toMatchObject({ label: "Plan ready" });
   });
 });
 
@@ -2743,7 +2565,7 @@ describe("resolveSidebarRowStatus", () => {
     isWoke: false,
     isUnread: false,
     latestTurnCompleted: false,
-    timeLabel: "3h",
+    isPlanReady: false,
   } as const;
   const line = (input: Partial<Parameters<typeof resolveSidebarRowStatus>[0]>) => {
     const status = resolveSidebarRowStatus({ ...base, status: "ready", ...input });
@@ -2765,7 +2587,7 @@ describe("resolveSidebarRowStatus", () => {
     ).toEqual({ text: "Retrying · attempt 2 of 10", marker: "ring", tone: "muted" });
     expect(
       line({ status: "paused", agentState: { kind: "rate-limited", resetsAt: "later" } }),
-    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "dot", tone: "warning" });
+    ).toEqual({ text: "Waiting for usage limit · resets 14:20", marker: "icon", tone: "muted" });
     expect(line({ status: "working", agentState: { kind: "compacting" } })).toMatchObject({
       text: "Compacting",
       marker: "live",
@@ -2775,28 +2597,71 @@ describe("resolveSidebarRowStatus", () => {
   it("asks for the user's action in the header's words", () => {
     expect(line({ status: "approval" })).toEqual({
       text: "Needs approval",
-      marker: "dot",
+      marker: "diamond",
       tone: "warning",
     });
-    expect(line({ status: "input" })).toMatchObject({ text: "Needs your answer", tone: "input" });
+    expect(line({ status: "input" })).toMatchObject({ text: "Needs your answer", tone: "warning" });
     expect(line({ status: "failed" })).toMatchObject({ text: "Failed", tone: "failed" });
   });
 
-  it("reads Done with its age only after a completed turn or an unseen completion", () => {
+  it("reads Done only after a completed turn or an unseen completion", () => {
     expect(line({ latestTurnCompleted: true })).toEqual({
-      text: "Done · 3h",
+      text: "Done",
       marker: "check",
       tone: "success",
     });
-    expect(line({ isUnread: true, timeLabel: "" })).toMatchObject({ text: "Done" });
+    expect(line({ isUnread: true })).toMatchObject({ text: "Done" });
     expect(line({})).toBeNull();
   });
 
-  it("lets a wake outrank Done but not live work", () => {
-    expect(line({ isWoke: true, latestTurnCompleted: true })).toMatchObject({ text: "Woke" });
+  it("reads Plan ready, neutral, while a proposed plan waits, before Done", () => {
+    expect(line({ isPlanReady: true, latestTurnCompleted: true })).toEqual({
+      text: "Plan ready",
+      marker: "icon",
+      tone: "muted",
+    });
+    expect(line({ isPlanReady: true, status: "approval" })).toMatchObject({
+      text: "Needs approval",
+    });
+  });
+
+  it("lets a wake outrank Done but not live work, without spending amber on it", () => {
+    expect(line({ isWoke: true, latestTurnCompleted: true })).toEqual({
+      text: "Woke",
+      marker: "icon",
+      tone: "muted",
+    });
     expect(line({ isWoke: true, status: "approval" })).toMatchObject({
       text: "Needs approval",
     });
+  });
+});
+
+describe("isSidebarThreadPlanReady", () => {
+  const settled = {
+    hasActionableProposedPlan: true,
+    interactionMode: "plan" as const,
+    session: null,
+    latestTurn: {
+      turnId: "t1",
+      state: "completed",
+      requestedAt: "2026-03-09T10:00:00.000Z",
+      startedAt: "2026-03-09T10:00:01.000Z",
+      completedAt: "2026-03-09T10:05:00.000Z",
+      assistantMessageId: null,
+    },
+  } as unknown as Parameters<typeof isSidebarThreadPlanReady>[0];
+
+  it("needs an actionable plan in plan mode on a settled turn", () => {
+    expect(isSidebarThreadPlanReady(settled)).toBe(true);
+    expect(isSidebarThreadPlanReady({ ...settled, hasActionableProposedPlan: false })).toBe(false);
+    expect(isSidebarThreadPlanReady({ ...settled, interactionMode: "default" })).toBe(false);
+    expect(
+      isSidebarThreadPlanReady({
+        ...settled,
+        latestTurn: { ...settled.latestTurn!, completedAt: null },
+      }),
+    ).toBe(false);
   });
 });
 

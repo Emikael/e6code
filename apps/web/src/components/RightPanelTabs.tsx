@@ -1,3 +1,5 @@
+import { useDiffTabFileCount } from "~/diffPanelStore";
+import { prefersReducedMotion } from "~/lib/motion";
 import { pullRequestHostOf, type SourceControlProviderKind } from "@e6tools/contracts";
 import type { EnvironmentThreadShell } from "@e6tools/client-runtime/state/shell";
 import { useProjects, useServerConfigs, useThreadShells } from "~/state/entities";
@@ -12,8 +14,8 @@ import type {
   ProjectId,
   PullRequestState,
   ResolvedKeybindingsConfig,
+  ScopedThreadRef,
 } from "@e6tools/contracts";
-import { getTerminalLabel } from "@e6tools/shared/terminalLabels";
 import {
   closestCenter,
   DndContext,
@@ -29,13 +31,12 @@ import {
   ListTree,
   Smartphone,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   FileDiff,
-  Files,
+  Folder,
   Globe2,
   Plus,
   TerminalSquare,
+  X,
 } from "lucide-react";
 import { Volume2, VolumeOff } from "lucide";
 import {
@@ -45,6 +46,7 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -53,9 +55,13 @@ import {
 import { onRightPanelNewMenuRequest } from "~/commandPaletteBus";
 import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
-import type { RightPanelSurface } from "~/rightPanelStore";
+import { isFileSurfacePending, surfaceFilePath, type RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
-import { resolveShortcutCommand, type ShortcutMatchContext } from "~/keybindings";
+import {
+  effectiveShortcutsForCommand,
+  resolveShortcutCommand,
+  type ShortcutMatchContext,
+} from "~/keybindings";
 import { readLocalApi } from "~/localApi";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { Button } from "~/components/ui/button";
@@ -75,7 +81,6 @@ import {
 } from "~/components/ui/menu";
 import { useBrowserDefaults } from "~/browser/browserDefaults";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
 import { faviconUrlForOrigin } from "@e6tools/shared/favicon";
 import { useTheme } from "~/hooks/useTheme";
 import { useDeviceState } from "~/state/device";
@@ -94,6 +99,17 @@ import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
+import {
+  closeTabKeyShortcuts,
+  overflowMenuLabel,
+  runningTerminalCount,
+  surfaceTitle,
+  surfaceTitleParts,
+  terminalTabNames,
+  tabsOutOfView,
+  type SurfaceTitleParts,
+  type TabExtent,
+} from "./rightPanelTabLabels";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 
 export interface RightPanelTabsProps {
@@ -143,8 +159,18 @@ export interface RightPanelTabsProps {
   pullRequestAvailable: boolean;
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
-  /** Files changed in the working tree; counted on the Diff tab. */
-  changedFileCount?: number;
+  /**
+   * What the Diff tab counts: the files its panel shows for the selected scope, or the files
+   * changed in the working tree until the panel has said.
+   */
+  diffFileCount?: {
+    readonly threadRef: ScopedThreadRef | null;
+    readonly workingTreeFileCount: number;
+  };
+  /** The thread's terminals with a running process; named on their tabs. */
+  runningTerminalIds?: ReadonlyArray<string> | undefined;
+  /** Terminals showing the Finished cue (see useFinishedTerminalIds). */
+  finishedTerminalIds?: ReadonlySet<string> | undefined;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -210,10 +236,6 @@ type TabContextMenuAction =
   | "close-to-right"
   | "close-all";
 
-const TAB_SCROLL_EDGE_TOLERANCE = 1;
-
-const prefersReducedMotion = () =>
-  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
 
 function tabScrollViewport(root: HTMLDivElement | null): HTMLDivElement | null {
@@ -348,7 +370,7 @@ function RightPanelEmptyState(props: {
     },
     {
       label: "Files",
-      icon: Files,
+      icon: Folder,
       shortcut: "F",
       available: props.filesAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
@@ -371,7 +393,7 @@ function RightPanelEmptyState(props: {
       onClick: props.onAddPullRequest,
     },
     {
-      label: "Linked pull requests",
+      label: "Pull requests",
       icon: PullRequestGlyph.link,
       shortcut: "L",
       available: props.pullRequestsAvailable,
@@ -546,51 +568,13 @@ function RightPanelEmptyState(props: {
   );
 }
 
-function surfaceTitle(
-  surface: RightPanelSurface,
-  sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
-  terminalLabelsById: ReadonlyMap<string, string>,
-): string {
-  switch (surface.kind) {
-    case "diff":
-      return "Diff";
-    case "files":
-      return "Files";
-    case "file":
-      return surface.relativePath.slice(
-        Math.max(surface.relativePath.lastIndexOf("/"), surface.relativePath.lastIndexOf("\\")) + 1,
-      );
-    case "terminal":
-      return (
-        terminalLabelsById.get(surface.activeTerminalId) ??
-        getTerminalLabel(surface.activeTerminalId)
-      );
-    case "pull-request":
-      return `#${surface.number}`;
-    case "pull-requests":
-      return "Pull requests";
-    case "device":
-      return surface.title ?? surface.target?.name ?? "Device";
-    case "preview": {
-      const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
-      if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
-      if (snapshot.navStatus.title.trim().length > 0) return snapshot.navStatus.title;
-      try {
-        return new URL(snapshot.navStatus.url).host || "Browser";
-      } catch {
-        return "Browser";
-      }
-    }
-  }
-}
-
 function PreviewFavicon({ capturedUrl, url }: { capturedUrl: string | null; url: string | null }) {
   const publicProviderUrl = faviconUrlForOrigin(url, 32);
   return (
     <FaviconImage
       sources={[capturedUrl, publicProviderUrl]}
-      fallback={<Globe2 className="size-3 shrink-0" />}
-      className="size-3 shrink-0 rounded-sm object-contain"
+      fallback={<Globe2 className="size-3.5 shrink-0" />}
+      className="size-3.5 shrink-0 rounded-sm object-contain"
     />
   );
 }
@@ -621,51 +605,43 @@ function SurfaceIcon({
   previewUrl,
   previewCapturedUrl,
   theme,
-  environmentId,
-  pullRequestStatusSeed,
+  pullRequestStatus,
 }: {
   surface: RightPanelSurface;
   previewUrl: string | null;
   previewCapturedUrl: string | null;
   theme: "light" | "dark";
-  environmentId: EnvironmentId | null;
-  pullRequestStatusSeed: PullRequestTabStatusSeed | undefined;
+  pullRequestStatus: PullRequestTabState | null;
 }) {
   switch (surface.kind) {
     case "preview":
       return <PreviewFavicon capturedUrl={previewCapturedUrl} url={previewUrl} />;
     case "diff":
-      return <FileDiff className="size-3 shrink-0" />;
+      return <FileDiff className="size-3.5 shrink-0" />;
     case "files":
-      return <Files className="size-3 shrink-0" />;
+      return <Folder className="size-3.5 shrink-0" />;
     case "file":
       return (
         <PierreEntryIcon
           pathValue={surface.relativePath}
           kind="file"
           theme={theme}
-          className="size-3"
+          className="size-3.5"
         />
       );
     case "terminal":
-      return <TerminalSquare className="size-3 shrink-0" />;
+      return <TerminalSquare className="size-3.5 shrink-0" />;
     case "pull-request":
-      return (
-        <PullRequestSurfaceIcon
-          surface={surface}
-          environmentId={environmentId}
-          seed={pullRequestStatusSeed}
-        />
-      );
+      return <PullRequestSurfaceIcon status={pullRequestStatus} />;
     case "pull-requests":
-      return <PullRequestGlyph.link className="size-3 shrink-0" />;
+      return <PullRequestGlyph.link className="size-3.5 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
-        <AppleIcon className="size-3 shrink-0" />
+        <AppleIcon className="size-3.5 shrink-0" />
       ) : surface.target?.platform === "android" ? (
-        <AndroidIcon className="size-3 shrink-0" />
+        <AndroidIcon className="size-3.5 shrink-0" />
       ) : (
-        <Smartphone className="size-3 shrink-0" />
+        <Smartphone className="size-3.5 shrink-0" />
       );
   }
 }
@@ -699,15 +675,17 @@ export function resolvePullRequestTabLink(
   return newest;
 }
 
-function PullRequestSurfaceIcon({
-  surface,
-  environmentId,
-  seed,
-}: {
-  surface: Extract<RightPanelSurface, { kind: "pull-request" }>;
-  environmentId: EnvironmentId | null;
-  seed: PullRequestTabStatusSeed | undefined;
-}) {
+type PullRequestTabState = PullRequestTabStatusSeed;
+
+/**
+ * A pull request tab's lifecycle and draft state: the linked snapshot, then fetched detail or the
+ * shared summary, then the caller's seed. Null until one of them is known.
+ */
+function usePullRequestTabState(
+  surface: Extract<RightPanelSurface, { kind: "pull-request" }>,
+  environmentId: EnvironmentId | null,
+  seed: PullRequestTabStatusSeed | undefined,
+): PullRequestTabState | null {
   const resolvedEnvironmentId =
     (surface.environmentId as EnvironmentId | undefined) ?? environmentId;
   const projects = useProjects();
@@ -758,14 +736,18 @@ function PullRequestSurfaceIcon({
   // their own presentation on surfaces that have mergeability, while this tab stays stable as
   // detail data arrives.
   const status = linkedSnapshot ?? newestPullRequestSummary(detail, sharedSummary) ?? seed ?? null;
+  const state = status?.state;
+  const isDraft = status?.isDraft ?? detail?.isDraft ?? seed?.isDraft ?? false;
+  return useMemo(() => (state === undefined ? null : { state, isDraft }), [state, isDraft]);
+}
+
+function PullRequestSurfaceIcon({ status }: { status: PullRequestTabState | null }) {
   if (status === null) {
-    return <PullRequestGlyph.pullRequest className="size-3 shrink-0 text-muted-foreground" />;
+    return <PullRequestGlyph.pullRequest className="size-3.5 shrink-0 text-muted-foreground" />;
   }
-  const presentation = resolvePullRequestState({
-    state: status.state,
-    isDraft: status.isDraft ?? detail?.isDraft ?? seed?.isDraft ?? false,
-  });
-  return <presentation.Icon className={cn("size-3 shrink-0", presentation.toneClassName)} />;
+  // Neutral like the header's badge: the label's word states the state, and teal means done.
+  const presentation = resolvePullRequestState(status);
+  return <presentation.Icon className="size-3.5 shrink-0 text-muted-foreground" />;
 }
 
 function SortableTabList(props: {
@@ -810,28 +792,135 @@ function preventTabMiddleButtonDefault(event: ReactMouseEvent) {
   event.preventDefault();
 }
 
-// Stable handlers and per-tab values let the compiler reuse tabs across parent renders.
-function RightPanelTab(
-  props: RightPanelTabHandlers & {
-    surface: RightPanelSurface;
-    dragDisabled: boolean;
-    active: boolean;
-    pending: boolean;
-    title: string;
-    audio: TabAudioState;
-    audioRuntimeTabId: string | null;
-    previewUrl: string | null;
-    previewCapturedUrl: string | null;
-    theme: "light" | "dark";
-    environmentId: EnvironmentId | null;
+type RightPanelTabProps = RightPanelTabHandlers & {
+  surface: RightPanelSurface;
+  dragDisabled: boolean;
+  active: boolean;
+  pending: boolean;
+  /** The surface's bare name, for actions such as "Close Diff". */
+  title: string;
+  /** The name and its state in words, such as "Diff" and "5 files". */
+  label: SurfaceTitleParts;
+  /** The strip's one Tab stop: the selected tab, or the first when none is. */
+  focusable: boolean;
+  /** A process runs in this tab; shown as a neutral dot beside the label that names it. */
+  running: boolean;
+  audio: TabAudioState;
+  audioRuntimeTabId: string | null;
+  previewUrl: string | null;
+  previewCapturedUrl: string | null;
+  theme: "light" | "dark";
+  environmentId: EnvironmentId | null;
+  pullRequestStatus: PullRequestTabState | null;
+  renaming: boolean;
+  canRename: boolean;
+  ownsDesktopTitleBar: boolean;
+  /** The id of the tab panel every tab controls. */
+  panelId: string;
+  /** The keys that close this tab, for `aria-keyshortcuts`. */
+  closeKeyShortcuts: string;
+  /**
+   * Not fully in the strip's view: listed by the "N more" menu and not drawn, so no fragment of
+   * it shows at the strip's edge.
+   */
+  outOfView: boolean;
+  /** The active tab's width limit, the strip's own; its label truncates within it. */
+  maxWidth: number | null;
+};
+
+const NO_PREVIEW_SESSIONS: Readonly<Record<string, PreviewSessionSnapshot>> = {};
+const NO_TERMINAL_LABELS: ReadonlyMap<string, string> = new Map();
+
+/** A pull request tab resolves its own state, so its label and glyph can say it. */
+function PullRequestPanelTab(
+  props: Omit<RightPanelTabProps, "surface" | "label" | "pullRequestStatus"> & {
+    surface: Extract<RightPanelSurface, { kind: "pull-request" }>;
     pullRequestStatusSeed: PullRequestTabStatusSeed | undefined;
-    /** Shown after the title when above zero, such as the Diff tab's file count. */
-    count: number;
-    renaming: boolean;
-    canRename: boolean;
-    ownsDesktopTitleBar: boolean;
   },
 ) {
+  const { pullRequestStatusSeed, ...tabProps } = props;
+  const status = usePullRequestTabState(props.surface, props.environmentId, pullRequestStatusSeed);
+  return (
+    <RightPanelTab
+      {...tabProps}
+      label={surfaceTitleParts(props.surface, NO_PREVIEW_SESSIONS, NO_TERMINAL_LABELS, {
+        pullRequestStatus: status,
+      })}
+      pullRequestStatus={status}
+    />
+  );
+}
+
+/** Whether a device tab's device is booted; only device tabs subscribe to device state. */
+function useDeviceTabRunning(
+  surface: Extract<RightPanelSurface, { kind: "device" }>,
+  environmentId: EnvironmentId | null,
+): boolean {
+  const { state } = useDeviceState(environmentId);
+  const target = surface.target;
+  if (!target) return false;
+  return state.devices.some(
+    (device) => device.hostId === target.hostId && device.id === target.deviceId && device.booted,
+  );
+}
+
+/** A device tab reads "iPhone 16 · running", with the running dot, while its device runs. */
+function DevicePanelTab(
+  props: Omit<RightPanelTabProps, "surface" | "label" | "pullRequestStatus" | "running"> & {
+    surface: Extract<RightPanelSurface, { kind: "device" }>;
+  },
+) {
+  const running = useDeviceTabRunning(props.surface, props.environmentId);
+  return (
+    <RightPanelTab
+      {...props}
+      running={running}
+      label={surfaceTitleParts(props.surface, NO_PREVIEW_SESSIONS, NO_TERMINAL_LABELS, {
+        deviceRunning: running,
+      })}
+      pullRequestStatus={null}
+    />
+  );
+}
+
+/** A device row in the "N more" menu says whether it runs, as its tab does. */
+function DeviceMenuRowLabel(props: {
+  surface: Extract<RightPanelSurface, { kind: "device" }>;
+  environmentId: EnvironmentId | null;
+}) {
+  const running = useDeviceTabRunning(props.surface, props.environmentId);
+  return (
+    <>
+      {running ? <RunningDot /> : null}
+      <TabLabelText
+        label={surfaceTitleParts(props.surface, NO_PREVIEW_SESSIONS, NO_TERMINAL_LABELS, {
+          deviceRunning: running,
+        })}
+      />
+    </>
+  );
+}
+
+/** A process-running dot: solid and neutral, never the working-agent halo. Words always sit beside it. */
+function RunningDot() {
+  return <span aria-hidden className="size-2 shrink-0 rounded-full bg-foreground" />;
+}
+
+/** A tab's name, truncated alone, then its state in words, which never shrinks away. */
+function TabLabelText({ label }: { label: SurfaceTitleParts }) {
+  return (
+    <>
+      {/* The name gives way first; the state words truncate only once it has. */}
+      <span className="min-w-0 shrink-[1000] truncate">{label.name}</span>
+      {label.state ? (
+        <span className="min-w-0 truncate whitespace-pre"> · {label.state}</span>
+      ) : null}
+    </>
+  );
+}
+
+// Stable handlers and per-tab values let the compiler reuse tabs across parent renders.
+function RightPanelTab(props: RightPanelTabProps) {
   const {
     surface,
     title,
@@ -850,32 +939,71 @@ function RightPanelTab(
     // Neighbours jump into place instead of sliding when motion is reduced.
     ...(prefersReducedMotion() ? { transition: null } : {}),
   });
-  const content = (
+  // A running terminal shows its dot in place of its icon.
+  const identity = (
     <>
-      <PanelTabCloseButton label={`Close ${title}`} onClick={() => onClose(surface)}>
+      {props.running ? (
+        <RunningDot />
+      ) : (
         <SurfaceIcon
           surface={surface}
           previewUrl={props.previewUrl}
           previewCapturedUrl={props.previewCapturedUrl}
           theme={props.theme}
-          environmentId={props.environmentId}
-          pullRequestStatusSeed={props.pullRequestStatusSeed}
+          pullRequestStatus={props.pullRequestStatus}
         />
-        {props.pending ? (
-          <span
-            className="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-current"
-            aria-hidden
-          />
-        ) : null}
-      </PanelTabCloseButton>
+      )}
+      {props.pending ? (
+        <span
+          className="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-current"
+          aria-hidden
+        />
+      ) : null}
+    </>
+  );
+  // Close and mute buttons stay out of the Tab order and the accessibility tree, so the tablist
+  // holds only tabs: Delete, Backspace or Mod+W close (announced by `aria-keyshortcuts`), and the
+  // context menu mutes.
+  const content = (
+    <>
+      {props.active ? (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          {identity}
+        </span>
+      ) : (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          className={cn(
+            "cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted",
+            TAB_BUTTON_HIT_AREA_CLASS,
+          )}
+          aria-label={`Close ${title}`}
+          onClick={() => onClose(surface)}
+        >
+          <span className="relative flex size-3.5 items-center justify-center group-hover/tab:hidden">
+            {identity}
+          </span>
+          <X aria-hidden className="hidden size-3.5 group-hover/tab:block" />
+        </button>
+      )}
       {audio === "none" || !audioRuntimeTabId ? null : (
         <Tooltip>
           <TooltipTrigger
             render={
               <button
                 type="button"
-                className="cursor-pointer flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted"
-                aria-label={audio === "muted" ? `Unmute ${title}` : `Mute ${title}`}
+                tabIndex={-1}
+                aria-hidden
+                className={cn(
+                  "cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted",
+                  TAB_BUTTON_HIT_AREA_CLASS,
+                )}
+                // The tab's own name, not its state words: "Mute Local site", not "… · localhost".
+                aria-label={
+                  audio === "muted" ? `Unmute ${props.label.name}` : `Mute ${props.label.name}`
+                }
                 onClick={(event) => {
                   event.stopPropagation();
                   void previewBridge
@@ -915,21 +1043,25 @@ function RightPanelTab(
             render={
               <button
                 type="button"
+                role="tab"
+                aria-selected={props.active}
+                aria-controls={props.panelId}
+                aria-keyshortcuts={props.closeKeyShortcuts}
+                tabIndex={props.focusable ? 0 : -1}
+                data-panel-tab-trigger
                 onDoubleClick={() => {
                   if (surface.kind === "device" && props.canRename) onStartRename(surface.id);
                 }}
-                className="cursor-pointer flex min-w-0 items-center"
+                className="cursor-pointer flex min-w-0 items-center outline-none"
                 onClick={() => onActivate(surface)}
+                onKeyDown={(event) => {
+                  // Backspace is the delete key on a Mac laptop.
+                  if (event.key !== "Delete" && event.key !== "Backspace") return;
+                  event.preventDefault();
+                  onClose(surface);
+                }}
               >
-                <span className="truncate">{title}</span>
-                {props.count > 0 ? (
-                  <span className="ms-1 shrink-0 text-[10px] tabular-nums opacity-70">
-                    {props.count}
-                    <span className="sr-only">
-                      {props.count === 1 ? " file" : " files"} changed
-                    </span>
-                  </span>
-                ) : null}
+                <TabLabelText label={props.label} />
               </button>
             }
           />
@@ -941,29 +1073,51 @@ function RightPanelTab(
                 title={title}
               />
             ) : (
-              title
+              <TabLabelText label={props.label} />
             )}
           </TooltipPopup>
         </Tooltip>
       )}
+      {props.active ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          className={cn(
+            "cursor-pointer relative flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground",
+            TAB_BUTTON_HIT_AREA_CLASS,
+          )}
+          aria-label={`Close ${title}`}
+          onClick={() => onClose(surface)}
+        >
+          <X aria-hidden className="size-3.5" />
+        </button>
+      ) : null}
     </>
   );
   return (
     <div
+      role="presentation"
       data-active-tab={props.active}
+      data-panel-tab-id={surface.id}
       onMouseDown={preventTabMiddleButtonDefault}
       onMouseUp={preventTabMiddleButtonDefault}
       onAuxClick={(event) => onAuxClick(event, surface)}
       onContextMenu={(event) => onContextMenu(event, surface)}
       {...listeners}
       ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        transition,
+        ...(props.maxWidth !== null ? { maxWidth: props.maxWidth } : {}),
+      }}
       className={cn(
-        "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
+        "cursor-pointer group/tab flex h-7 max-w-56 shrink-0 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs",
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
-        props.active
-          ? "bg-surface-floating text-foreground shadow-xs ring-1 ring-border/60"
-          : "text-sidebar-foreground hover:bg-surface-floating/50",
+        props.active ? PANEL_TAB_ACTIVE_CLASS : PANEL_TAB_IDLE_CLASS,
+        props.outOfView && "invisible",
+        // The focus ring sits inside the tab, which the track would otherwise clip.
+        "has-[[data-panel-tab-trigger]:focus-visible]:ring-2 has-[[data-panel-tab-trigger]:focus-visible]:ring-ring has-[[data-panel-tab-trigger]:focus-visible]:ring-inset",
         isDragging && "relative z-10",
       )}
     >
@@ -972,27 +1126,99 @@ function RightPanelTab(
   );
 }
 
-/** The way back to Run details while other surfaces are open. Not sortable or closable. */
+const PANEL_TAB_ACTIVE_CLASS =
+  "bg-card font-semibold text-foreground ring-1 ring-inset ring-primary-edge";
+const PANEL_TAB_IDLE_CLASS = "text-muted-foreground hover:bg-card/60 hover:text-foreground";
+const RUN_DETAILS_TAB_ID = "run-details";
+// A 16px glyph button that still takes a 24px hit, without widening the tab around it.
+const TAB_BUTTON_HIT_AREA_CLASS = "before:absolute before:-inset-1 before:content-['']";
+
+/**
+ * The surface id of the panel tab `target` is, or null when it is not a closable tab. A close
+ * shortcut uses it so Mod+W closes the tab that has focus in the strip, not only the selected one.
+ */
+export function focusedPanelTabSurfaceId(target: EventTarget | null): string | null {
+  if (!(target instanceof HTMLElement) || target.getAttribute("role") !== "tab") return null;
+  const id = target.closest<HTMLElement>("[data-panel-tab-id]")?.dataset.panelTabId ?? null;
+  return id === RUN_DETAILS_TAB_ID ? null : id;
+}
+
+/** Whether keyboard focus is on the Run details tab, which never closes. */
+export function isRunDetailsTabFocused(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement) || target.getAttribute("role") !== "tab") return false;
+  return (
+    target.closest<HTMLElement>("[data-panel-tab-id]")?.dataset.panelTabId === RUN_DETAILS_TAB_ID
+  );
+}
+
+/** A tab the strip cannot show, as the "N more" menu lists it. Run details has no surface. */
+interface HiddenPanelTab {
+  id: string;
+  label: SurfaceTitleParts;
+  running: number;
+  surface: RightPanelSurface | null;
+}
+
+/** A pull request row in the "N more" menu resolves its state the way its tab does. */
+function PullRequestMenuRowLabel(props: {
+  surface: Extract<RightPanelSurface, { kind: "pull-request" }>;
+  environmentId: EnvironmentId | null;
+  seed: PullRequestTabStatusSeed | undefined;
+}) {
+  const status = usePullRequestTabState(props.surface, props.environmentId, props.seed);
+  return (
+    <TabLabelText
+      label={surfaceTitleParts(props.surface, NO_PREVIEW_SESSIONS, NO_TERMINAL_LABELS, {
+        pullRequestStatus: status,
+      })}
+    />
+  );
+}
+
+/** Moves focus between a strip's tabs with the arrow keys, Home and End; Enter selects. */
+function handleTabListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || target.getAttribute("role") !== "tab") return;
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'));
+  const index = tabs.indexOf(target);
+  if (index < 0) return;
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next]?.focus();
+  tabs[next]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+/** A thread's first tab, the panel's resting view. Always present; not sortable or closable. */
 function RunDetailsTab(props: {
   active: boolean;
+  focusable: boolean;
+  panelId: string;
   ownsDesktopTitleBar: boolean;
   onShow: () => void;
 }) {
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={props.active}
+      aria-controls={props.panelId}
+      tabIndex={props.focusable ? 0 : -1}
       data-active-tab={props.active}
-      aria-pressed={props.active}
+      data-panel-tab-id={RUN_DETAILS_TAB_ID}
       onClick={props.onShow}
       className={cn(
-        "cursor-pointer flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs",
+        "cursor-pointer flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 font-medium text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
-        props.active
-          ? "bg-surface-floating text-foreground shadow-xs ring-1 ring-border/60"
-          : "text-sidebar-foreground hover:bg-surface-floating/50",
+        props.active ? PANEL_TAB_ACTIVE_CLASS : PANEL_TAB_IDLE_CLASS,
       )}
     >
-      <ListTree aria-hidden className="size-3 shrink-0" />
+      <ListTree aria-hidden className="size-3.5 shrink-0" />
       Run details
     </button>
   );
@@ -1007,11 +1233,56 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const addSurfaceTriggerRef = useRef<HTMLButtonElement>(null);
   const [renamingDevice, setRenamingDevice] = useState<string | null>(null);
   const [addSurfaceMenuOpen, setAddSurfaceMenuOpen] = useState(false);
-  const [tabScrollState, setTabScrollState] = useState({
-    hasOverflow: false,
-    canScrollLeft: false,
-    canScrollRight: false,
-  });
+  // Tabs the strip cannot fully show, in tab order; listed by the "N more" menu.
+  const [hiddenTabIds, setHiddenTabIds] = useState<readonly string[]>([]);
+  // The scrolling strip's width; the active tab never grows past it, so it truncates its label
+  // instead of being clipped.
+  const [stripWidth, setStripWidth] = useState<number | null>(null);
+  const runningTerminalIds = useMemo(
+    () => new Set(props.runningTerminalIds ?? []),
+    [props.runningTerminalIds],
+  );
+  const tabNames = useMemo(
+    () => terminalTabNames(props.surfaces, props.terminalLabelsById),
+    [props.surfaces, props.terminalLabelsById],
+  );
+  const nameState = { terminalTabNames: tabNames };
+  const changedFileCount = useDiffTabFileCount(
+    props.diffFileCount?.threadRef,
+    props.diffFileCount?.workingTreeFileCount ?? 0,
+  );
+  const titleState = {
+    changedFileCount,
+    runningTerminalIds,
+    ...(props.finishedTerminalIds ? { finishedTerminalIds: props.finishedTerminalIds } : {}),
+    terminalTabNames: tabNames,
+  };
+  const panelId = useId();
+  const closeKeyShortcuts = useMemo(
+    () =>
+      closeTabKeyShortcuts(
+        effectiveShortcutsForCommand(props.keybindings, "rightPanel.close", {
+          context: { terminalFocus: false },
+        })[0] ?? null,
+        navigator.platform,
+      ),
+    [props.keybindings],
+  );
+  // Whether focus was last in the strip, so closing the focused tab can hand focus to the tab
+  // that becomes selected instead of dropping it to the page.
+  const stripHadFocusRef = useRef(false);
+  useEffect(() => {
+    if (!stripHadFocusRef.current) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body && focused.isConnected) return;
+    const selectedId = props.activeSurfaceId ?? RUN_DETAILS_TAB_ID;
+    const tab = Array.from(
+      tabListRef.current?.querySelectorAll<HTMLElement>("[data-panel-tab-id]") ?? [],
+    ).find((element) => element.dataset.panelTabId === selectedId);
+    const trigger =
+      tab?.getAttribute("role") === "tab" ? tab : tab?.querySelector<HTMLElement>('[role="tab"]');
+    trigger?.focus();
+  }, [props.surfaces, props.activeSurfaceId]);
 
   if (props.open === false && addSurfaceMenuOpen) setAddSurfaceMenuOpen(false);
 
@@ -1042,32 +1313,67 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     };
   }, [props.open]);
 
-  const updateTabScrollState = (viewport: HTMLDivElement) => {
-    const hasOverflow = viewport.scrollWidth - viewport.clientWidth > TAB_SCROLL_EDGE_TOLERANCE;
-    const canScrollLeft = hasOverflow && viewport.scrollLeft > TAB_SCROLL_EDGE_TOLERANCE;
-    const canScrollRight =
-      hasOverflow &&
-      viewport.scrollLeft + viewport.clientWidth < viewport.scrollWidth - TAB_SCROLL_EDGE_TOLERANCE;
-    setTabScrollState((current) => {
-      if (
-        current.hasOverflow === hasOverflow &&
-        current.canScrollLeft === canScrollLeft &&
-        current.canScrollRight === canScrollRight
-      ) {
-        return current;
-      }
-      return { hasOverflow, canScrollLeft, canScrollRight };
-    });
-  };
+  // Measured on every scroll and resize of the strip: which tabs it cannot fully show, and how
+  // wide it is, so the active tab can be held to that width. An active tab that a longer label
+  // (Diff learning its file count) pushed out of view is scrolled back here.
+  const updateHiddenTabs = useEffectEvent((viewport: HTMLDivElement) => {
+    const activeId = props.activeSurfaceId ?? RUN_DETAILS_TAB_ID;
+    const bounds = viewport.getBoundingClientRect();
+    const extents: TabExtent[] = [];
+    let activeTab: HTMLElement | null = null;
+    for (const element of viewport.querySelectorAll<HTMLElement>("[data-panel-tab-id]")) {
+      const rect = element.getBoundingClientRect();
+      extents.push({ id: element.dataset.panelTabId ?? "", start: rect.left, end: rect.right });
+      if (element.dataset.panelTabId === activeId) activeTab = element;
+    }
+    const next = tabsOutOfView(extents, bounds.left, bounds.right);
+    if (activeTab && next.includes(activeId)) {
+      activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    // The room the strip has: its own width plus whatever the bar leaves free beside it. Its own
+    // width alone would follow a narrowed tab down and never let it grow back.
+    const spare =
+      viewport
+        .closest("[data-right-panel-tabbar]")
+        ?.querySelector<HTMLElement>("[data-tab-strip-spare]")?.clientWidth ?? 0;
+    setStripWidth(Math.floor(viewport.clientWidth + spare));
+    setHiddenTabIds((current) =>
+      current.length === next.length && current.every((id, index) => id === next[index])
+        ? current
+        : next,
+    );
+  });
 
-  const scrollTabs = (direction: -1 | 1) => {
-    const viewport = tabScrollViewport(tabListRef.current);
-    if (!viewport) return;
-    viewport.scrollBy({
-      left: direction * Math.max(120, viewport.clientWidth * 0.75),
-      behavior: prefersReducedMotion() ? "auto" : "smooth",
-    });
-  };
+  const hiddenTabs = hiddenTabIds.flatMap((id): HiddenPanelTab[] => {
+    if (id === RUN_DETAILS_TAB_ID && props.onShowRunDetails) {
+      return [{ id, label: { name: "Run details", state: null }, running: 0, surface: null }];
+    }
+    const surface = props.surfaces.find((entry) => entry.id === id);
+    if (!surface) return [];
+    return [
+      {
+        id,
+        label: surfaceTitleParts(
+          surface,
+          props.previewSessions,
+          props.terminalLabelsById,
+          titleState,
+        ),
+        running: runningTerminalCount(surface, runningTerminalIds),
+        surface,
+      },
+    ];
+  });
+  // One Tab stop per strip: the selected tab, else the first.
+  const focusableTabId =
+    props.activeSurfaceId !== null &&
+    props.surfaces.some((entry) => entry.id === props.activeSurfaceId)
+      ? props.activeSurfaceId
+      : props.onShowRunDetails
+        ? RUN_DETAILS_TAB_ID
+        : (props.surfaces[0]?.id ?? null);
+  const hiddenRunningCount = hiddenTabs.reduce((sum, tab) => sum + tab.running, 0);
+  const overflowLabel = overflowMenuLabel(hiddenTabs.length, hiddenRunningCount);
 
   const addSurfaceActions = [
     {
@@ -1088,7 +1394,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     },
     {
       label: "Files",
-      icon: Files,
+      icon: Folder,
       shortcut: "F",
       available: props.filesAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.files,
@@ -1111,7 +1417,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddPullRequest,
     },
     {
-      label: "Linked pull requests",
+      label: "Pull requests",
       icon: PullRequestGlyph.link,
       shortcut: "L",
       available: props.pullRequestsAvailable,
@@ -1162,7 +1468,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     const items: ContextMenuItem<TabContextMenuAction>[] = [];
     if (surface.kind === "device" && props.onRenameDevice)
       items.push({ id: "rename", label: "Rename" });
-    if (surface.kind === "file" && surface.attachment === undefined) {
+    if (surfaceFilePath(surface) !== null) {
       items.push({ id: "copy-path", label: "Copy path" });
     }
     const menuPreviewTabId = previewTabIdOf(surface, props.previewSessions);
@@ -1212,11 +1518,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       case "rename":
         setRenamingDevice(surface.id);
         break;
-      case "copy-path":
-        if (surface.kind === "file" && surface.attachment === undefined) {
-          props.onCopyFilePath(surface.relativePath);
-        }
+      case "copy-path": {
+        const path = surfaceFilePath(surface);
+        if (path !== null) props.onCopyFilePath(path);
         break;
+      }
       case "toggle-mute": {
         const runtimeTabId =
           menuPreviewTabId && menuOverlay
@@ -1270,18 +1576,21 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   });
 
   // A newly active tab, or tabs that start overflowing, can sit outside the scrolled strip.
+  const hasHiddenTabs = hiddenTabIds.length > 0;
   useEffect(() => {
-    if (!props.activeSurfaceId || !tabScrollState.hasOverflow) return;
-    const activeTab = tabListRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
+    if (!hasHiddenTabs) return;
+    const activeId = props.activeSurfaceId ?? RUN_DETAILS_TAB_ID;
+    const activeTab = Array.from(
+      tabListRef.current?.querySelectorAll<HTMLElement>("[data-panel-tab-id]") ?? [],
+    ).find((element) => element.dataset.panelTabId === activeId);
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [props.activeSurfaceId, tabScrollState.hasOverflow]);
+  }, [props.activeSurfaceId, hasHiddenTabs]);
 
   const attachTabList = (root: HTMLDivElement | null) => {
-    tabListRef.current = root;
     const viewport = tabScrollViewport(root);
     if (!viewport) return;
 
-    const update = () => updateTabScrollState(viewport);
+    const update = () => updateHiddenTabs(viewport);
     const handleWheel = (event: WheelEvent) => {
       if (event.ctrlKey) return;
       let delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
@@ -1303,7 +1612,6 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     update();
 
     return () => {
-      tabListRef.current = null;
       stopObserving();
       viewport.removeEventListener("scroll", update);
       viewport.removeEventListener("wheel", handleWheel);
@@ -1316,7 +1624,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       workspaceFocusKey={`panel:${props.environmentId}:${props.activeSurfaceId ?? "empty"}`}
       workspaceLabel={
         focusedSurface
-          ? `Workspace panel: ${surfaceTitle(focusedSurface, props.previewSessions, props.terminalLabelsById)}`
+          ? `Workspace panel: ${surfaceTitle(focusedSurface, props.previewSessions, props.terminalLabelsById, titleState)}`
           : props.onShowRunDetails
             ? "Workspace panel: Run details"
             : "Workspace panel"
@@ -1329,39 +1637,62 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     >
       <div
         className={cn(
-          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b border-border bg-sidebar surface-grain pl-3",
-          props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
+          "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-2 border-b bg-sidebar surface-grain pl-3",
+          // The Diff's header sits on its own ground right under the bar, so no rule between them
+          // (board PanelDiff); the other surfaces keep it.
+          focusedSurface?.kind === "diff" ? "border-transparent" : "border-border",
+          // Inline, the page's fixed Maximize and panel toggle (two 28px controls, 4px apart, one
+          // pixel in from the controls' inset) sit over the bar's end: reserve exactly that plus
+          // the bar's 8px gap, so every other pixel goes to the tabs.
+          props.mode === "inline" && !props.layoutControls
+            ? "pr-[calc(var(--workspace-controls-right)_+_69px)]"
+            : "pr-3",
           ownsDesktopTitleBar && "drag-region",
           ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
           props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
         data-right-panel-tabbar
       >
-        <ScrollArea
-          ref={attachTabList}
-          hideScrollbars
-          scrollFade
-          className="min-w-0 flex-1"
-          data-right-panel-tab-list
+        <div
+          ref={tabListRef}
+          role="tablist"
+          aria-label="Panel tabs"
+          onKeyDown={handleTabListKeyDown}
+          onFocus={() => {
+            stripHadFocusRef.current = true;
+          }}
+          onBlur={(event) => {
+            // A removed tab blurs with no related target; focus that moved elsewhere has one.
+            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+              stripHadFocusRef.current = false;
+            }
+          }}
+          className={cn(
+            // One track at every tab count, so the bar never changes shape as tabs come and go.
+            // Run details stays first and in view; the other tabs scroll beside it.
+            "flex h-8 min-w-0 flex-initial items-center gap-0.5 rounded-lg bg-surface-well p-0.5",
+            props.surfaces.length === 0 && !props.onShowRunDetails && "hidden",
+          )}
         >
-          <div className="flex h-full w-max min-w-full items-center gap-1">
-            <div
-              className={cn(
-                "flex h-7 items-center gap-0.5 rounded-lg p-[3px]",
-                // The groove reads as a segmented control only once it holds a choice.
-                props.surfaces.length + (props.onShowRunDetails ? 1 : 0) > 1 && "bg-accent",
-                props.surfaces.length === 0 && "hidden",
-              )}
-            >
-              {/* Run details is the resting view, not a tab: it appears only beside other
-                  surfaces, as the way back to it without closing them. */}
-              {props.onShowRunDetails && props.surfaces.length > 0 ? (
-                <RunDetailsTab
-                  active={props.activeSurfaceId === null}
-                  ownsDesktopTitleBar={ownsDesktopTitleBar}
-                  onShow={props.onShowRunDetails}
-                />
-              ) : null}
+          {props.onShowRunDetails ? (
+            <RunDetailsTab
+              active={props.activeSurfaceId === null}
+              focusable={focusableTabId === RUN_DETAILS_TAB_ID}
+              panelId={panelId}
+              ownsDesktopTitleBar={ownsDesktopTitleBar}
+              onShow={props.onShowRunDetails}
+            />
+          ) : null}
+          <ScrollArea
+            ref={attachTabList}
+            hideScrollbars
+            // Sized to its tabs so Add sits beside them; shrinks and scrolls when they do not fit.
+            // Square, so the track's rounding does not clip the end tabs' corners. No fade: tabs
+            // not fully in view are not drawn, so the strip's edges never show a fragment.
+            className="w-auto min-w-0 flex-initial rounded-none"
+            data-right-panel-tab-list
+          >
+            <div className="flex h-full w-max min-w-full items-center gap-0.5">
               <SortableTabList surfaces={props.surfaces} onMove={props.onMoveSurface}>
                 {props.surfaces.map((surface) => {
                   const previewTabId = previewTabIdOf(surface, props.previewSessions);
@@ -1370,160 +1701,195 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     props.previewSessions,
                     props.desktopByTabId,
                   );
-                  return (
+                  const tabProps = {
+                    dragDisabled: !props.onMoveSurface || renamingDevice === surface.id,
+                    active: surface.id === props.activeSurfaceId,
+                    focusable: surface.id === focusableTabId,
+                    pending: isFileSurfacePending(surface, props.pendingSurfaceIds),
+                    title: surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      nameState,
+                    ),
+                    running: runningTerminalCount(surface, runningTerminalIds) > 0,
+                    audio: tabAudioState(
+                      previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
+                    ),
+                    audioRuntimeTabId: previewTabId
+                      ? (props.previewRuntimeTabId?.(previewTabId) ?? null)
+                      : null,
+                    previewUrl: favicon.url,
+                    previewCapturedUrl: favicon.capturedUrl,
+                    theme: resolvedTheme,
+                    environmentId: props.environmentId,
+                    renaming: renamingDevice === surface.id,
+                    canRename: props.onRenameDevice !== undefined,
+                    ownsDesktopTitleBar,
+                    panelId,
+                    closeKeyShortcuts,
+                    outOfView: hiddenTabIds.includes(surface.id),
+                    maxWidth: surface.id === props.activeSurfaceId ? stripWidth : null,
+                    onActivate: onActivateTab,
+                    onClose: onCloseTab,
+                    onAuxClick: onTabAuxClick,
+                    onContextMenu: onTabContextMenu,
+                    onStartRename: onStartRenameTab,
+                    onFinishRename: onFinishRenameTab,
+                  };
+                  if (surface.kind === "device") {
+                    const { running: _running, ...deviceTabProps } = tabProps;
+                    return (
+                      <DevicePanelTab key={surface.id} {...deviceTabProps} surface={surface} />
+                    );
+                  }
+                  return surface.kind === "pull-request" ? (
+                    <PullRequestPanelTab
+                      key={surface.id}
+                      {...tabProps}
+                      surface={surface}
+                      pullRequestStatusSeed={props.pullRequestStatusSeeds?.[surface.id]}
+                    />
+                  ) : (
                     <RightPanelTab
                       key={surface.id}
+                      {...tabProps}
                       surface={surface}
-                      dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
-                      active={surface.id === props.activeSurfaceId}
-                      pending={props.pendingSurfaceIds.has(surface.id)}
-                      title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
-                      audio={tabAudioState(
-                        previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
+                      label={surfaceTitleParts(
+                        surface,
+                        props.previewSessions,
+                        props.terminalLabelsById,
+                        titleState,
                       )}
-                      audioRuntimeTabId={
-                        previewTabId ? (props.previewRuntimeTabId?.(previewTabId) ?? null) : null
-                      }
-                      previewUrl={favicon.url}
-                      previewCapturedUrl={favicon.capturedUrl}
-                      theme={resolvedTheme}
-                      environmentId={props.environmentId}
-                      pullRequestStatusSeed={props.pullRequestStatusSeeds?.[surface.id]}
-                      count={surface.kind === "diff" ? (props.changedFileCount ?? 0) : 0}
-                      renaming={renamingDevice === surface.id}
-                      canRename={props.onRenameDevice !== undefined}
-                      ownsDesktopTitleBar={ownsDesktopTitleBar}
-                      onActivate={onActivateTab}
-                      onClose={onCloseTab}
-                      onAuxClick={onTabAuxClick}
-                      onContextMenu={onTabContextMenu}
-                      onStartRename={onStartRenameTab}
-                      onFinishRename={onFinishRenameTab}
+                      pullRequestStatus={null}
                     />
                   );
                 })}
               </SortableTabList>
             </div>
-            {props.open !== false ? (
-              <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
-                <MenuTrigger
-                  ref={addSurfaceTriggerRef}
-                  render={
-                    <Button
-                      aria-label="Add panel surface"
-                      className="shrink-0"
-                      size="icon-xs"
-                      variant="ghost-muted"
-                    />
-                  }
+          </ScrollArea>
+        </div>
+        {hiddenTabs.length > 0 ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  aria-label={overflowLabel.ariaLabel}
+                  className="shrink-0 [-webkit-app-region:no-drag]"
+                  size="compact"
+                  variant="outline"
+                />
+              }
+            >
+              {hiddenRunningCount > 0 ? <RunningDot /> : null}
+              {overflowLabel.text}
+              <ChevronDown aria-hidden className="size-3.5" />
+            </MenuTrigger>
+            <MenuPopup align="end" side="bottom" sideOffset={6} className="max-w-64">
+              {hiddenTabs.map((tab) => (
+                <MenuItem
+                  key={tab.id}
+                  onClick={() => {
+                    if (tab.surface) props.onActivate(tab.surface);
+                    else props.onShowRunDetails?.();
+                  }}
                 >
-                  <Plus className="size-3.5" />
-                </MenuTrigger>
-                <MenuPopup
-                  align="start"
-                  side="bottom"
-                  sideOffset={6}
-                  onKeyDownCapture={handleAddSurfaceMenuKeyDown}
-                >
-                  {addSurfaceActions.map((action) => {
-                    const Icon = action.icon;
-                    if (action.label === "Browser" && action.available) {
-                      return (
-                        <MenuSub key={action.label}>
-                          <MenuSubTrigger
-                            className="[&>svg:last-child]:ms-0"
-                            aria-keyshortcuts={action.shortcut}
-                            onClick={(event) => {
-                              const pointerType =
-                                "pointerType" in event.nativeEvent &&
-                                typeof event.nativeEvent.pointerType === "string"
-                                  ? event.nativeEvent.pointerType
-                                  : undefined;
-                              if (!shouldOpenDefaultBrowserProfileFromMenuClick(pointerType))
-                                return;
-                              setAddSurfaceMenuOpen(false);
-                              action.onClick();
-                            }}
-                          >
-                            <Icon />
-                            {action.label}
-                            <MenuShortcut>{action.shortcut}</MenuShortcut>
-                          </MenuSubTrigger>
-                          <MenuSubPopup className="max-w-56">
-                            {browserProfiles.map((profile) => (
-                              <MenuItem
-                                key={profile.id}
-                                onClick={() => props.onAddBrowserInProfile(profile.id)}
-                              >
-                                <span className="min-w-0 truncate">{profile.name}</span>
-                              </MenuItem>
-                            ))}
-                          </MenuSubPopup>
-                        </MenuSub>
-                      );
-                    }
-                    return (
-                      <SurfaceMenuItem
-                        key={action.label}
-                        available={action.available}
-                        disabledReason={action.disabledReason}
-                        shortcut={action.shortcut}
-                        onClick={action.onClick}
+                  {tab.running > 0 ? <RunningDot /> : null}
+                  <span className="flex min-w-0 items-center">
+                    {tab.surface?.kind === "pull-request" ? (
+                      <PullRequestMenuRowLabel
+                        surface={tab.surface}
+                        environmentId={props.environmentId}
+                        seed={props.pullRequestStatusSeeds?.[tab.surface.id]}
+                      />
+                    ) : tab.surface?.kind === "device" ? (
+                      <DeviceMenuRowLabel
+                        surface={tab.surface}
+                        environmentId={props.environmentId}
+                      />
+                    ) : (
+                      <TabLabelText label={tab.label} />
+                    )}
+                  </span>
+                </MenuItem>
+              ))}
+            </MenuPopup>
+          </Menu>
+        ) : null}
+        {props.open !== false ? (
+          <Menu open={addSurfaceMenuOpen} onOpenChange={setAddSurfaceMenuOpen}>
+            <MenuTrigger
+              ref={addSurfaceTriggerRef}
+              render={
+                <Button
+                  aria-label="Add a panel tab"
+                  className="shrink-0"
+                  size="icon-sm"
+                  variant="ghost-muted"
+                />
+              }
+            >
+              <Plus className="size-3.5" />
+            </MenuTrigger>
+            <MenuPopup
+              align="start"
+              side="bottom"
+              sideOffset={6}
+              onKeyDownCapture={handleAddSurfaceMenuKeyDown}
+            >
+              {addSurfaceActions.map((action) => {
+                const Icon = action.icon;
+                if (action.label === "Browser" && action.available) {
+                  return (
+                    <MenuSub key={action.label}>
+                      <MenuSubTrigger
+                        className="[&>svg:last-child]:ms-0"
+                        aria-keyshortcuts={action.shortcut}
+                        onClick={(event) => {
+                          const pointerType =
+                            "pointerType" in event.nativeEvent &&
+                            typeof event.nativeEvent.pointerType === "string"
+                              ? event.nativeEvent.pointerType
+                              : undefined;
+                          if (!shouldOpenDefaultBrowserProfileFromMenuClick(pointerType)) return;
+                          setAddSurfaceMenuOpen(false);
+                          action.onClick();
+                        }}
                       >
                         <Icon />
                         {action.label}
-                      </SurfaceMenuItem>
-                    );
-                  })}
-                </MenuPopup>
-              </Menu>
-            ) : null}
-          </div>
-        </ScrollArea>
-        {tabScrollState.hasOverflow ? (
-          <div
-            className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
-            role="group"
-            aria-label="Scroll panel tabs"
-          >
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className="inline-flex">
-                    <Button
-                      aria-label="Scroll tabs left"
-                      disabled={!tabScrollState.canScrollLeft}
-                      onClick={() => scrollTabs(-1)}
-                      size="icon-xs"
-                      variant="ghost"
-                    >
-                      <ChevronLeft />
-                    </Button>
-                  </span>
+                        <MenuShortcut>{action.shortcut}</MenuShortcut>
+                      </MenuSubTrigger>
+                      <MenuSubPopup className="max-w-56">
+                        {browserProfiles.map((profile) => (
+                          <MenuItem
+                            key={profile.id}
+                            onClick={() => props.onAddBrowserInProfile(profile.id)}
+                          >
+                            <span className="min-w-0 truncate">{profile.name}</span>
+                          </MenuItem>
+                        ))}
+                      </MenuSubPopup>
+                    </MenuSub>
+                  );
                 }
-              />
-              <TooltipPopup>Scroll tabs left</TooltipPopup>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className="inline-flex">
-                    <Button
-                      aria-label="Scroll tabs right"
-                      disabled={!tabScrollState.canScrollRight}
-                      onClick={() => scrollTabs(1)}
-                      size="icon-xs"
-                      variant="ghost"
-                    >
-                      <ChevronRight />
-                    </Button>
-                  </span>
-                }
-              />
-              <TooltipPopup>Scroll tabs right</TooltipPopup>
-            </Tooltip>
-          </div>
+                return (
+                  <SurfaceMenuItem
+                    key={action.label}
+                    available={action.available}
+                    disabledReason={action.disabledReason}
+                    shortcut={action.shortcut}
+                    onClick={action.onClick}
+                  >
+                    <Icon />
+                    {action.label}
+                  </SurfaceMenuItem>
+                );
+              })}
+            </MenuPopup>
+          </Menu>
         ) : null}
+        <span aria-hidden data-tab-strip-spare className="min-w-0 flex-1" />
         {props.layoutControls}
         {ownsDesktopTitleBar && !props.layoutControls ? (
           <span aria-hidden className="hidden w-24 shrink-0 wco:block" />
@@ -1535,7 +1901,24 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           />
         ) : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        data-right-panel-surface-content
+        id={panelId}
+        {...(props.activeSurfaceId === null && !props.onShowRunDetails
+          ? {}
+          : {
+              role: "tabpanel",
+              "aria-label": focusedSurface
+                ? surfaceTitle(
+                    focusedSurface,
+                    props.previewSessions,
+                    props.terminalLabelsById,
+                    nameState,
+                  )
+                : "Run details",
+            })}
+      >
         {props.activeSurfaceId === null && !props.onShowRunDetails ? (
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}

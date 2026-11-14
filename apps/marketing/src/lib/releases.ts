@@ -53,3 +53,32 @@ export async function fetchLatestRelease(channel: ReleaseChannel = "stable"): Pr
 
   return data;
 }
+
+export interface ReleaseSummary {
+  version: string;
+  publishedAt: Date;
+}
+
+let buildRelease: Promise<ReleaseSummary | null> | undefined;
+
+/**
+ * The latest stable release, read once when the site is built and shared by
+ * every page that asks. Returns null when GitHub cannot be reached so a build
+ * without network still succeeds; callers leave the version out in that case.
+ */
+export function fetchLatestReleaseAtBuild(): Promise<ReleaseSummary | null> {
+  buildRelease ??= readLatestRelease();
+  return buildRelease;
+}
+
+async function readLatestRelease(): Promise<ReleaseSummary | null> {
+  try {
+    const response = await fetch(LATEST_API_URL);
+    if (!response.ok) return null;
+    const release: Partial<Release> = await response.json();
+    if (!release.tag_name || !release.published_at) return null;
+    return { version: release.tag_name, publishedAt: new Date(release.published_at) };
+  } catch {
+    return null;
+  }
+}
