@@ -14,8 +14,9 @@ Read first: the Linear task (it embeds a screenshot of the current screen and li
 the screen must keep doing), the feature planner's parity checklist if present, and the
 project documents "Design direction" and "Architecture decisions and performance
 budgets". The design direction defines the design language, tokens, the motion system
-(`motion` for component and layout animation, `gsap` for timelines and choreographed
-sequences), the icon system that replaces Lucide, and which effects are allowed where.
+and its named presets and tokens, the icon system that replaces Lucide, and which effects
+are allowed where. Which animation libraries the app uses is recorded as a decision in
+milestone M0 of the project; follow what is decided there rather than assuming one.
 Work inside it; if a screen needs something it does not cover, propose the addition
 explicitly so it can be adopted for every screen.
 
