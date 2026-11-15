@@ -2,6 +2,8 @@ import { spring } from "animejs/easings/spring";
 import { waapi } from "animejs/waapi";
 import type { DOMTargetsParam, WAAPIAnimationParams } from "animejs";
 
+import { SPRING } from "@e6tools/design-tokens/motion";
+
 /**
  * Shared motion vocabulary for the web client.
  *
@@ -14,20 +16,12 @@ import type { DOMTargetsParam, WAAPIAnimationParams } from "animejs";
  * synced WAAPI animations from the JS engine every frame, which reintroduces
  * the main-thread dependency this module exists to avoid.
  */
-export const MOTION_MS = {
-  instant: 120,
-  state: 200,
-  layout: 360,
-} as const;
-
-/** Confident deceleration for arrivals. Exits use `EASE_IN_OUT` and run shorter. */
-export const EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
-export const EASE_IN_OUT = "cubic-bezier(0.4, 0, 0.2, 1)";
+export { EASE_IN_OUT, EASE_OUT, MOTION_MS } from "@e6tools/design-tokens/motion";
 
 /** Small settle for things the user just caused: highlights, cards, chips. */
-export const SPRING_SNAPPY = spring({ bounce: 0.12, duration: 260 });
+export const SPRING_SNAPPY = spring(SPRING.snappy);
 /** No overshoot, for layout-adjacent motion where a bounce would read as jitter. */
-export const SPRING_GENTLE = spring({ bounce: 0, duration: 380 });
+export const SPRING_GENTLE = spring(SPRING.gentle);
 
 /**
  * CSS `linear()` spring curves for transitions CSS already owns. The curve is
