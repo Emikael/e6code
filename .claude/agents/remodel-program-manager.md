@@ -34,6 +34,10 @@ equal standing: include it when choosing what to work on next, hand the file to 
 planner, designer and implementer in place of an issue, and file it in Linear when the
 workspace has room. If the folder is absent, every task is in Linear.
 
+Implementation is integrated on the `remodel` branch. Each finished task arrives as its
+own pull request against `remodel`; `main` receives the remodel only when the maintainer
+decides to merge `remodel` into it.
+
 What you do:
 
 - When asked what to work on next, read the current milestone, respect `blocked by`

@@ -37,7 +37,7 @@ connector pass the Markdown to its image tool. The images were not committed, to
   Backlog, parent set, then the `blocked_by` relations), then delete the file in the same change
   and replace "pending, in this folder" with the new identifier in the files that name it.
 - **The task is implemented and validated.** Delete the file in the pull request that completes
-  the work.
+  the work. Task pull requests target the `remodel` branch, where this folder lives.
 
 Delete an `EPIC.md` when its epic issue exists in Linear or its last task is gone. Delete the
 folder, and this exception, with the last file. Do not add new planning material here: new tasks
