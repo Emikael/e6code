@@ -2,7 +2,7 @@
 
 The remodel borrows motion recipes, effects, icons and fonts from outside sources. Most of them
 are not npm packages, so the generated [license manifest](open-source-licenses.md) cannot see
-them. This page is the gate: a screen task checks it before porting a recipe, and the change that
+them. This page is the gate: a screen task checks it before adopting a recipe, and the change that
 lands borrowed work adds or updates its row here, plus a `customNotices` entry when one is owed.
 
 This page records licence facts as read on the date given. It is not legal advice. Where a text is
@@ -17,18 +17,30 @@ redistribution.
 
 - **MIT, ISC and OFL sources** may be used, copied with their notice, and listed in Settings > Open
   source licenses.
-- **transitions.dev recipes are not MIT** (see below). Until D4 is decided, a recipe may only
-  inform a preset written independently in our motion layer, credited here. Copying recipe code
-  is not allowed. The transitions.dev `LICENSE` puts every published snippet under the
-  Transitions.dev License, not MIT. Our reading, not legal advice: copied code would keep that
-  licence inside an MIT repository.
-- **Commons Clause sources (React Bits)** are reference only. Our code is written from the idea,
-  never translated from their source, and is credited here. D3 may change this.
+- **Primitives are built over Base UI** (`@base-ui/react`) in `apps/web/src/next/ui`.
+- **transitions.dev free recipes are reference only** (decided 2026-11-15). They are not MIT (see
+  below). Each adopted preset is written from the idea in `next/motion` with our tokens and
+  credited here. No recipe code is copied. The transitions.dev `LICENSE` puts every published
+  snippet under the Transitions.dev License. Our reading, not legal advice: copied code would keep
+  that licence inside an MIT repository.
+- **React Bits is reference only** (D3, decided 2026-11-15). No React Bits source or shader enters
+  the repository, and nothing is installed with `npx shadcn add` from reactbits.dev. An effect is
+  written from the idea and credited here. It must not be a translation of React Bits code,
+  because the licence forbids redistribution "as a ported version".
+- **Off-limits in the app**, whatever the source:
+  - WebGL backgrounds other than the ambient shader on its listed screens;
+  - cursor effects, Glass Surface and Fluid Glass;
+  - Click Spark and particle bursts;
+  - anything that needs `matter-js` or `three`;
+  - Sound Lab sounds;
+  - Dock-style magnification;
+  - components that depend on Hugeicons.
 - **Proprietary no-charge sources (`gsap`)** stay out of the app. Marketing use waits for D1.
-- **Paid sources** (transitions.dev Pro, React Bits Pro, Hugeicons Pro) are not used.
+- **Paid sources** (transitions.dev Pro and Motion Agent, React Bits Pro, Hugeicons Pro) are not
+  bought or used (D4, decided 2026-11-15).
 - **CC BY assets** (pictures, Solar icons) are marketing only, with a visible credit on the page.
 - **Every sound asset needs a row here** (source, licence, changes) before it lands. The UI sound
-  layer from D9 follows this rule. React Bits Sound Lab stays reference only until D3 is decided.
+  layer from D9 follows this rule. React Bits Sound Lab is reference only, under D3.
 
 Check that no React Bits code has entered the repository:
 
@@ -150,10 +162,9 @@ epic expected to land the work, not a finished change.
 
 ### transitions.dev recipes (design direction 7.1)
 
-All of these are under the Transitions.dev License. They are allowed only if written
-independently and credited here; recipe code needs D4 and a `noticeFile` entry. Planned in E02
-(`next/motion` presets). The notice path for all of them is credit only. Every row also replaces
-hard-coded colours with our roles.
+All of these are under the Transitions.dev License. Each is written from the idea, with no
+recipe code, and credited here. Planned in E02-T03 (`next/motion` presets). The notice path for
+all of them is credit only. Every row also uses our colour roles instead of hard-coded colours.
 
 | Recipe                          | Becomes               | What we change              |
 | ------------------------------- | --------------------- | --------------------------- |
@@ -172,7 +183,7 @@ hard-coded colours with our roles.
 
 ### React Bits references (design direction 7.2)
 
-These are reference only and credit only, with no code from React Bits. D3 is open.
+These are reference only and credit only, with no code from React Bits (D3).
 
 | Item                        | Becomes                        | Where (planned)                          |
 | --------------------------- | ------------------------------ | ---------------------------------------- |
@@ -200,12 +211,17 @@ Provider logos and screenshots on the marketing site are out of scope for this r
 `@phosphor-icons/core` is a devDependency used only to generate components, the shipped SVGs have
 no notice. The task that lands them must add a `customNotices` MIT entry for Phosphor Icons.
 
-## Open decisions
+## Decisions
 
-The maintainer fills these in. They are not decided here.
+The maintainer records these. An agent does not decide them.
 
-| Decision                                                                        | Status                | Facts the decision rests on                                                                                                                                                                            |
-| ------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D1 `gsap` ([ENG-110](https://linear.app/elomigroup/issue/ENG-110))              | Waiting for the owner | Proprietary licence. Webflow can amend it for future versions and can terminate it on non-compliance. It has no redistribution or fork clause.                                                         |
-| D3 React Bits ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))          | Waiting for the owner | Commons Clause. "Ported version" is undefined. The grant is limited to use inside an application, website or product.                                                                                  |
-| D4 transitions.dev Pro ([ENG-125](https://linear.app/elomigroup/issue/ENG-125)) | Waiting for the owner | The free set is under a custom licence, not MIT, and `pro.html` contradicts this. The extent of the company-use and Business-plan clause is stated only in `LICENSE`. "Substantial part" is undefined. |
+| Decision                                                                                         | Status                                                                                  | Facts the decision rests on                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primitive layer ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))                         | Decided 2026-11-15: keep Base UI                                                        | Base UI already exposes the `--transform-origin` used by the `pop` preset.                                                                                                               |
+| D1 `gsap` ([ENG-110](https://linear.app/elomigroup/issue/ENG-110))                               | Waiting for the owner                                                                   | Proprietary licence. Webflow can amend it for future versions and can terminate it on non-compliance. It has no redistribution or fork clause.                                           |
+| D3 React Bits ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))                           | Decided 2026-11-15: reference only; reimplement from the idea, never translate its code | Commons Clause. "Ported version" is undefined. The grant is limited to use inside an application, website or product.                                                                    |
+| D4 transitions.dev Pro and Motion Agent ([ENG-125](https://linear.app/elomigroup/issue/ENG-125)) | Decided 2026-11-15: not bought                                                          | The free set is under a custom licence, not MIT, and `pro.html` contradicts this. The company-use and Business-plan clause is stated only in `LICENSE`. "Substantial part" is undefined. |
+| Free transitions.dev recipes ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))            | Decided 2026-11-15: reference only, same rule as React Bits                             | As D4.                                                                                                                                                                                   |
+
+When E03 replaces the icon set, `components.json` must change too: it still sets
+`iconLibrary: "lucide"`.
