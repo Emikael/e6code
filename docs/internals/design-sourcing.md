@@ -10,14 +10,18 @@ ambiguous, the ambiguity is written down and left to the maintainer.
 
 ## Policy
 
-E6 is open at the core, so anyone who forks the repository must inherit only OSI or OFL terms
-on its files. That rules out committing code whose licence restricts redistribution.
+E6 is open at the core, so a fork should inherit only OSI or OFL terms on code and fonts, and only
+redistributable terms on any other file. The one exception is CC BY media, which is allowed in
+`apps/marketing` with its credit (below). That rules out committing code whose licence restricts
+redistribution.
 
 - **MIT, ISC and OFL sources** may be used, copied with their notice, and listed in Settings > Open
   source licenses.
 - **transitions.dev recipes are not MIT** (see below). Until D4 is decided, a recipe may only
   inform a preset written independently in our motion layer, credited here. Copying recipe code
-  is not allowed: the file would carry the Transitions.dev License, not MIT.
+  is not allowed. The transitions.dev `LICENSE` puts every published snippet under the
+  Transitions.dev License, not MIT. Our reading, not legal advice: copied code would keep that
+  licence inside an MIT repository.
 - **Commons Clause sources (React Bits)** are reference only. Our code is written from the idea,
   never translated from their source, and is credited here. D3 may change this.
 - **Proprietary no-charge sources (`gsap`)** stay out of the app. Marketing use waits for D1.
@@ -29,7 +33,8 @@ on its files. That rules out committing code whose licence restricts redistribut
 Check that no React Bits code has entered the repository:
 
 ```bash
-git grep -n -i -E 'reactbits|react bits|react-bits|commons clause' -- . ':!.repos'
+git grep -n -i -E 'reactbits|react bits|react-bits|commons clause' -- . ':!.repos' \
+  ':!docs/internals/design-sourcing.md'
 ```
 
 On 2026-11-15 this matched only a planning note in `remodel-backlog/E25/E25-T15.md`, not code.
@@ -51,12 +56,14 @@ distribution, sublicensing, open-source projects or forks. There are three restr
 - no removing or altering notices or branding.
 
 If you fail to comply, Webflow may terminate the licence, and you must then destroy all copies.
-Webflow may amend the licence by posting new terms. If you reject them, you may not use versions
-released after the change, but earlier versions keep their earlier terms. Webflow keeps all IP.
+Webflow may amend the licence at any time by posting new terms, provided an update does not cause
+"material degradation" to the security, integrity or functionality of GSAP. If you reject the new
+terms, you may not use versions released after the change, but earlier versions keep their
+earlier terms. Webflow keeps all IP.
 The licence incorporates Webflow's [Terms of Service](https://webflow.com/legal/terms) (effective
-15 November 2023, California law), and the GSAP licence governs where the two conflict. For a fork,
-this means a GSAP dependency carries terms that Webflow can change for future versions, and that
-neither we nor the fork can relicense. `@gsap/react` 2.1.2 says "SEE LICENSE AT" the same page.
+15 November 2023, California law), and the GSAP licence governs where the two conflict. Our reading,
+not legal advice: a fork that keeps a GSAP dependency also takes on these terms, which Webflow
+can change for future versions and which E6's MIT licence does not cover. `@gsap/react` 2.1.2 says "SEE LICENSE AT" the same page.
 
 **React Bits.** Read at the repository's `LICENSE.md`
 ([DavidHDev/react-bits@cf28010](https://github.com/DavidHDev/react-bits/blob/cf2801031f07f53d4684e65b961bde7c2e2a6921/LICENSE.md)):
@@ -67,7 +74,9 @@ MIT with Commons Clause v1.0, © 2026 David Haz. Two points differ from plain MI
 - The components may not be sold, sublicensed or redistributed "alone, in a bundle, or as a ported
   version".
 
-The same restriction covers the tools (Sound Lab included) and the sounds library. Exports from
+The same restriction covers the tools (Sound Lab included) and the sounds library. The tools, or a
+substantially similar copy, also may not be offered "as a hosted service". The text attaches the
+hosted-service ban to the tools, not the components. Exports from
 the tools may ship inside a product, but not as packs. _Ambiguous:_ the text does not define
 "ported version". It does not say whether an effect written independently from a React Bits
 demo counts as a port, or whether committing component source to a public MIT repository counts
@@ -91,7 +100,8 @@ part of it is prohibited, and open-source repositories are named explicitly. Not
 
 The licence has no SPDX id, so `generatedNotices` cannot render it. Templates and kits that use
 transitions need a paid plan and must keep "the transitions.dev comment" in each transition's
-code. The terms may change with 14 days' email notice. Pro and Business are paid plans. Under the
+code. The vendor may update the terms. Account holders get at least 14 days' email notice of
+material changes only, and the terms are governed by Czech law. Pro and Business are paid plans. Under the
 `LICENSE`, Business is required when Pro transitions or paid agent features are used for a
 company.
 
