@@ -22,6 +22,8 @@ export { EASE_IN_OUT, EASE_OUT, MOTION_MS } from "@e6tools/design-tokens/motion"
 export const SPRING_SNAPPY = spring(SPRING.snappy);
 /** No overshoot, for layout-adjacent motion where a bounce would read as jitter. */
 export const SPRING_GENTLE = spring(SPRING.gentle);
+/** A short drop into place: menus, toasts, dropped items. */
+const SPRING_DROP = spring(SPRING.drop);
 
 /**
  * CSS `linear()` spring curves for transitions CSS already owns. The curve is
@@ -30,12 +32,14 @@ export const SPRING_GENTLE = spring(SPRING.gentle);
 const SPRING_CSS = {
   gentle: waapi.convertEase(SPRING_GENTLE.ease, 40),
   snappy: waapi.convertEase(SPRING_SNAPPY.ease, 40),
+  drop: waapi.convertEase(SPRING_DROP.ease, 40),
 } as const;
 
 /** Exposes the spring curves as `--ease-spring-*`, installed once at startup before first render. */
 export function installMotionTokens(root: HTMLElement = document.documentElement) {
   root.style.setProperty("--ease-spring-gentle", SPRING_CSS.gentle);
   root.style.setProperty("--ease-spring-snappy", SPRING_CSS.snappy);
+  root.style.setProperty("--ease-spring-drop", SPRING_CSS.drop);
 }
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
