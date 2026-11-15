@@ -6,6 +6,7 @@
  *
  * Values are verbatim CSS strings. Nothing here parses or normalises colours.
  */
+import { KEY_LIGHT_BLOCKS } from "./keyLight.ts";
 
 export type CssRule = { readonly rule: string; readonly body: ReadonlyArray<CssNode> };
 export type CssNode =
@@ -307,12 +308,13 @@ export const STOCK_SIDEBAR: CssRule = {
   ],
 };
 
-/** Placeholder name in `index.css` for each stock block. */
+/** Placeholder name in `index.css` for each block. */
 export const WEB_STOCK_BLOCKS = {
   "stock-geometry": STOCK_GEOMETRY,
   "stock-palette": STOCK_PALETTE,
   "stock-sidebar": STOCK_SIDEBAR,
-} as const satisfies Record<string, CssRule>;
+  ...KEY_LIGHT_BLOCKS,
+} as const satisfies Record<string, CssRule | ReadonlyArray<CssRule>>;
 
 function renderNode(node: CssNode, indent: string): string[] {
   if ("rule" in node) return renderRuleLines(node, indent);
@@ -336,7 +338,8 @@ function renderRuleLines(rule: CssRule, indent: string): string[] {
   return lines;
 }
 
-/** Renders one rule as CSS, every line prefixed with `indent`. */
-export function renderCssRule(rule: CssRule, indent = ""): string {
-  return renderRuleLines(rule, indent).join("\n");
+/** Renders one rule, or several separated by a blank line, every line prefixed with `indent`. */
+export function renderCssRule(rule: CssRule | ReadonlyArray<CssRule>, indent = ""): string {
+  const rules: ReadonlyArray<CssRule> = "rule" in rule ? [rule] : rule;
+  return rules.map((each) => renderRuleLines(each, indent).join("\n")).join("\n\n");
 }

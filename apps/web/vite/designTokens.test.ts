@@ -35,7 +35,7 @@ describe("design-token placeholders", () => {
 
   it("consumes every placeholder in index.css", async () => {
     const raw = await readSource("../src/index.css");
-    for (const name of ["stock-geometry", "stock-palette", "stock-sidebar"]) {
+    for (const name of ["stock-geometry", "stock-palette", "stock-sidebar", "key-light"]) {
       expect(count(raw, `/* @design-tokens ${name} */`), name).toBe(1);
     }
     expect(renderIndexCss(raw)).not.toContain("@design-tokens");
@@ -58,7 +58,8 @@ describe("designTokensPlugin", () => {
       await NodeFSP.writeFile(NodePath.join(root, "main.ts"), 'import "./style.css";');
       await NodeFSP.writeFile(
         NodePath.join(root, "style.css"),
-        '@import "tailwindcss" source(none);\n\n/* @design-tokens stock-palette */\n',
+        '@import "tailwindcss" source(none);\n\n/* @design-tokens stock-palette */\n\n' +
+          "/* @design-tokens key-light */\n",
       );
 
       const output = await build({
@@ -82,6 +83,7 @@ describe("designTokensPlugin", () => {
       const html = String(assets.find((file) => file.fileName === "index.html")?.source);
 
       expect(css).toContain("--primary: var(--stock-primary, #5b4ae0);");
+      expect(css).toContain("--plane-ground: #f0f1f4;");
       // Tailwind-only syntax in the injected block was compiled, so Tailwind saw it.
       expect(css).not.toContain("--alpha(");
       expect(css).not.toContain("@variant");
