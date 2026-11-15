@@ -168,6 +168,11 @@ export default defineConfig({
         rules: { "e6code/no-mobile-uniwind-theme-escape-hatches": "error" },
       },
       {
+        // Redesigned (v2) web code takes colour from semantic roles only.
+        files: ["apps/web/src/next/**"],
+        rules: { "e6code/no-raw-tailwind-palette-colors": "error" },
+      },
+      {
         // Shared client code must not call APIs missing from Hermes. Our ESNext
         // TypeScript target accepts them even when they would crash mobile at launch.
         // Tests run on Node and are exempt.
