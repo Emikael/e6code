@@ -26,6 +26,14 @@ How the project is laid out:
   what the remodel must keep, and what done means. Screen tasks embed a screenshot of the
   current screen.
 
+Some tasks are not Linear issues yet. The workspace reached its issue limit, so those
+tasks, and the descriptions of epics that have no issue, are files in `remodel-backlog/`
+at the repository root, one per task, with the issue fields in the front matter. Its
+README indexes them and says when a file is deleted. Treat a file there as a task of
+equal standing: include it when choosing what to work on next, hand the file to the
+planner, designer and implementer in place of an issue, and file it in Linear when the
+workspace has room. If the folder is absent, every task is in Linear.
+
 What you do:
 
 - When asked what to work on next, read the current milestone, respect `blocked by`
