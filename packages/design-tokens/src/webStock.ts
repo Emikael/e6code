@@ -7,6 +7,8 @@
  * Values are verbatim CSS strings. Nothing here parses or normalises colours.
  */
 import { KEY_LIGHT_BLOCKS } from "./keyLight.ts";
+import { LAYOUT_BLOCKS } from "./layout.ts";
+import { TYPE_BLOCKS } from "./type.ts";
 
 export type CssRule = { readonly rule: string; readonly body: ReadonlyArray<CssNode> };
 export type CssNode =
@@ -314,6 +316,8 @@ export const WEB_STOCK_BLOCKS = {
   "stock-palette": STOCK_PALETTE,
   "stock-sidebar": STOCK_SIDEBAR,
   ...KEY_LIGHT_BLOCKS,
+  ...TYPE_BLOCKS,
+  ...LAYOUT_BLOCKS,
 } as const satisfies Record<string, CssRule | ReadonlyArray<CssRule>>;
 
 function renderNode(node: CssNode, indent: string): string[] {

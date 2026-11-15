@@ -1304,6 +1304,10 @@ html[data-theme-id="e6-chat"] [data-app-sidebar] {
    come after the theme mapping and the contrast recompute, which they derive from. */
 /* @design-tokens key-light */
 
+/* @design-tokens type */
+
+/* @design-tokens layout */
+
 body {
   /* Reference the theme token (not a literal stack) so the Settings ->
      Appearance runtime override of --font-sans reaches all interface text. */

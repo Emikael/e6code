@@ -35,7 +35,14 @@ describe("design-token placeholders", () => {
 
   it("consumes every placeholder in index.css", async () => {
     const raw = await readSource("../src/index.css");
-    for (const name of ["stock-geometry", "stock-palette", "stock-sidebar", "key-light"]) {
+    for (const name of [
+      "stock-geometry",
+      "stock-palette",
+      "stock-sidebar",
+      "key-light",
+      "type",
+      "layout",
+    ]) {
       expect(count(raw, `/* @design-tokens ${name} */`), name).toBe(1);
     }
     expect(renderIndexCss(raw)).not.toContain("@design-tokens");
