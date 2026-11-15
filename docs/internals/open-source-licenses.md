@@ -12,6 +12,9 @@ License notices are generated independently for the client that ships them:
 
 Neither path depends on the connected environment or an RPC.
 
+Design sources that are not npm packages, such as motion recipes and effects the remodel borrows
+from, are tracked in the [design sourcing register](design-sourcing.md).
+
 ## What the build collects
 
 The generator follows installed production and optional dependencies, including dependencies of
