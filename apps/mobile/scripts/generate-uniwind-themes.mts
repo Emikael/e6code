@@ -3,7 +3,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import tailwindColors from "tailwindcss/colors";
-import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@e6tools/shared/themePalettes";
+import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@e6tools/design-tokens/themePalettes";
 
 import {
   createMobileThemeVariables,

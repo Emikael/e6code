@@ -11,6 +11,7 @@ import react from "@vitejs/plugin-react";
 import { createLogger, createServer } from "vite-plus";
 import { expect, it } from "vite-plus/test";
 
+import { designTokensPlugin } from "../vite/designTokens";
 import { tailwindPlugins } from "../vite/tailwind";
 
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
@@ -53,6 +54,7 @@ export const startup = Promise.resolve().then(() => globalThis.onStarted(Shared(
       experimental: { bundledDev: true },
       plugins: [
         react(),
+        designTokensPlugin(),
         {
           name: "capture-bootstrap-bundle",
           buildEnd(error) {
@@ -92,6 +94,14 @@ export const startup = Promise.resolve().then(() => globalThis.onStarted(Shared(
       await NodeFSP.mkdir(NodePath.dirname(target), { recursive: true });
       await NodeFSP.writeFile(target, code);
     }
+
+    // The raw index.html carries design-token placeholders; bundled dev must render them.
+    const address = server.httpServer?.address();
+    if (!address || typeof address === "string") throw new Error("Vite did not bind a port");
+    const html = await (await fetch(`http://127.0.0.1:${address.port}/`)).text();
+    expect(html).toContain("const SPLASH_COLORS = {");
+    expect(html).not.toContain("@design-tokens");
+    expect(html).not.toContain("%E6_BOOT_THEME_COLOR%");
 
     // Run the actual generated ES modules so their import order and refresh
     // checks execute. These stubs replace only the browser and HMR transport.

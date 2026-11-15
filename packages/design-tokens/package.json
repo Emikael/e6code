@@ -1,0 +1,38 @@
+{
+  "name": "@e6tools/design-tokens",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./themePalettes": {
+      "types": "./src/themePalettes.ts",
+      "import": "./src/themePalettes.ts"
+    },
+    "./webStock": {
+      "types": "./src/webStock.ts",
+      "import": "./src/webStock.ts"
+    },
+    "./bootPalette": {
+      "types": "./src/bootPalette.ts",
+      "import": "./src/bootPalette.ts"
+    },
+    "./desktopWindow": {
+      "types": "./src/desktopWindow.ts",
+      "import": "./src/desktopWindow.ts"
+    },
+    "./motion": {
+      "types": "./src/motion.ts",
+      "import": "./src/motion.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vp test run --passWithNoTests"
+  },
+  "dependencies": {
+    "@e6tools/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

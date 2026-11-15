@@ -49,6 +49,7 @@
     "@clerk/expo": "catalog:",
     "@e6tools/client-runtime": "workspace:*",
     "@e6tools/contracts": "workspace:*",
+    "@e6tools/design-tokens": "workspace:*",
     "@e6tools/mobile-markdown-text": "file:./modules/e6-markdown-text",
     "@e6tools/mobile-review-diff-native": "file:./modules/e6-review-diff",
     "@e6tools/mobile-terminal-native": "file:./modules/e6-terminal",
