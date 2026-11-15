@@ -13,6 +13,7 @@ import { DEV_PROXIED_PATH_PREFIXES } from "@e6tools/shared/devProxy";
 
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
+import { designTokensPlugin } from "./vite/designTokens";
 import { tailwindPlugins } from "./vite/tailwind";
 
 const repoEnv = loadRepoEnv();
@@ -75,7 +76,7 @@ const unitTestProject = {
   extends: true,
   test: {
     name: "unit",
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "vite/**/*.test.ts"],
     // The web runtime suite exercises auth bootstrap, saved environments,
     // and websocket subscription lifecycles. Under the full monorepo test
     // run, those async tests can exceed Vitest's default 5s budget.
@@ -180,6 +181,8 @@ export default defineConfig(() => {
         parserOpts: { plugins: ["typescript", "jsx"] },
         presets: [reactCompilerPreset()],
       }),
+      // Before Tailwind: it must compile the rendered token blocks.
+      designTokensPlugin(),
       tailwindPlugins(bundledDev),
     ],
     optimizeDeps: {

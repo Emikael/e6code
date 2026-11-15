@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import indexHtml from "../index.html?raw";
+import rawIndexHtml from "../index.html?raw";
+import { renderIndexHtml } from "../vite/designTokens";
 import {
   CUSTOM_THEMES_STORAGE_KEY,
   getDefaultThemeColors,
@@ -22,6 +23,8 @@ const THEME_STORAGE_KEY = "e6code:theme";
 // A custom theme that omits chrome falls back to the runtime default, so the
 // boot copy of that default stays derived from the real palette.
 const DEFAULT_DARK_CHROME = getDefaultThemeColors("dark").chrome;
+// The boot palette is injected at build time; test the same output the build serves.
+const indexHtml = renderIndexHtml(rawIndexHtml);
 
 const bootScript = (() => {
   const openTag = "<script>";
