@@ -17,6 +17,7 @@
     "@crowecawcaw/xa11y": "0.13.0",
     "@e6tools/client-runtime": "workspace:*",
     "@e6tools/contracts": "workspace:*",
+    "@e6tools/design-tokens": "workspace:*",
     "@e6tools/shared": "workspace:*",
     "@e6tools/ssh": "workspace:*",
     "@e6tools/tailscale": "workspace:*",

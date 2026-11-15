@@ -374,6 +374,7 @@
   },
   "dependencies": {
     "@e6tools/contracts": "workspace:*",
+    "@e6tools/design-tokens": "workspace:*",
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
     "effect": "catalog:",

@@ -175,6 +175,7 @@ export default defineConfig({
           "apps/mobile/src/**",
           "packages/client-runtime/src/**",
           "packages/contracts/src/**",
+          "packages/design-tokens/src/**",
           "packages/shared/src/**",
         ],
         excludeFiles: ["**/*.test.ts", "**/*.test.tsx"],

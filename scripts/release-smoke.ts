@@ -26,6 +26,7 @@ const workspaceFiles = [
   "oxlint-plugin-e6code/package.json",
   "packages/client-runtime/package.json",
   "packages/contracts/package.json",
+  "packages/design-tokens/package.json",
   "packages/shared/package.json",
   "packages/ssh/package.json",
   "packages/tailscale/package.json",
