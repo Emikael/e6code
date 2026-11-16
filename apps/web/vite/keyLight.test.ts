@@ -10,7 +10,7 @@ import {
   type CssNode,
 } from "@e6tools/design-tokens/webStock";
 import "culori/css";
-import { clampRgb, converter, wcagLuminance, type Oklab } from "culori/fn";
+import { clampRgb, converter, parse, wcagLuminance, type Oklab, type Rgb } from "culori/fn";
 import { describe, expect, it } from "vite-plus/test";
 
 import { getThemeColorVariable } from "../src/themePalette";
@@ -34,14 +34,15 @@ function declarations(nodes: ReadonlyArray<CssNode>): Array<[string, string]> {
 const keyLightNames = new Set(declarations(KEY_LIGHT).map(([name]) => name));
 
 const toOklab = converter("oklab");
+const toRgb = converter("rgb");
 const PLANES = ["ground", "well", "stage", "raised", "float"] as const;
 
 /**
- * Relative luminance of each plane under a theme that only sets `--background`, computed
- * from the themed block's own expressions. Throws on an expression it cannot evaluate,
- * such as a plane that reads a legacy variable instead of the background.
+ * Each plane's sRGB colour under a theme that only sets `--background`, computed from the
+ * themed block's own expressions. Throws on an expression it cannot evaluate, such as a
+ * plane that reads a legacy variable instead of the background.
  */
-function themedPlaneLuminance(mode: "dark" | "light", background: string, relativeColour: boolean) {
+function themedPlanes(mode: "dark" | "light", background: string, relativeColour: boolean) {
   const themed = KEY_LIGHT.find((node) => node.rule === THEMED_SELECTOR)!;
   const values = new Map<string, string>();
   const collect = (nodes: ReadonlyArray<CssNode>) => {
@@ -82,11 +83,16 @@ function themedPlaneLuminance(mode: "dark" | "light", background: string, relati
   };
 
   return Object.fromEntries(
-    PLANES.map((plane) => [
-      plane,
-      wcagLuminance(clampRgb(evaluate(values.get(`--plane-${plane}`)!))),
-    ]),
-  ) as Record<(typeof PLANES)[number], number>;
+    PLANES.map((plane) => [plane, toRgb(clampRgb(evaluate(values.get(`--plane-${plane}`)!)))]),
+  ) as Record<(typeof PLANES)[number], Rgb>;
+}
+
+function themedPlaneLuminance(mode: "dark" | "light", background: string, relativeColour: boolean) {
+  const planes = themedPlanes(mode, background, relativeColour);
+  return Object.fromEntries(PLANES.map((plane) => [plane, wcagLuminance(planes[plane])])) as Record<
+    (typeof PLANES)[number],
+    number
+  >;
 }
 
 /** `index.css` rendered with every block except key-light, so only legacy names remain. */
@@ -170,6 +176,28 @@ describe("key-light tokens", () => {
       if (relativeColour || background !== "#000000") {
         expect(L.ground).toBeLessThan(L.well);
         expect(L.well).toBeLessThan(L.stage);
+      }
+    });
+  });
+
+  // The designer's steps (ENG-141 "Design: themed plane derivation"): on the stock stage
+  // they land within 1/255 of these colours, and pure black lifts to the 0.16 floor. Near
+  // black a 1% dark step moves less than 1/255, so a white background under dark pins the
+  // dark ground and well steps (expected values from the designer's `fit.mjs`).
+  it.each([
+    ["dark", "#16181d", ["#07080a", "#0f1115", "#16181d", "#1d1f24", "#1f2126"]],
+    ["light", "#ffffff", ["#f2f2f2", "#f5f5f5", "#ffffff", "#ffffff", "#ffffff"]],
+    ["dark", "#000000", ["#030303", "#080808", "#0d0d0d", "#151515", "#161616"]],
+    ["dark", "#ffffff", ["#898989", "#cacaca", "#ffffff", "#ffffff", "#ffffff"]],
+  ] as const)("derives the designed %s planes from %s", (mode, background, expected) => {
+    const planes = themedPlanes(mode, background, true);
+    PLANES.forEach((plane, index) => {
+      const want = parse(expected[index]!)! as Rgb;
+      for (const channel of ["r", "g", "b"] as const) {
+        expect(
+          Math.abs(planes[plane][channel] - want[channel]) * 255,
+          `${plane}.${channel}`,
+        ).toBeLessThanOrEqual(1);
       }
     });
   });
