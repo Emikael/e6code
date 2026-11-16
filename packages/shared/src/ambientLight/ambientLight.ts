@@ -14,18 +14,26 @@
  */
 import { EASE_BEZIER } from "@e6tools/design-tokens/motion";
 
-import { type AmbientClock, type AmbientPauseReason, createFrameLoop } from "./frameLoop.ts";
+import { type AmbientClock, createFrameLoop } from "./frameLoop.ts";
 import {
   type AmbientCanvas,
   type AmbientColors,
   type AmbientRenderer,
   createAmbientRenderer,
 } from "./renderer.ts";
+import type { AmbientPauseReason, AmbientState, AmbientStaticReason } from "./state.ts";
 
 export { AMBIENT_FRAME_MS, AMBIENT_IDLE_MS } from "./frameLoop.ts";
-export type { AmbientClock, AmbientPauseReason } from "./frameLoop.ts";
+export type { AmbientClock } from "./frameLoop.ts";
 export { AMBIENT_CONTEXT_ATTRIBUTES } from "./renderer.ts";
 export type { AmbientCanvas, AmbientColors } from "./renderer.ts";
+export {
+  type AmbientPauseReason,
+  type AmbientState,
+  type AmbientStaticReason,
+  describeAmbientState,
+  isTerminalAmbientState,
+} from "./state.ts";
 
 /** The intro: brightness and canvas opacity rise over this long, at Full only, once. */
 export const AMBIENT_INTRO_MS = 2400;
@@ -34,27 +42,6 @@ const INTRO_GAIN_FROM = 0.55;
 /** Device pixel ratio cap; the buffer is then halved and scaled up by CSS (ENG-136). */
 export const AMBIENT_MAX_DPR = 1.5;
 export const AMBIENT_RESOLUTION_SCALE = 0.5;
-
-/** Why the static gradient shows instead of the canvas. */
-export type AmbientStaticReason =
-  | "reduced"
-  | "off"
-  | "no-webgl2"
-  | "shader-failed"
-  | "context-lost"
-  | "context-lost-twice"
-  | "touch-first"
-  | "surface-refused"
-  | "canvas-in-use";
-
-export type AmbientState =
-  | { readonly kind: "static"; readonly reason: AmbientStaticReason }
-  | { readonly kind: "running"; readonly intro: boolean }
-  | { readonly kind: "paused"; readonly reasons: ReadonlyArray<AmbientPauseReason> };
-
-/** Static states the canvas cannot leave without a remount. */
-export const isTerminalAmbientState = (state: AmbientState): boolean =>
-  state.kind === "static" && state.reason !== "context-lost";
 
 /** One axis of the drawing buffer, in device pixels. */
 export const ambientBufferSize = (cssPixels: number, devicePixelRatio: number): number =>
@@ -244,38 +231,6 @@ export const cubicBezier = ([x1, y1, x2, y2]: readonly [number, number, number, 
     }
     return axis(y1, y2, t);
   };
-};
-
-const PAUSE_WORDS: Record<AmbientPauseReason, string> = {
-  hidden: "tab hidden",
-  blurred: "window blurred",
-  offscreen: "off-screen",
-  idle: "10 s without input",
-  streaming: "focused thread streaming",
-};
-
-const STATIC_WORDS: Record<AmbientStaticReason, string> = {
-  reduced: "Motion is Reduced",
-  off: "Motion is Off",
-  "no-webgl2": "No WebGL2",
-  "shader-failed": "Shader failed to compile",
-  "context-lost": "Context lost: waiting for restore",
-  "context-lost-twice": "Context lost twice: static until remount",
-  "touch-first": "Touch-first device (mobile web)",
-  "surface-refused": "Surface is not allowed",
-  "canvas-in-use": "Renderer is on another surface",
-};
-
-/** The design's readout strings (ENG-136 section 4), for debug attributes and tests. */
-export const describeAmbientState = (state: AmbientState): string => {
-  switch (state.kind) {
-    case "running":
-      return state.intro ? "Running: 2.4 s intro" : "Running: slow drift, 30 fps";
-    case "paused":
-      return `Paused on current frame: ${state.reasons.map((r) => PAUSE_WORDS[r]).join(", ")}`;
-    case "static":
-      return `Static gradient: ${STATIC_WORDS[state.reason]}`;
-  }
 };
 
 /** The browser inputs that pause the light; each is optional so a host can omit one. */

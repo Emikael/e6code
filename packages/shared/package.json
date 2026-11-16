@@ -7,6 +7,10 @@
       "types": "./src/ambientLight/ambientLight.ts",
       "import": "./src/ambientLight/ambientLight.ts"
     },
+    "./ambientLightState": {
+      "types": "./src/ambientLight/state.ts",
+      "import": "./src/ambientLight/state.ts"
+    },
     "./composerCodeBlocks": {
       "types": "./src/composerCodeBlocks.ts",
       "import": "./src/composerCodeBlocks.ts"

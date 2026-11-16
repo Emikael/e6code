@@ -3,6 +3,7 @@
  * after 10 s without input, and pause reasons that stop frames without losing the frame's
  * time. Framework-free and global-free: the clock and the frame scheduler are injected.
  */
+import type { AmbientPauseReason } from "./state.ts";
 
 /** Draws are paced to this interval, whatever the display's refresh rate. */
 export const AMBIENT_FRAME_MS = 1000 / 30;
@@ -12,9 +13,6 @@ export const AMBIENT_IDLE_MS = 10_000;
 const FRAME_SLACK_MS = 2;
 /** A stalled frame advances the light by at most this much, so it never jumps. */
 const MAX_STEP_MS = 100;
-
-/** Reasons the loop stops on its current frame (ENG-132). `idle` is the loop's own. */
-export type AmbientPauseReason = "hidden" | "blurred" | "offscreen" | "idle" | "streaming";
 
 export interface AmbientClock {
   /** Same time base as the frame callback's timestamp (`performance.now()` in a browser). */
