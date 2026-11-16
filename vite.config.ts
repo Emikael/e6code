@@ -145,6 +145,7 @@ export default defineConfig({
         "error",
         { paths: [...RESTRICTED_IMPORT_PATHS, RESTRICTED_PULL_REQUEST_GLYPH_IMPORTS] },
       ],
+      "e6code/no-animation-library-imports": "error",
       "e6code/no-global-process-runtime": "error",
       "e6code/no-inline-schema-compile": "warn",
       "e6code/no-manual-effect-runtime-in-tests": "error",
@@ -166,6 +167,24 @@ export default defineConfig({
       {
         files: ["apps/mobile/src/**"],
         rules: { "e6code/no-mobile-uniwind-theme-escape-hatches": "error" },
+      },
+      // The only places that may name an animation engine. Everything else animates through
+      // apps/web/src/next/motion, which applies MotionPolicy.
+      {
+        files: ["apps/web/src/next/motion/**"],
+        rules: {
+          "e6code/no-animation-library-imports": ["error", { allow: ["motion", "framer-motion"] }],
+        },
+      },
+      {
+        // Authored timelines load gsap lazily from this one module (ENG-110).
+        files: ["apps/web/src/next/motion/cinematic/gsapRunner.ts", "apps/marketing/**"],
+        rules: { "e6code/no-animation-library-imports": ["error", { allow: ["gsap"] }] },
+      },
+      {
+        // Legacy engine, kept until its last caller is deleted.
+        files: ["apps/web/src/lib/motion.ts"],
+        rules: { "e6code/no-animation-library-imports": ["error", { allow: ["animejs"] }] },
       },
       {
         // Redesigned (v2) web code takes colour from semantic roles only.
