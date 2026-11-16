@@ -16,9 +16,15 @@ export type AmbientSurface = (typeof AMBIENT_SURFACES)[number];
 /** Mobile web keeps the static gradient, out of reach of mobile browsers' WebGL context caps. */
 export const TOUCH_FIRST_QUERY = "(pointer: coarse) and (hover: none)";
 
+/** The names the spec's readout uses for each surface. */
+const SURFACE_LABELS: Readonly<Record<AmbientSurface, string>> = {
+  welcome: "Welcome",
+  pairing: "Pairing",
+};
+
 export type AmbientGate =
   | { readonly live: true }
-  | { readonly live: false; readonly reason: AmbientStaticReason };
+  | { readonly live: false; readonly reason: AmbientStaticReason; readonly detail?: string };
 
 export const decideAmbient = (input: {
   readonly level: MotionLevel;
@@ -26,24 +32,31 @@ export const decideAmbient = (input: {
   readonly touchFirst: boolean;
 }): AmbientGate => {
   if (!(AMBIENT_SURFACES as ReadonlyArray<string>).includes(input.surface)) {
-    return { live: false, reason: "surface-refused" };
+    return { live: false, reason: "surface-refused", detail: input.surface };
   }
   if (input.level !== "full") return { live: false, reason: input.level };
   if (input.touchFirst) return { live: false, reason: "touch-first" };
   return { live: true };
 };
 
-let owner: symbol | null = null;
+let owner: { readonly token: symbol; readonly surface: AmbientSurface } | null = null;
+
+export type AmbientClaim =
+  | { readonly release: () => void }
+  /** Another surface holds the canvas; its readout name. */
+  | { readonly heldBy: string };
 
 /**
- * Claims the window's one canvas. The first mounted surface keeps it; a second gets null and
- * shows the static gradient. Returns the release function.
+ * Claims the window's one canvas. The first mounted surface keeps it; a second is told who
+ * holds it and shows the static gradient.
  */
-export const claimAmbientCanvas = (): (() => void) | null => {
-  if (owner !== null) return null;
+export const claimAmbientCanvas = (surface: AmbientSurface): AmbientClaim => {
+  if (owner !== null) return { heldBy: SURFACE_LABELS[owner.surface] };
   const token = Symbol("ambient-canvas");
-  owner = token;
-  return () => {
-    if (owner === token) owner = null;
+  owner = { token, surface };
+  return {
+    release: () => {
+      if (owner?.token === token) owner = null;
+    },
   };
 };

@@ -19,7 +19,7 @@ const toRgba = (color: string): [number, number, number, number] => {
 };
 
 /** `--ray-tint` as a 0 to 1 amount; anything unreadable means no tint. */
-export const parseTintAmount = (value: string): number => {
+const parseTintAmount = (value: string): number => {
   const amount = Number.parseFloat(value);
   return Number.isFinite(amount) ? Math.min(Math.max(amount, 0), 1) : 0;
 };

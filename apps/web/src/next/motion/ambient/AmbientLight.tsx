@@ -55,9 +55,11 @@ export function AmbientLight(props: {
     const readout = (text: string) => {
       container.dataset.ambient = text;
     };
-    const release = claimAmbientCanvas();
-    if (release === null) {
-      readout(describeAmbientState({ kind: "static", reason: "canvas-in-use" }));
+    const claim = claimAmbientCanvas(surface);
+    if ("heldBy" in claim) {
+      readout(
+        describeAmbientState({ kind: "static", reason: "canvas-in-use", detail: claim.heldBy }),
+      );
       return;
     }
     let cancelled = false;
@@ -82,9 +84,9 @@ export function AmbientLight(props: {
       cancelled = true;
       liveRef.current?.stop();
       liveRef.current = null;
-      release();
+      claim.release();
     };
-  }, [gate.live]);
+  }, [gate.live, surface]);
 
   return (
     <AmbientStatic
@@ -93,7 +95,13 @@ export function AmbientLight(props: {
       {...(props.className === undefined ? {} : { className: props.className })}
       {...(gate.live
         ? {}
-        : { "data-ambient": describeAmbientState({ kind: "static", reason: gate.reason }) })}
+        : {
+            "data-ambient": describeAmbientState({
+              kind: "static",
+              reason: gate.reason,
+              ...(gate.detail === undefined ? {} : { detail: gate.detail }),
+            }),
+          })}
     />
   );
 }
