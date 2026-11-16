@@ -8,10 +8,24 @@
  * imported and environment-published themes need no new field. Mobile colour
  * keys are E01-T18.
  */
-import { DUR, EASE } from "./motion.ts";
+import { DISTANCE, DUR, EASE, SPRING_CURVE } from "./motion.ts";
 import type { CssRule } from "./webStock.ts";
 
-const durations = Object.entries(DUR).map(([name, ms]) => [`--dur-${name}`, `${ms}ms`] as const);
+const kebab = (name: string) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+
+const durations = Object.entries(DUR).map(
+  ([name, ms]) => [`--dur-${kebab(name)}`, `${ms}ms`] as const,
+);
+/** Travel in px, scale factors unitless (see `DISTANCE`). */
+const distances = Object.entries(DISTANCE).map(
+  ([name, value]) =>
+    [`--distance-${kebab(name)}`, /scale/i.test(name) ? `${value}` : `${value}px`] as const,
+);
+// Not `--ease-spring-*`: legacy `installMotionTokens` writes those inline on `:root`.
+const springs = Object.entries(SPRING_CURVE).flatMap(([name, { linear, durationMs }]) => [
+  [`--spring-${name}`, linear] as const,
+  [`--spring-${name}-dur`, `${durationMs}ms`] as const,
+]);
 const easings = (["enter", "expo", "shift", "exit"] as const).map(
   (name) => [`--ease-${name}`, EASE[name]] as const,
 );
@@ -47,6 +61,8 @@ export const KEY_LIGHT: ReadonlyArray<CssRule> = [
       ["--elev-4", "var(--elev-3)"],
       ...durations,
       ...easings,
+      ...distances,
+      ...springs,
       {
         rule: "@variant dark",
         body: [
