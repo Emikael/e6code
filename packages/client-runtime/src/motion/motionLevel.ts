@@ -55,6 +55,22 @@ export const resolveMotionLevel = (
   return activeMotionConstraints(constraints).length > 0 ? "reduced" : "full";
 };
 
+/** The Motion setting's choices in display order, with the copy every client shows. */
+export const MOTION_PREFERENCE_OPTIONS: ReadonlyArray<{
+  readonly value: MotionPreference;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  {
+    value: "system",
+    label: "Follow system",
+    description: "Full, or Reduced when your device asks for less",
+  },
+  { value: "full", label: "Full", description: "Every transition" },
+  { value: "reduced", label: "Reduced", description: "Short fades, nothing travels" },
+  { value: "off", label: "Off", description: "Changes happen instantly" },
+];
+
 const REASON_TEXT: Record<MotionConstraintReason, string> = {
   "reduced-motion": "reduced motion is on",
   battery: "on battery",

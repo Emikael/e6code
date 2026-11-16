@@ -190,6 +190,8 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+import { MotionSettingRow } from "./MotionSettingRow";
+import { useAnyRedesignedScreenEnabled } from "~/next/redesignedScreens";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -678,6 +680,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline
         ? ["Thinking timeline"]
         : []),
+      ...(settings.motion !== DEFAULT_UNIFIED_SETTINGS.motion ? ["Motion"] : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -820,6 +823,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.fontSizePrompt,
       settings.fontSizeTerminal,
       settings.glassOpacity,
+      settings.motion,
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
       settings.enableProviderUpdateChecks,
@@ -925,6 +929,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      motion: DEFAULT_UNIFIED_SETTINGS.motion,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarThreadOrganization: DEFAULT_UNIFIED_SETTINGS.sidebarThreadOrganization,
@@ -1329,6 +1334,8 @@ export function AppearanceSettingsPanel() {
     "--settings-slider-progress": `${appearanceContrastRatio * 100}%`,
     "--settings-slider-fill-offset": `${0.5 - appearanceContrastRatio}rem`,
   } as CSSProperties;
+  // E04-T14 turns this on; until then the Motion section looks exactly as before.
+  const redesignedScreenEnabled = useAnyRedesignedScreenEnabled();
   const panelAnimationDurationRatio =
     (settings.panelAnimationDurationMs - MIN_PANEL_ANIMATION_DURATION_MS) /
     (MAX_PANEL_ANIMATION_DURATION_MS - MIN_PANEL_ANIMATION_DURATION_MS);
@@ -1654,9 +1661,19 @@ export function AppearanceSettingsPanel() {
       </SettingsSearchTarget>
 
       <SettingsSection id="motion" title="Motion">
+        {redesignedScreenEnabled ? (
+          <MotionSettingRow
+            value={settings.motion}
+            onChange={(motion) => updateSettings({ motion })}
+          />
+        ) : null}
         <SettingsRow
           {...searchableSetting("panel-animations")}
-          description="Set how fast panels open and close."
+          description={
+            redesignedScreenEnabled
+              ? "Classic screens only: how fast the sidebar, right panel and terminal drawer open and close. Motion above does not change this."
+              : "Set how fast panels open and close."
+          }
           control={
             <div className="grid w-full grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 sm:w-auto sm:grid-cols-[7rem_13rem] sm:gap-4">
               <PanelAnimationsPreview durationMs={settings.panelAnimationDurationMs} />
@@ -1668,7 +1685,11 @@ export function AppearanceSettingsPanel() {
                   {settings.panelAnimationDurationMs} ms
                 </output>
                 <input
-                  aria-label="Panel animation duration"
+                  aria-label={
+                    redesignedScreenEnabled
+                      ? "Panel animation duration, classic screens"
+                      : "Panel animation duration"
+                  }
                   className="settings-slider min-w-0 flex-1"
                   id="panel-animation-duration"
                   max={MAX_PANEL_ANIMATION_DURATION_MS}

@@ -8,6 +8,7 @@ import {
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildMotionPaletteEntries,
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
@@ -15,6 +16,28 @@ import {
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
+
+describe("buildMotionPaletteEntries", () => {
+  it("offers the four levels in order and marks the current one", () => {
+    const { options } = buildMotionPaletteEntries("reduced", "reduced");
+    expect(options.map((option) => [option.label, option.current])).toEqual([
+      ["Follow system", false],
+      ["Full", false],
+      ["Reduced", true],
+      ["Off", false],
+    ]);
+  });
+
+  it("names the resolved level only when following the system", () => {
+    expect(buildMotionPaletteEntries("system", "reduced").sublabel).toBe(
+      "Current: Follow system (Reduced)",
+    );
+    expect(buildMotionPaletteEntries("system", "full").sublabel).toBe(
+      "Current: Follow system (Full)",
+    );
+    expect(buildMotionPaletteEntries("off", "off").sublabel).toBe("Current: Off");
+  });
+});
 
 describe("linked pull request thread navigation", () => {
   it("keeps archived relations searchable and routes them through the PR environment", async () => {
