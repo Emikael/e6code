@@ -12,7 +12,7 @@
  *   hidden, blurred, off screen or streaming, or when MotionPolicy is not Full.
  * GPU time per frame is not measured yet (no E05 harness).
  */
-import { EASE_BEZIER } from "@e6tools/design-tokens/motion";
+import { AMBIENT_INTRO_MS, EASE_BEZIER } from "@e6tools/design-tokens/motion";
 
 import { type AmbientClock, createFrameLoop } from "./frameLoop.ts";
 import {
@@ -23,9 +23,7 @@ import {
 } from "./renderer.ts";
 import type { AmbientPauseReason, AmbientState, AmbientStaticReason } from "./state.ts";
 
-export { AMBIENT_FRAME_MS, AMBIENT_IDLE_MS } from "./frameLoop.ts";
 export type { AmbientClock } from "./frameLoop.ts";
-export { AMBIENT_CONTEXT_ATTRIBUTES } from "./renderer.ts";
 export type { AmbientCanvas, AmbientColors } from "./renderer.ts";
 export {
   type AmbientPauseReason,
@@ -35,13 +33,11 @@ export {
   isTerminalAmbientState,
 } from "./state.ts";
 
-/** The intro: brightness and canvas opacity rise over this long, at Full only, once. */
-export const AMBIENT_INTRO_MS = 2400;
 /** Shader brightness at the start of the intro. */
 const INTRO_GAIN_FROM = 0.55;
 /** Device pixel ratio cap; the buffer is then halved and scaled up by CSS (ENG-136). */
-export const AMBIENT_MAX_DPR = 1.5;
-export const AMBIENT_RESOLUTION_SCALE = 0.5;
+const AMBIENT_MAX_DPR = 1.5;
+const AMBIENT_RESOLUTION_SCALE = 0.5;
 
 /** One axis of the drawing buffer, in device pixels. */
 export const ambientBufferSize = (cssPixels: number, devicePixelRatio: number): number =>
@@ -152,11 +148,14 @@ export const createAmbientLight = (
       fail("shader-failed");
       return;
     }
-    contextLost = false;
-    loop.drawNow();
-    // Resumes only when no pause reason holds.
-    loop.suspend(false);
-    emit();
+    // The static rays stay up until the restored context has drawn a frame: with a parallel
+    // compile the first draws are pending, and an empty canvas must not replace the rays.
+    loop.drawWhenReady(() => {
+      contextLost = false;
+      // Resumes only when no pause reason holds.
+      loop.suspend(false);
+      emit();
+    });
   };
 
   canvas.addEventListener("webglcontextlost", onLost);
@@ -215,7 +214,7 @@ const sameState = (a: AmbientState, b: AmbientState): boolean => {
 };
 
 /** A CSS `cubic-bezier()` as a function of progress, solved for x by bisection. */
-export const cubicBezier = ([x1, y1, x2, y2]: readonly [number, number, number, number]) => {
+const cubicBezier = ([x1, y1, x2, y2]: readonly [number, number, number, number]) => {
   const axis = (a: number, b: number, t: number) =>
     3 * a * t * (1 - t) ** 2 + 3 * b * t ** 2 * (1 - t) + t ** 3;
   return (x: number): number => {

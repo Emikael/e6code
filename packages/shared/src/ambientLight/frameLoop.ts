@@ -6,7 +6,7 @@
 import type { AmbientPauseReason } from "./state.ts";
 
 /** Draws are paced to this interval, whatever the display's refresh rate. */
-export const AMBIENT_FRAME_MS = 1000 / 30;
+const AMBIENT_FRAME_MS = 1000 / 30;
 /** The loop rests after this long without input, and any input wakes it. */
 export const AMBIENT_IDLE_MS = 10_000;
 /** Callbacks this early still draw, so 33.2 ms after the last draw does not wait a frame. */
@@ -28,8 +28,14 @@ export interface FrameLoop {
   readonly input: () => void;
   /** Held while the context is lost: no frames, without counting as a pause reason. */
   readonly suspend: (suspended: boolean) => void;
-  /** Draws one frame at the current time, running or not (resize, colours, restore). */
+  /** Draws one frame at the current time, running or not (resize, colours). */
   readonly drawNow: () => void;
+  /**
+   * Draws one frame at the current time as soon as the renderer can (a restored context may
+   * still be compiling), then calls `onDrawn`. Polls once per display frame until then,
+   * whatever the pause reasons; it draws nothing while polling.
+   */
+  readonly drawWhenReady: (onDrawn: () => void) => void;
   readonly isRunning: () => boolean;
   readonly pauseReasons: () => ReadonlyArray<AmbientPauseReason>;
   readonly destroy: () => void;
@@ -48,6 +54,7 @@ export const createFrameLoop = ({ clock, draw, onChange }: FrameLoopOptions): Fr
   let suspended = false;
   let destroyed = false;
   let handle: number | null = null;
+  let retryHandle: number | null = null;
   let lightTime = 0;
   let lastFrameAt: number | null = null;
   let nextDrawAt: number | null = null;
@@ -118,11 +125,24 @@ export const createFrameLoop = ({ clock, draw, onChange }: FrameLoopOptions): Fr
     drawNow: () => {
       if (!destroyed) draw(lightTime);
     },
+    drawWhenReady: (onDrawn) => {
+      if (retryHandle !== null) clock.cancelFrame(retryHandle);
+      retryHandle = null;
+      const attempt = () => {
+        retryHandle = null;
+        if (destroyed) return;
+        if (draw(lightTime)) onDrawn();
+        else if (!destroyed) retryHandle = clock.requestFrame(attempt);
+      };
+      attempt();
+    },
     isRunning: () => handle !== null,
     pauseReasons: () => [...reasons],
     destroy: () => {
       destroyed = true;
       stop();
+      if (retryHandle !== null) clock.cancelFrame(retryHandle);
+      retryHandle = null;
     },
   };
 };

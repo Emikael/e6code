@@ -17,6 +17,10 @@ void main() {
  * Three angular bands (12, 19 and 31 cycles) drift at 0.03 to 0.08 rad/s under a radial
  * falloff and a cone; the source sways ±0.03 over about two minutes. Output is premultiplied
  * over a transparent clear, so the canvas adds to the static wash below it.
+ *
+ * The dither is interleaved gradient noise, the published formula and constants from Jorge
+ * Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare" (SIGGRAPH
+ * 2014); credited in `docs/internals/design-sourcing.md`.
  */
 export const AMBIENT_FRAGMENT_SHADER = `#version 300 es
 precision mediump float;
@@ -48,7 +52,7 @@ void main() {
   float falloff = exp(-1.8 * max(r - 0.22, 0.0)) * (1.0 - smoothstep(0.9, 1.35, r));
   float light = (0.15 + 0.85 * rays) * cone * falloff;
 
-  // Interleaved gradient noise, a dither against banding in the soft gradient.
+  // Dither against banding: interleaved gradient noise (Jimenez 2014, see above).
   float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
   float alpha = clamp(uRay.a * light * uGain + (noise - 0.5) / 255.0, 0.0, 1.0);
   float near = 1.0 - smoothstep(0.22, 0.8, r);

@@ -141,8 +141,10 @@ export const createFakeCanvas = (options: FakeGlOptions & { readonly webgl2?: bo
       contextLost = true;
       return fire("webglcontextlost").defaultPrevented;
     },
+    /** The browser restoring it; a parallel compile starts over and is pending again. */
     restoreContext: () => {
       contextLost = false;
+      compiled = !options.parallel;
       fire("webglcontextrestored");
     },
   };

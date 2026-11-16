@@ -53,7 +53,7 @@ export type AmbientRendererStart =
  * `failIfMajorPerformanceCaveat` sends software rendering to the static gradient too, and
  * `low-power` keeps a dual-GPU laptop on its integrated GPU for a soft background.
  */
-export const AMBIENT_CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
+const AMBIENT_CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
   alpha: true,
   premultipliedAlpha: true,
   antialias: false,

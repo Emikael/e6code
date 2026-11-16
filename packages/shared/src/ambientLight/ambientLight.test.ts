@@ -1,7 +1,7 @@
+import { AMBIENT_INTRO_MS } from "@e6tools/design-tokens/motion";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  AMBIENT_INTRO_MS,
   type AmbientColors,
   type AmbientHost,
   type AmbientLight,
@@ -149,6 +149,50 @@ describe("ambient light context loss", () => {
     gl.restoreContext();
     expect(gl.draws).toHaveLength(draws + 1);
     expect(light.getState()).toEqual({ kind: "paused", reasons: ["blurred"] });
+    expect(fake.pendingFrames()).toBe(0);
+  });
+
+  // Chrome has KHR_parallel_shader_compile, so the first draws after a restore are pending.
+  // The static rays must stay up until a frame lands, even with the loop paused.
+  it("keeps the static gradient after a paused restore until the recompile draws", () => {
+    const { light, gl, fake, intro, states } = started({ parallel: true });
+    gl.completeCompile();
+    fake.run(AMBIENT_INTRO_MS + 100);
+    expect(intro.at(-1)).toBe(1);
+    light.setPaused("blurred", true);
+    gl.loseContext();
+
+    const draws = gl.draws.length;
+    gl.restoreContext();
+    expect(gl.draws).toHaveLength(draws);
+    expect(light.getState()).toEqual({ kind: "static", reason: "context-lost" });
+    fake.run(200);
+    expect(gl.draws).toHaveLength(draws);
+    expect(light.getState()).toEqual({ kind: "static", reason: "context-lost" });
+
+    gl.completeCompile();
+    fake.run(20);
+    expect(gl.draws).toHaveLength(draws + 1);
+    expect(gl.draws.at(-1)!.uGain).toBe(1);
+    expect(light.getState()).toEqual({ kind: "paused", reasons: ["blurred"] });
+    // Paused again: polling ended with the drawn frame.
+    expect(fake.pendingFrames()).toBe(0);
+    fake.run(1000);
+    expect(gl.draws).toHaveLength(draws + 1);
+    // The host saw static for the whole wait, then paused: never an empty canvas shown.
+    expect(states.slice(-2)).toEqual([
+      { kind: "static", reason: "context-lost" },
+      { kind: "paused", reasons: ["blurred"] },
+    ]);
+  });
+
+  it("stops polling a pending restore when the light is destroyed", () => {
+    const { light, gl, fake } = started({ parallel: true });
+    gl.completeCompile();
+    gl.loseContext();
+    gl.restoreContext();
+    expect(fake.pendingFrames()).toBe(1);
+    light.destroy();
     expect(fake.pendingFrames()).toBe(0);
   });
 
@@ -303,5 +347,11 @@ describe("ambient light budget and readout", () => {
     expect(describeAmbientState({ kind: "static", reason: "context-lost-twice" })).toBe(
       "Static gradient: Context lost twice: static until remount",
     );
+    expect(
+      describeAmbientState({ kind: "static", reason: "surface-refused", detail: "zero-projects" }),
+    ).toBe("Refused: zero-projects is not an allowed surface, it keeps the static gradient");
+    expect(
+      describeAmbientState({ kind: "static", reason: "canvas-in-use", detail: "Pairing" }),
+    ).toBe("Static: renderer is on Pairing");
   });
 });
