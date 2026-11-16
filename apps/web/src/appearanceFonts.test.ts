@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  type AppearanceFontPreferences,
+  applyAppearanceFontVariables,
   areFontAdvancesMonospace,
   clampCodeFontSize,
   clampInterfaceFontSize,
@@ -106,5 +108,45 @@ describe("font size clamping", () => {
     expect(clampCodeFontSize(13.4)).toBe(13);
     expect(clampInterfaceFontSize(Number.NaN)).toBe(16);
     expect(clampPromptFontSize(Number.POSITIVE_INFINITY)).toBe(14);
+  });
+});
+
+describe("applyAppearanceFontVariables", () => {
+  function applied(overrides: Partial<AppearanceFontPreferences>) {
+    const properties = new Map<string, string>();
+    const style = {
+      fontSize: "",
+      setProperty: (name: string, value: string) => void properties.set(name, value),
+      removeProperty: (name: string) => void properties.delete(name),
+    };
+    applyAppearanceFontVariables({ style } as unknown as HTMLElement, {
+      sans: "",
+      code: "",
+      composer: "",
+      sizeInterface: 16,
+      sizePrompt: 14,
+      sizeCode: 13,
+      smoothing: true,
+      chatTextSize: null,
+      ...overrides,
+    });
+    return { properties, fontSize: style.fontSize };
+  }
+
+  it("keeps today's chat size for an install without a chat size (14 px at 16, 1.625)", () => {
+    const { properties } = applied({ chatTextSize: null });
+    expect(properties.get("--prose-size")).toBe("0.875rem");
+    expect(properties.get("--prose-leading")).toBe("1.625");
+  });
+
+  it("sets chat text in px on a 24 px line at the D10 default", () => {
+    const { properties } = applied({ chatTextSize: 15 });
+    expect(properties.get("--prose-size")).toBe("15px");
+    expect(properties.get("--prose-leading")).toBe("1.6");
+  });
+
+  it("drops strong weights to 600 only while an interface font override is set", () => {
+    expect(applied({ sans: "Inter" }).properties.get("--weight-strong")).toBe("600");
+    expect(applied({ sans: "" }).properties.has("--weight-strong")).toBe(false);
   });
 });

@@ -14,6 +14,7 @@ import { DEV_PROXIED_PATH_PREFIXES } from "@e6tools/shared/devProxy";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { designTokensPlugin } from "./vite/designTokens";
+import { fontPreloadPlugin } from "./vite/fontPreload";
 import { tailwindPlugins } from "./vite/tailwind";
 
 const repoEnv = loadRepoEnv();
@@ -184,6 +185,7 @@ export default defineConfig(() => {
       // Before Tailwind: it must compile the rendered token blocks.
       designTokensPlugin(),
       tailwindPlugins(bundledDev),
+      fontPreloadPlugin(),
     ],
     optimizeDeps: {
       include: [

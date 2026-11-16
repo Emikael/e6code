@@ -307,6 +307,7 @@ function FontAppearanceSync() {
   const fontSizePrompt = useClientSettings((settings) => settings.fontSizePrompt);
   const fontSizeCode = useClientSettings((settings) => settings.fontSizeCode);
   const fontSmoothing = useClientSettings((settings) => settings.fontSmoothing);
+  const chatTextSize = useClientSettings((settings) => settings.chatTextSize);
 
   useEffect(() => {
     applyAppearanceFontVariables(document.documentElement, {
@@ -317,8 +318,10 @@ function FontAppearanceSync() {
       sizePrompt: fontSizePrompt,
       sizeCode: fontSizeCode,
       smoothing: fontSmoothing,
+      chatTextSize,
     });
   }, [
+    chatTextSize,
     fontFamilyCode,
     fontFamilyComposer,
     fontFamilySans,

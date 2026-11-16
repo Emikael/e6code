@@ -20,7 +20,9 @@ import {
 // Geist and Geist Mono are bundled (see main.tsx); the platform stacks behind
 // them cover glyphs Geist lacks and the moment before the face loads.
 export const DEFAULT_SANS_FONT_STACK =
-  '"Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+  '"Geist Variable", "Geist Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+
+const GEIST_FALLBACK_FAMILY = "Geist Fallback";
 
 // Concrete names first: some engines alias `ui-monospace` to the
 // proportional system UI font, which would break every code surface.
@@ -86,6 +88,8 @@ export interface AppearanceFontPreferences {
   readonly sizeCode: number;
   /** Grayscale `antialiased` rendering; false keeps the heavier platform default. */
   readonly smoothing: boolean;
+  /** Redesigned chat text in px; null keeps the pre-setting size (`text-sm leading-relaxed`). */
+  readonly chatTextSize: number | null;
 }
 
 /**
@@ -114,6 +118,12 @@ export function applyAppearanceFontVariables(
       root.style.setProperty(variable, `${list}, ${fallback}`);
     }
   }
+  // Strong type steps ask for 650, which a face without a weight axis rounds up to bold.
+  if (cssFontFamilies(preferences.sans) === null) {
+    root.style.removeProperty("--weight-strong");
+  } else {
+    root.style.setProperty("--weight-strong", "600");
+  }
 
   root.style.fontSize = `${clampInterfaceFontSize(preferences.sizeInterface)}px`;
   root.style.setProperty("--font-size-prompt", `${clampPromptFontSize(preferences.sizePrompt)}px`);
@@ -121,6 +131,15 @@ export function applyAppearanceFontVariables(
   root.style.setProperty("--font-size-code", `${code}px`);
   // The @pierre/diffs surfaces read their own hook for code text.
   root.style.setProperty("--diffs-font-size", `${code}px`);
+  // Read by `--text-prose`. The legacy size stays in rem so it keeps following the interface
+  // size; a chosen size is absolute like the prompt and code sizes, on a 1.6 line (15 / 24).
+  if (preferences.chatTextSize === null) {
+    root.style.setProperty("--prose-size", "0.875rem");
+    root.style.setProperty("--prose-leading", "1.625");
+  } else {
+    root.style.setProperty("--prose-size", `${preferences.chatTextSize}px`);
+    root.style.setProperty("--prose-leading", "1.6");
+  }
 
   // Inherited from the root; only macOS engines honor the property, so no
   // platform gate is needed here. Smoothing on means grayscale `antialiased`
@@ -333,7 +352,8 @@ function resolveGenericFamilyLabel(generic: string): string | null {
 export function resolveDefaultFamilyLabel(stack: string): string | null {
   for (const raw of stack.split(",")) {
     const family = raw.trim().replace(/^(['"])(.*)\1$/, "$2");
-    if (family.length === 0) continue;
+    // A metric-matched stand-in (index.css), never the face the user sees once loaded.
+    if (family.length === 0 || family === GEIST_FALLBACK_FAMILY) continue;
     if (
       /^(system-ui|sans-serif|serif|monospace|ui-monospace|-apple-system|BlinkMacSystemFont)$/i.test(
         family,
