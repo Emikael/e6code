@@ -11,9 +11,15 @@ ambiguous, the ambiguity is written down and left to the maintainer.
 ## Policy
 
 E6 is open at the core, so a fork should inherit only OSI or OFL terms on code and fonts, and only
-redistributable terms on any other file. The one exception is CC BY media, which is allowed in
-`apps/marketing` with its credit (below). That rules out committing code whose licence restricts
-redistribution.
+redistributable terms on any other file. That rules out committing code whose licence restricts
+redistribution. There are two named exceptions:
+
+- **CC BY media** is allowed in `apps/marketing` with its credit (below).
+- **`gsap`** is allowed as an npm dependency under D1. A fork that keeps it inherits Webflow's
+  Standard no-charge terms, not an open-source licence: Webflow can amend them for future versions
+  and terminate them on non-compliance, and they say nothing about forks (see Licence facts). A fork
+  that removes `gsap` sheds those terms, and keeping it to the import paths below keeps that removal
+  small.
 
 - **MIT, ISC and OFL sources** may be used, copied with their notice, and listed in Settings > Open
   source licenses.
@@ -35,7 +41,13 @@ redistribution.
   - Sound Lab sounds;
   - Dock-style magnification;
   - components that depend on Hugeicons.
-- **Proprietary no-charge sources (`gsap`)** stay out of the app. Marketing use waits for D1.
+- **`motion` is the default animation engine** (D1, decided 2026-11-16). **`gsap`** is used only
+  for authored timelines (launch, onboarding, celebrations), loaded lazily, never on the chat
+  critical path. It is imported only under `next/motion/cinematic` in the app and in
+  `apps/marketing`, lazily there too. `gsap` does not follow reduced motion by itself, so every
+  sequence runs under MotionPolicy. ScrollTrigger, SplitText and MorphSVG are not approved inside
+  the app; using one needs its own decision. Anime.js stays behind the legacy `lib/motion.ts` until
+  its last legacy caller is deleted.
 - **Paid sources** (transitions.dev Pro and Motion Agent, React Bits Pro, Hugeicons Pro) are not
   bought or used (D4, decided 2026-11-15).
 - **CC BY assets** (pictures, Solar icons) are marketing only, with a visible credit on the page.
@@ -195,15 +207,16 @@ These are reference only and credit only, with no code from React Bits (D3).
 
 ### Other items
 
-| Item                                                          | Licence     | Where                                    | Notice path                                                                      |
-| ------------------------------------------------------------- | ----------- | ---------------------------------------- | -------------------------------------------------------------------------------- |
-| Ambient light shader (5.7)                                    | ours        | planned E02                              | none; first-party                                                                |
-| `motion` (5.1)                                                | MIT         | planned E02                              | auto manifest once it is a production dependency                                 |
-| Phosphor via `@phosphor-icons/core` (6.1)                     | MIT         | planned E03, generated into `next/icons` | see trap below                                                                   |
-| Geist, Geist Mono (4.3)                                       | OFL-1.1     | web, mobile, marketing                   | auto manifest (web, mobile); marketing ships `public/fonts/*-OFL.txt`            |
-| Taste Skill easing and rules (7.3)                            | MIT         | motion tokens, review rules              | credit only; no code                                                             |
-| Marketing `nightly-sky.svg`                                   | first-party | download page                            | none; hand-written gradients                                                     |
-| Marketing `public/95/e6-code-concepts/*`, `src/assets/*.webp` | first-party | marketing pages                          | none; brand art and app screenshots from E6 commits, no external source recorded |
+| Item                                                          | Licence                                  | Where                                           | Notice path                                                                      |
+| ------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| Ambient light shader (5.7)                                    | ours                                     | planned E02                                     | none; first-party                                                                |
+| `motion` (5.1)                                                | MIT                                      | planned E02                                     | auto manifest once it is a production dependency                                 |
+| `gsap` (D1)                                                   | Webflow Standard no-charge (proprietary) | `next/motion/cinematic` (app), `apps/marketing` | see trap below                                                                   |
+| Phosphor via `@phosphor-icons/core` (6.1)                     | MIT                                      | planned E03, generated into `next/icons`        | see trap below                                                                   |
+| Geist, Geist Mono (4.3)                                       | OFL-1.1                                  | web, mobile, marketing                          | auto manifest (web, mobile); marketing ships `public/fonts/*-OFL.txt`            |
+| Taste Skill easing and rules (7.3)                            | MIT                                      | motion tokens, review rules                     | credit only; no code                                                             |
+| Marketing `nightly-sky.svg`                                   | first-party                              | download page                                   | none; hand-written gradients                                                     |
+| Marketing `public/95/e6-code-concepts/*`, `src/assets/*.webp` | first-party                              | marketing pages                                 | none; brand art and app screenshots from E6 commits, no external source recorded |
 
 Provider logos and screenshots on the marketing site are out of scope for this register.
 
@@ -211,17 +224,25 @@ Provider logos and screenshots on the marketing site are out of scope for this r
 `@phosphor-icons/core` is a devDependency used only to generate components, the shipped SVGs have
 no notice. The task that lands them must add a `customNotices` MIT entry for Phosphor Icons.
 
+**`gsap` trap.** The web licence check fails on `gsap`: its tarball has no licence file and its
+`license` field is a sentence linking the licence page, not an SPDX id, so `generatedNotice` has no
+template to render. A `customNotices` row alone does not stop the failure. The change that makes
+`gsap` a production dependency (E02-T05, or E04-T16 if that lands first) must add a
+`packageOverrides` entry for `gsap` whose `noticeFile` points at a notice file the repository
+writes, so the row appears in Settings > Open source licenses. `apps/marketing` has no generated
+manifest; marketing use ships its notice the way the Geist fonts do.
+
 ## Decisions
 
 The maintainer records these. An agent does not decide them.
 
-| Decision                                                                                         | Status                                                                                  | Facts the decision rests on                                                                                                                                                              |
-| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Primitive layer ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))                         | Decided 2026-11-15: keep Base UI                                                        | Base UI already exposes the `--transform-origin` used by the `pop` preset.                                                                                                               |
-| D1 `gsap` ([ENG-110](https://linear.app/elomigroup/issue/ENG-110))                               | Waiting for the owner                                                                   | Proprietary licence. Webflow can amend it for future versions and can terminate it on non-compliance. It has no redistribution or fork clause.                                           |
-| D3 React Bits ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))                           | Decided 2026-11-15: reference only; reimplement from the idea, never translate its code | Commons Clause. "Ported version" is undefined. The grant is limited to use inside an application, website or product.                                                                    |
-| D4 transitions.dev Pro and Motion Agent ([ENG-125](https://linear.app/elomigroup/issue/ENG-125)) | Decided 2026-11-15: not bought                                                          | The free set is under a custom licence, not MIT, and `pro.html` contradicts this. The company-use and Business-plan clause is stated only in `LICENSE`. "Substantial part" is undefined. |
-| Free transitions.dev recipes ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))            | Decided 2026-11-15: reference only, same rule as React Bits                             | As D4.                                                                                                                                                                                   |
+| Decision                                                                                         | Status                                                                                         | Facts the decision rests on                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primitive layer ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))                         | Decided 2026-11-15: keep Base UI                                                               | Base UI already exposes the `--transform-origin` used by the `pop` preset.                                                                                                                    |
+| D1 `gsap` ([ENG-110](https://linear.app/elomigroup/issue/ENG-110))                               | Decided 2026-11-16: `motion` plus lazy `gsap` for authored timelines; marketing may use it too | Proprietary licence. Webflow can amend it for future versions and can terminate it on non-compliance. It has no redistribution or fork clause. Brotli: `motion` 24.2 KB, `gsap` core 25.2 KB. |
+| D3 React Bits ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))                           | Decided 2026-11-15: reference only; reimplement from the idea, never translate its code        | Commons Clause. "Ported version" is undefined. The grant is limited to use inside an application, website or product.                                                                         |
+| D4 transitions.dev Pro and Motion Agent ([ENG-125](https://linear.app/elomigroup/issue/ENG-125)) | Decided 2026-11-15: not bought                                                                 | The free set is under a custom licence, not MIT, and `pro.html` contradicts this. The company-use and Business-plan clause is stated only in `LICENSE`. "Substantial part" is undefined.      |
+| Free transitions.dev recipes ([ENG-125](https://linear.app/elomigroup/issue/ENG-125))            | Decided 2026-11-15: reference only, same rule as React Bits                                    | As D4.                                                                                                                                                                                        |
 
 When E03 replaces the icon set, `components.json` must change too: it still sets
 `iconLibrary: "lucide"`.
