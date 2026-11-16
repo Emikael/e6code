@@ -4,6 +4,8 @@
  * popup, and Base UI's `data-starting-style` / `data-ending-style` drive the transition.
  *
  * Attributes the recipes read:
+ * - every `motion-enter` recipe: `data-offscreen` while `useInViewport` reports it off
+ *   screen, so it changes at once (viewport-only motion).
  * - `dolly`: `data-edge="start"` when the panel docks on the leading edge.
  * - `sideBySide`: `data-direction="back"` going up a level (see `depthDirection`).
  * - `press`: `data-pressed` while a key holds it down.

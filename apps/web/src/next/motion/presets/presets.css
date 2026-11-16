@@ -353,3 +353,12 @@
 :root[data-motion="off"] .motion-skeleton {
   animation-name: none;
 }
+
+/*
+ * Off screen (`useInViewport` false), a presence preset changes at once at every level. Last
+ * and as specific as the level rules, so it wins over them.
+ */
+:root .motion-enter[data-offscreen] {
+  --motion-in-dur: var(--dur-instant);
+  --motion-out-dur: var(--dur-instant);
+}

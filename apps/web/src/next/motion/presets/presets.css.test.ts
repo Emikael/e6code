@@ -96,6 +96,13 @@ describe("CSS presets", () => {
     }
   });
 
+  it("changes off-screen presence at once", () => {
+    expect(declarationsOf(":root .motion-enter[data-offscreen]")).toEqual({
+      "--motion-in-dur": "var(--dur-instant)",
+      "--motion-out-dur": "var(--dur-instant)",
+    });
+  });
+
   it("cuts at Off", () => {
     expect(declarationsOf(':root[data-motion="off"] .motion-enter')).toEqual({
       "--motion-in-dur": "var(--dur-instant)",
