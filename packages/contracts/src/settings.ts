@@ -157,6 +157,20 @@ export const TerminalFontSize = Schema.Int.check(
 export type TerminalFontSize = typeof TerminalFontSize.Type;
 const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
 
+/**
+ * Chat text size for redesigned chat, in CSS pixels. `null` keeps the size chat had before
+ * the setting existed (14 px at the default interface size, scaling with it). Decision D10:
+ * only an install with nothing stored starts at 15 px, so an existing install never changes
+ * size by itself.
+ */
+const MIN_CHAT_TEXT_SIZE = 13;
+const MAX_CHAT_TEXT_SIZE = 18;
+export const ChatTextSize = Schema.Int.check(
+  Schema.isBetween({ minimum: MIN_CHAT_TEXT_SIZE, maximum: MAX_CHAT_TEXT_SIZE }),
+);
+export type ChatTextSize = typeof ChatTextSize.Type;
+const DEFAULT_CHAT_TEXT_SIZE: ChatTextSize = 15;
+
 export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill", "none"]);
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
 export const DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE: EnvironmentIdentificationMode = "artwork";
@@ -422,6 +436,9 @@ export const ClientSettingsSchema = Schema.Struct({
   fontSizeTerminal: TerminalFontSize.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TERMINAL_FONT_SIZE)),
   ),
+  // A stored document without this key predates it, so it decodes to the legacy size.
+  // New installs get DEFAULT_CHAT_TEXT_SIZE through DEFAULT_CLIENT_SETTINGS instead.
+  chatTextSize: Schema.NullOr(ChatTextSize).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   fontFamilyCode: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   fontFamilyComposer: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   fontFamilySans: FontFamilyPreference.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -524,7 +541,11 @@ export const ClientSettingsSchema = Schema.Struct({
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
-export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
+/** What a client uses when storage holds no settings at all, i.e. a new install. */
+export const DEFAULT_CLIENT_SETTINGS: ClientSettings = {
+  ...Schema.decodeSync(ClientSettingsSchema)({}),
+  chatTextSize: DEFAULT_CHAT_TEXT_SIZE,
+};
 
 // ── Server Settings (server-authoritative) ────────────────────
 
@@ -1655,6 +1676,7 @@ export const ClientSettingsPatch = Schema.Struct({
   fontSizePrompt: Schema.optionalKey(PromptFontSize),
   fontSizeCode: Schema.optionalKey(CodeFontSize),
   fontSizeTerminal: Schema.optionalKey(TerminalFontSize),
+  chatTextSize: Schema.optionalKey(Schema.NullOr(ChatTextSize)),
   fontFamilyCode: Schema.optionalKey(FontFamilyPreference),
   fontFamilyComposer: Schema.optionalKey(FontFamilyPreference),
   fontFamilySans: Schema.optionalKey(FontFamilyPreference),

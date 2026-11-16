@@ -4,6 +4,7 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import tailwindColors from "tailwindcss/colors";
 import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@e6tools/design-tokens/themePalettes";
+import { MOBILE_TYPE_SCALE } from "@e6tools/design-tokens/type";
 
 import {
   createMobileThemeVariables,
@@ -329,6 +330,25 @@ const renderAndroidColorResources = () =>
     }),
   );
 
+// The redesign's type scale, as `text-<step>` utilities beside the legacy scale in
+// global.css. Weight and tracking stay with MOBILE_TYPE_SCALE: weight is a font family here.
+const GLOBAL_CSS_PATH = NodePath.resolve(import.meta.dirname, "../global.css");
+const TYPE_SCALE_START = "  /* <generated type-scale> */\n";
+const TYPE_SCALE_END = "  /* </generated type-scale> */\n";
+
+const renderGlobalCss = () => {
+  const entries = Object.entries(MOBILE_TYPE_SCALE).flatMap(([step, { fontSize, lineHeight }]) => {
+    const name = `--text-${step.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+    return [`  ${name}: ${fontSize}px;\n`, `  ${name}--line-height: ${lineHeight}px;\n`];
+  });
+  return replaceGeneratedBlock(
+    GLOBAL_CSS_PATH,
+    TYPE_SCALE_START,
+    TYPE_SCALE_END,
+    [TYPE_SCALE_START, ...entries, TYPE_SCALE_END].join(""),
+  );
+};
+
 export const renderDefaultThemeVariablesJSON = () =>
   `${JSON.stringify(
     Object.fromEntries(
@@ -353,6 +373,7 @@ export const getGeneratedUniwindThemeOutputs = (): ReadonlyArray<
   ],
   ...WIDGET_SOURCE_PATHS.map((filename) => [filename, renderWidgetSource(filename)] as const),
   ...renderAndroidColorResources(),
+  [GLOBAL_CSS_PATH, renderGlobalCss()],
 ];
 
 const writeFileAtomically = (filename: string, contents: string) => {

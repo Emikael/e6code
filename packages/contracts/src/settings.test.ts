@@ -6,6 +6,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  DEFAULT_CLIENT_SETTINGS,
   DEFAULT_SERVER_SETTINGS,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -328,6 +329,29 @@ describe("ClientSettings notifications", () => {
       expect(() => decodeClientSettingsPatch({ notificationMode })).toThrow();
     },
   );
+});
+
+// D10 (ENG-163): 15 px chat text for new installs only; existing installs keep today's size.
+describe("ClientSettings chat text size", () => {
+  it("decodes a stored document without the field to null, the legacy size", () => {
+    expect(decodeClientSettings({}).chatTextSize).toBeNull();
+    expect(decodeClientSettings({ fontSizeInterface: 18 }).chatTextSize).toBeNull();
+  });
+
+  it("gives a new install, with nothing stored, 15 px", () => {
+    expect(DEFAULT_CLIENT_SETTINGS.chatTextSize).toBe(15);
+  });
+
+  it.each([13, 18, null])("round-trips %s through persistence and patches", (chatTextSize) => {
+    const settings = decodeClientSettings({ chatTextSize });
+    expect(encodeClientSettings(settings).chatTextSize).toBe(chatTextSize);
+    expect(decodeClientSettingsPatch({ chatTextSize }).chatTextSize).toBe(chatTextSize);
+  });
+
+  it.each([12, 19, 15.5])("rejects %s", (chatTextSize) => {
+    expect(() => decodeClientSettings({ chatTextSize })).toThrow();
+    expect(() => decodeClientSettingsPatch({ chatTextSize })).toThrow();
+  });
 });
 
 describe("ClientSettings default diff file state", () => {

@@ -1,3 +1,6 @@
+/** The redesign's type scale in px; legacy screens keep MOBILE_TYPOGRAPHY below. */
+export { MOBILE_TYPE_SCALE } from "@e6tools/design-tokens/type";
+
 export const MOBILE_TYPOGRAPHY = {
   micro: { fontSize: 11, lineHeight: 14 },
   caption: { fontSize: 12, lineHeight: 16 },
