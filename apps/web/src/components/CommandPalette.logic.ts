@@ -37,17 +37,22 @@ interface MotionPaletteEntries {
   }>;
 }
 
-/** What "Change motion" shows; Follow system also names the level it resolved to. */
-export function buildMotionPaletteEntries(
-  preference: MotionPreference,
-  level: MotionLevel,
-): MotionPaletteEntries {
+const LEVEL_LABELS: Record<MotionLevel, string> = { full: "Full", reduced: "Reduced", off: "Off" };
+
+/**
+ * What "Change motion" shows, from one MotionPolicy snapshot so the current choice and the
+ * level in use agree. Follow system also names the level it resolved to.
+ */
+export function buildMotionPaletteEntries(state: {
+  readonly preference: MotionPreference;
+  readonly level: MotionLevel;
+}): MotionPaletteEntries {
   const options = MOTION_PREFERENCE_OPTIONS.map((option) => ({
     ...option,
-    current: option.value === preference,
+    current: option.value === state.preference,
   }));
-  const label = options.find((option) => option.current)?.label ?? preference;
-  const resolved = preference === "system" ? ` (${level === "full" ? "Full" : "Reduced"})` : "";
+  const label = options.find((option) => option.current)?.label ?? state.preference;
+  const resolved = state.preference === "system" ? ` (${LEVEL_LABELS[state.level]})` : "";
   return { sublabel: `Current: ${label}${resolved}`, options };
 }
 

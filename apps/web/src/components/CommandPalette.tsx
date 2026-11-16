@@ -50,7 +50,6 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
-  CheckIcon,
   CircleArrowUpIcon,
   CircleStopIcon,
   CornerLeftUpIcon,
@@ -93,7 +92,7 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
-import { motionPolicy } from "../next/motion/policy";
+import { useMotionPolicyState } from "../next/motion/policy";
 import { useAnyRedesignedScreenEnabled } from "../next/redesignedScreens";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
@@ -785,6 +784,8 @@ function OpenCommandPaletteDialog(props: {
   const clientSettings = useClientSettings();
   const updateClientSettings = useUpdateClientSettings();
   const redesignedScreenEnabled = useAnyRedesignedScreenEnabled();
+  // Subscribed only while the entry can show, so classic users start no device listeners.
+  const motionState = useMotionPolicyState(redesignedScreenEnabled);
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -2155,9 +2156,7 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push(changeAppearanceItem);
 
   if (redesignedScreenEnabled) {
-    // Read once per render rather than subscribed, so classic users never install the
-    // policy's device listeners just because the palette is mounted.
-    const motion = buildMotionPaletteEntries(clientSettings.motion, motionPolicy.getLevel());
+    const motion = buildMotionPaletteEntries(motionState);
     actionItems.push({
       kind: "submenu",
       value: "action:change-motion",
@@ -2186,10 +2185,7 @@ function OpenCommandPaletteDialog(props: {
             searchTerms: [option.label, "motion", "animation"],
             icon: <ActivityIcon className={ITEM_ICON_CLASS} />,
             titleTrailingContent: option.current ? (
-              <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/70">
-                <CheckIcon aria-hidden className="size-3" />
-                Current
-              </span>
+              <span className="text-xs text-muted-foreground/70">Current</span>
             ) : undefined,
             run: async () => {
               await updateClientSettings({ motion: option.value });

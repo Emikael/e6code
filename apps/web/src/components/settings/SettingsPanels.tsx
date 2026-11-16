@@ -653,6 +653,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   } = useTheme();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const redesignedScreenEnabled = useAnyRedesignedScreenEnabled();
 
   const isTextGenerationModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
@@ -680,7 +681,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.showThinkingTimeline !== DEFAULT_UNIFIED_SETTINGS.showThinkingTimeline
         ? ["Thinking timeline"]
         : []),
-      ...(settings.motion !== DEFAULT_UNIFIED_SETTINGS.motion ? ["Motion"] : []),
+      ...(redesignedScreenEnabled && settings.motion !== DEFAULT_UNIFIED_SETTINGS.motion
+        ? ["Motion"]
+        : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -823,6 +826,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.fontSizePrompt,
       settings.fontSizeTerminal,
       settings.glassOpacity,
+      redesignedScreenEnabled,
       settings.motion,
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
@@ -1662,10 +1666,7 @@ export function AppearanceSettingsPanel() {
 
       <SettingsSection id="motion" title="Motion">
         {redesignedScreenEnabled ? (
-          <MotionSettingRow
-            value={settings.motion}
-            onChange={(motion) => updateSettings({ motion })}
-          />
+          <MotionSettingRow onChange={(motion) => updateSettings({ motion })} />
         ) : null}
         <SettingsRow
           {...searchableSetting("panel-animations")}

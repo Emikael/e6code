@@ -19,7 +19,7 @@ import {
 
 describe("buildMotionPaletteEntries", () => {
   it("offers the four levels in order and marks the current one", () => {
-    const { options } = buildMotionPaletteEntries("reduced", "reduced");
+    const { options } = buildMotionPaletteEntries({ preference: "reduced", level: "reduced" });
     expect(options.map((option) => [option.label, option.current])).toEqual([
       ["Follow system", false],
       ["Full", false],
@@ -28,14 +28,21 @@ describe("buildMotionPaletteEntries", () => {
     ]);
   });
 
-  it("names the resolved level only when following the system", () => {
-    expect(buildMotionPaletteEntries("system", "reduced").sublabel).toBe(
+  it("names the level a constrained Follow system resolved to", () => {
+    expect(buildMotionPaletteEntries({ preference: "system", level: "reduced" }).sublabel).toBe(
       "Current: Follow system (Reduced)",
     );
-    expect(buildMotionPaletteEntries("system", "full").sublabel).toBe(
+    expect(buildMotionPaletteEntries({ preference: "system", level: "full" }).sublabel).toBe(
       "Current: Follow system (Full)",
     );
-    expect(buildMotionPaletteEntries("off", "off").sublabel).toBe("Current: Off");
+  });
+
+  it("shows an explicit Off as Off, with Off marked current", () => {
+    const entries = buildMotionPaletteEntries({ preference: "off", level: "off" });
+    expect(entries.sublabel).toBe("Current: Off");
+    expect(
+      entries.options.filter((option) => option.current).map((option) => option.label),
+    ).toEqual(["Off"]);
   });
 });
 
