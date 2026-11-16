@@ -67,14 +67,13 @@ describe("key-light stock values (direction C)", () => {
     });
   });
 
-  it("maps every plane onto a theme's existing roles", () => {
-    expect(declarationsAt([THEMED])).toEqual({
-      "--plane-ground": "var(--app-window-background)",
-      "--plane-stage": "var(--background)",
-      "--plane-well": "var(--surface-well)",
-      "--plane-raised": "var(--surface-raised)",
-      "--plane-float": "var(--surface-floating)",
-    });
+  // The Lit Stage order these derivations must keep is tested with colour maths in
+  // `apps/web/vite/keyLight.test.ts`; here, only that the floor stays behind `@supports`.
+  it("derives themed planes from the theme background, floor behind @supports", () => {
+    expect(declarationsAt([THEMED])["--plane-stage"]).toBe("var(--background)");
+    expect(
+      declarationsAt([THEMED, "@variant dark", "@supports (color: oklab(from red l a b))"]),
+    ).toEqual({ "--plane-stage": "oklab(from var(--background) max(l, 0.16) a b)" });
   });
 
   it("carries the motion scale as CSS variables", () => {
