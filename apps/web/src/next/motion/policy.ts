@@ -45,8 +45,21 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 export const createMotionPolicyStore = (environment: MotionEnvironment): MotionPolicyStore => {
   const { bridge, deviceMemory } = environment;
   const hasDesktopPower = bridge?.getMotionPowerState !== undefined;
-  const media = environment.matchMedia?.(REDUCED_MOTION_QUERY);
+  // A shell with the getter but no change events gives a one-shot value; battery changes
+  // then come from the web API when the browser has it.
+  const hasDesktopEvents = hasDesktopPower && bridge?.onMotionPowerStateChange !== undefined;
   const listeners = new Set<() => void>();
+
+  // Queried on first need, so importing this module never touches the DOM.
+  let media: ReducedMotionQuery | undefined;
+  let mediaQueried = false;
+  const reducedMotionQuery = () => {
+    if (!mediaQueried) {
+      mediaQueried = true;
+      media = environment.matchMedia?.(REDUCED_MOTION_QUERY);
+    }
+    return media;
+  };
 
   let preference: MotionPreference = "system";
   let desktopPower: DesktopMotionPowerState | null = null;
@@ -65,8 +78,9 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
 
   const compute = () =>
     resolveMotionLevel(preference, {
-      prefersReducedMotion: media?.matches ?? false,
-      onBattery: desktopPower?.onBattery ?? webOnBattery,
+      prefersReducedMotion: reducedMotionQuery()?.matches ?? false,
+      // Only set when the desktop cannot push changes; then the live web value wins.
+      onBattery: webOnBattery ?? desktopPower?.onBattery ?? null,
       thermalState: desktopPower?.thermalState ?? "unknown",
       deviceMemoryGb: deviceMemory ?? null,
     });
@@ -83,12 +97,13 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
     readDesktopPower();
     level = compute();
 
-    if (media !== undefined) {
-      media.addEventListener("change", refresh);
-      teardown.push(() => media.removeEventListener("change", refresh));
+    const query = reducedMotionQuery();
+    if (query !== undefined) {
+      query.addEventListener("change", refresh);
+      teardown.push(() => query.removeEventListener("change", refresh));
     }
 
-    if (hasDesktopPower) {
+    if (hasDesktopEvents) {
       const stop = bridge.onMotionPowerStateChange?.((state) => {
         desktopPower = state;
         refresh();
@@ -112,10 +127,13 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
     }
   };
 
+  /** Stops listening and drops what only listening kept fresh. */
   const uninstall = () => {
     generation++;
     for (const stop of teardown) stop();
     teardown = [];
+    webOnBattery = null;
+    desktopPowerRead = false;
   };
 
   return {
@@ -150,7 +168,9 @@ const browserEnvironment = (): MotionEnvironment => {
     readonly getBattery?: () => Promise<WebBattery>;
   };
   return {
-    matchMedia: (query) => window.matchMedia(query),
+    ...(typeof window.matchMedia === "function"
+      ? { matchMedia: (query: string) => window.matchMedia(query) }
+      : {}),
     ...(navigatorWithDevice.getBattery
       ? { getBattery: () => navigatorWithDevice.getBattery!() }
       : {}),

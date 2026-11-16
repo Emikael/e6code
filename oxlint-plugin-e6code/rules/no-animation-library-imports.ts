@@ -19,11 +19,19 @@ const ENGINE_PACKAGES = [
 const enginePackageOf = (specifier: string) =>
   ENGINE_PACKAGES.find((name) => specifier === name || specifier.startsWith(`${name}/`));
 
+/** A string literal, or a template literal with no expressions (`import(\`gsap\`)`). */
 const literalStringValue = (node: unknown): string | undefined => {
-  if (typeof node !== "object" || node === null) return undefined;
-  if (!("type" in node) || node.type !== "Literal") return undefined;
-  if (!("value" in node) || typeof node.value !== "string") return undefined;
-  return node.value;
+  if (typeof node !== "object" || node === null || !("type" in node)) return undefined;
+  if (node.type === "Literal") {
+    return "value" in node && typeof node.value === "string" ? node.value : undefined;
+  }
+  if (node.type !== "TemplateLiteral") return undefined;
+  if (!("expressions" in node) || !Array.isArray(node.expressions)) return undefined;
+  if (node.expressions.length > 0 || !("quasis" in node) || !Array.isArray(node.quasis)) {
+    return undefined;
+  }
+  const cooked: unknown = node.quasis[0]?.value?.cooked;
+  return typeof cooked === "string" ? cooked : undefined;
 };
 
 const readAllow = (options: ReadonlyArray<unknown>): ReadonlySet<string> => {

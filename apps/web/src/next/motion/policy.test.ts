@@ -192,7 +192,7 @@ describe("createMotionPolicyStore", () => {
     expect(battery.listenerCount()).toBe(0);
   });
 
-  it("reads the desktop power state over IPC once, and again only when listening starts", () => {
+  it("reads the desktop power state over IPC once per listening period", () => {
     const desktop = fakeBridge({ onBattery: false, thermalState: "nominal" });
     let reads = 0;
     const store = createMotionPolicyStore({
@@ -211,8 +211,97 @@ describe("createMotionPolicyStore", () => {
     const { unsubscribe } = subscribeLevels(store);
     for (let render = 0; render < 50; render++) store.getLevel();
     unsubscribe();
+    for (let render = 0; render < 50; render++) store.getLevel();
+    // Listening stopped, so the cache may be stale: the next read refreshes it once.
+    expect(reads).toBe(3);
+  });
+
+  it("forgets the web battery state when listening stops", async () => {
+    const battery = fakeBattery(false);
+    const store = createMotionPolicyStore({ getBattery: battery.getBattery });
+    const { unsubscribe } = subscribeLevels(store);
+    await battery.ready;
+    expect(store.getLevel()).toBe("reduced");
+
+    unsubscribe();
+    battery.set(true);
+
+    expect(store.getLevel()).toBe("full");
+  });
+
+  it("rereads the desktop power state after listening stops", () => {
+    let current: DesktopMotionPowerState = { onBattery: false, thermalState: "nominal" };
+    const listeners = new Set<(state: DesktopMotionPowerState) => void>();
+    const store = createMotionPolicyStore({
+      bridge: {
+        getMotionPowerState: () => current,
+        onMotionPowerStateChange: (listener) => {
+          listeners.add(listener);
+          return () => void listeners.delete(listener);
+        },
+      },
+    });
+    const { unsubscribe } = subscribeLevels(store);
+    current = { onBattery: true, thermalState: "nominal" };
+    for (const listener of listeners) listener(current);
+    expect(store.getLevel()).toBe("reduced");
+
+    unsubscribe();
+    current = { onBattery: false, thermalState: "nominal" };
+
+    expect(store.getLevel()).toBe("full");
+  });
+
+  it("uses a desktop shell's one-shot power state when it cannot push changes", () => {
+    const store = createMotionPolicyStore({
+      bridge: { getMotionPowerState: () => ({ onBattery: true, thermalState: "nominal" }) },
+    });
+    subscribeLevels(store);
+    expect(store.getLevel()).toBe("reduced");
+  });
+
+  it("follows web battery changes on a desktop shell that cannot push them", async () => {
+    const battery = fakeBattery(true);
+    const store = createMotionPolicyStore({
+      getBattery: battery.getBattery,
+      bridge: { getMotionPowerState: () => ({ onBattery: false, thermalState: "fair" }) },
+    });
+    const { seen } = subscribeLevels(store);
+    await battery.ready;
+
+    battery.set(false);
+    battery.set(true);
+
+    expect(seen).toEqual(["reduced", "full"]);
+  });
+
+  it("keeps the one-shot thermal state while web battery reports changes", async () => {
+    const battery = fakeBattery(true);
+    const store = createMotionPolicyStore({
+      getBattery: battery.getBattery,
+      bridge: { getMotionPowerState: () => ({ onBattery: false, thermalState: "serious" }) },
+    });
+    subscribeLevels(store);
+    await battery.ready;
+
+    expect(store.getLevel()).toBe("reduced");
+  });
+
+  it("does not query the media list until the level is first needed", () => {
+    let queries = 0;
+    const media = fakeMediaQuery(false);
+    const store = createMotionPolicyStore({
+      matchMedia: () => {
+        queries++;
+        return media.matchMedia();
+      },
+    });
+    expect(queries).toBe(0);
+
     store.getLevel();
-    expect(reads).toBe(2);
+    subscribeLevels(store);
+
+    expect(queries).toBe(1);
   });
 
   it("removes the desktop listener with the last subscriber", () => {

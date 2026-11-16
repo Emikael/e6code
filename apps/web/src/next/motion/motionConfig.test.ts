@@ -3,23 +3,33 @@ import { describe, expect, it } from "vite-plus/test";
 import { allowsViewTransitions, motionConfigFor } from "./motionConfig.ts";
 import { DUR_S } from "./tokens.ts";
 
+/** The ENG-114 ceiling for a Reduced fade. */
+const REDUCED_CEILING_S = 0.15;
+
 describe("motionConfigFor", () => {
-  it("plays everything at Full and never defers to the engine's own media query", () => {
-    expect(motionConfigFor("full")).toEqual({ reducedMotion: "never" });
+  it("lets Full play transforms and keeps each preset's own timing", () => {
+    const config = motionConfigFor("full");
+    expect(config.reducedMotion).toBe("never");
+    expect(config.transition).toBeUndefined();
   });
 
-  it("keeps Reduced to short fades: no transforms, dur.quick (140 ms) default", () => {
-    expect(motionConfigFor("reduced")).toEqual({
-      reducedMotion: "always",
-      transition: { duration: 0.14 },
-    });
+  it("drops transforms at Reduced and caps the default fade at the Reduced ceiling", () => {
+    const config = motionConfigFor("reduced");
+    expect(config.reducedMotion).toBe("always");
+    expect(config.transition?.duration).toBeGreaterThan(0);
+    expect(config.transition?.duration).toBeLessThanOrEqual(REDUCED_CEILING_S);
   });
 
-  it("changes state instantly at Off", () => {
-    expect(motionConfigFor("off")).toEqual({
-      reducedMotion: "always",
-      transition: { duration: 0 },
-    });
+  it("drops transforms and plays no frames by default at Off", () => {
+    const config = motionConfigFor("off");
+    expect(config.reducedMotion).toBe("always");
+    expect(config.transition?.duration).toBe(0);
+  });
+
+  it("never hands the decision back to the engine's own media query", () => {
+    for (const level of ["full", "reduced", "off"] as const) {
+      expect(motionConfigFor(level).reducedMotion).not.toBe("user");
+    }
   });
 });
 

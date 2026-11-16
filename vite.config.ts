@@ -172,9 +172,7 @@ export default defineConfig({
       // apps/web/src/next/motion, which applies MotionPolicy.
       {
         files: ["apps/web/src/next/motion/**"],
-        rules: {
-          "e6code/no-animation-library-imports": ["error", { allow: ["motion", "framer-motion"] }],
-        },
+        rules: { "e6code/no-animation-library-imports": ["error", { allow: ["motion"] }] },
       },
       {
         // Authored timelines load gsap lazily from this one module (ENG-110).

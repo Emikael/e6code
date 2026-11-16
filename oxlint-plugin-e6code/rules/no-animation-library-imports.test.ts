@@ -4,9 +4,7 @@ import { createOxlintRuleHarness } from "../test/utils.ts";
 
 const RULE = "e6code/no-animation-library-imports";
 const rule = createOxlintRuleHarness(RULE);
-const motionLayer = createOxlintRuleHarness(RULE, {
-  ruleOptions: [{ allow: ["motion", "framer-motion"] }],
-});
+const motionLayer = createOxlintRuleHarness(RULE, { ruleOptions: [{ allow: ["motion"] }] });
 const legacyMotion = createOxlintRuleHarness(RULE, { ruleOptions: [{ allow: ["animejs"] }] });
 
 describe(RULE, () => {
@@ -38,6 +36,30 @@ describe(RULE, () => {
     `
       export const load = () => import("gsap");
     `,
+  );
+
+  rule.invalid(
+    "reports a dynamic import written as a template literal",
+    "export const load = () => import(`gsap`);",
+    (output) => assert.match(output, /import gsap here/),
+  );
+
+  rule.valid(
+    "ignores a template literal it cannot resolve",
+    "const name = 'x'; export const load = () => import(`./${name}`);",
+  );
+
+  rule.invalid(
+    "reports gsap plugins and Anime.js subpaths",
+    `
+      import { ScrollTrigger } from "gsap/ScrollTrigger";
+      import { waapi } from "animejs/waapi";
+      export { ScrollTrigger, waapi };
+    `,
+    (output) => {
+      assert.match(output, /import gsap here/);
+      assert.match(output, /import animejs here/);
+    },
   );
 
   rule.invalid(
@@ -77,12 +99,19 @@ describe(RULE, () => {
   );
 
   motionLayer.valid(
-    "lets the motion layer import the engines it is granted",
+    "lets the motion layer import motion",
     `
       import { MotionConfig } from "motion/react";
-      import { LazyMotion } from "framer-motion";
       export const load = () => import("motion/react-m");
-      export { MotionConfig, LazyMotion };
+      export { MotionConfig };
+    `,
+  );
+
+  motionLayer.invalid(
+    "keeps framer-motion out of the motion layer",
+    `
+      import { LazyMotion } from "framer-motion";
+      export { LazyMotion };
     `,
   );
 
@@ -100,6 +129,14 @@ describe(RULE, () => {
       import type { DOMTargetsParam } from "animejs";
       export type T = DOMTargetsParam;
       export { waapi };
+    `,
+  );
+
+  legacyMotion.invalid(
+    "does not extend the legacy grant to gsap plugins",
+    `
+      import { ScrollTrigger } from "gsap/ScrollTrigger";
+      export { ScrollTrigger };
     `,
   );
 
