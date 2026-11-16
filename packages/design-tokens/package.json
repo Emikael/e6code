@@ -27,6 +27,10 @@
       "types": "./src/brand.ts",
       "import": "./src/brand.ts"
     },
+    "./layout": {
+      "types": "./src/layout.ts",
+      "import": "./src/layout.ts"
+    },
     "./motion": {
       "types": "./src/motion.ts",
       "import": "./src/motion.ts"
