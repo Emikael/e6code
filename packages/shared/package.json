@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./ambientLight": {
+      "types": "./src/ambientLight/ambientLight.ts",
+      "import": "./src/ambientLight/ambientLight.ts"
+    },
     "./composerCodeBlocks": {
       "types": "./src/composerCodeBlocks.ts",
       "import": "./src/composerCodeBlocks.ts"
