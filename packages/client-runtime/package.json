@@ -15,6 +15,10 @@
       "types": "./src/worktreeSetup.ts",
       "default": "./src/worktreeSetup.ts"
     },
+    "./motion-level": {
+      "types": "./src/motion/motionLevel.ts",
+      "default": "./src/motion/motionLevel.ts"
+    },
     "./minute-clock": {
       "types": "./src/minuteClock.ts",
       "default": "./src/minuteClock.ts"
