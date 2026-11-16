@@ -3,7 +3,7 @@ import * as NodeFS from "node:fs";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { BRAND_CHANNELS, BRAND_GLYPH, brandTileGeometry } from "./brand.ts";
+import { BRAND, BRAND_CHANNELS, BRAND_COLORS, BRAND_GLYPH, brandTileGeometry } from "./brand.ts";
 
 const read = (path: string) => NodeFS.readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -72,5 +72,22 @@ describe("brand tile geometry", () => {
 
   it("draws the small cut's band at exactly 2 px at 16 px", () => {
     expect((brandTileGeometry("small").band / 128) * 16).toBe(2);
+  });
+});
+
+describe("--mark-band", () => {
+  // The band sits on ink in both appearances. A light --primary (Graphite light, #2a2d35)
+  // measures 1.29:1 there, so the band may only read the band-specific variables.
+  it("reads only the band variables, never the raw accent", () => {
+    const declaration = BRAND.body.find(
+      (node): node is readonly [string, string] => Array.isArray(node) && node[0] === "--mark-band",
+    );
+    expect(declaration).toBeDefined();
+    const value = declaration![1];
+    const variables = [...value.matchAll(/var\((--[a-z-]+)/g)].map((match) => match[1]);
+    expect(variables).toEqual(["--app-theme-mark-band", "--stock-mark-band"]);
+    const fallback = value.match(/#[0-9a-f]{6}/i)?.[0];
+    expect(fallback).toBeDefined();
+    expect(contrastRatio(fallback!, BRAND_COLORS.ink)).toBeGreaterThanOrEqual(4.5);
   });
 });

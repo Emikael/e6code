@@ -960,12 +960,12 @@ const THEME_MARK_BAND_VARIABLE = "--app-theme-mark-band";
 
 /**
  * The E6 tile's band under a theme. The tile is brand ink in both appearances,
- * so the theme's accent is lifted toward white until it reads at 3:1 on ink.
+ * so the theme's accent is lifted toward white until it reads at 4.5:1 on ink.
  */
 export function themeMarkBand(accent: string): string {
   const ink = parseThemeRgbColor(BRAND_COLORS.ink, THEME_BLACK_FOREGROUND);
   return themeRgbToHexColor(
-    readableThemeAccent(parseThemeRgbColor(accent, ink), THEME_WHITE_FOREGROUND, [ink], 3),
+    readableThemeAccent(parseThemeRgbColor(accent, ink), THEME_WHITE_FOREGROUND, [ink], 4.5),
   );
 }
 

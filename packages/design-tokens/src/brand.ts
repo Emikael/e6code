@@ -120,7 +120,7 @@ export const BRAND: CssRule = {
     ["--brand-paper", BRAND_COLORS.paper],
     {
       comment:
-        "The tile's band follows the Accent setting. Stock accents write --stock-mark-band\n(stockAccent.ts) and themes write --app-theme-mark-band (themePalette.ts), both\nlifted to 3:1 on ink; the literal is Iris's dark value, the default accent.",
+        "The tile's band follows the Accent setting. Stock accents write --stock-mark-band\n(stockAccent.ts, each accent's dark value) and themes write --app-theme-mark-band\n(themePalette.ts, lifted to 4.5:1 on ink). Never --primary: a light accent can\nvanish on ink. The literal is Iris's dark value, the default accent.",
     },
     [
       "--mark-band",

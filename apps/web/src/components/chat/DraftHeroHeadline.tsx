@@ -267,7 +267,7 @@ export function DraftHeroHeadline({
 
   return (
     <div className="relative flex flex-col items-center gap-3">
-      <E6Monogram assemble className="mb-1 size-10 shadow-xs" />
+      <E6Monogram assemble className="mb-1 size-10" />
       <h1
         aria-label={headingLabel}
         className="mx-auto w-full max-w-5xl text-center text-[1.75rem] leading-[1.2] font-semibold tracking-[-0.02em] text-balance text-foreground sm:text-[2rem]"
