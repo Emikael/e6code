@@ -52,6 +52,7 @@ const clientSettings: ClientSettings = {
   fontSmoothing: true,
   glassOpacity: 80,
   onboardingCompletedAt: null,
+  motion: "off",
   panelAnimationDurationMs: 0,
   planModeEnabled: false,
   proactivePanelsEnabled: true,
@@ -171,6 +172,29 @@ describe("DesktopClientSettings", () => {
           yield* fileSystem.readFileString(environment.clientSettingsPath),
         );
         assert.isNull(stored.chatTextSize);
+      }),
+    ),
+  );
+
+  it.effect("follows the system for a file saved before the Motion setting existed", () =>
+    withClientSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        const path = yield* Path.Path;
+        yield* fileSystem.makeDirectory(path.dirname(environment.clientSettingsPath), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFileString(
+          environment.clientSettingsPath,
+          '{"panelAnimationDurationMs":250,"wordWrap":true}',
+        );
+
+        const existing = Option.getOrThrow(yield* settings.get);
+        assert.equal(existing.motion, "system");
+        assert.equal(existing.panelAnimationDurationMs, 250);
+        assert.isTrue(existing.wordWrap);
       }),
     ),
   );

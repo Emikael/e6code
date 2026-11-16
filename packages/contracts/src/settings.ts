@@ -325,6 +325,15 @@ export const StockAccent = Schema.Literals(["iris", "cobalt", "rose", "graphite"
 export type StockAccent = typeof StockAccent.Type;
 export const DEFAULT_STOCK_ACCENT: StockAccent = "iris";
 
+/**
+ * The Motion setting (ENG-114): how much redesigned screens animate. `system` follows the
+ * device (OS reduced motion, battery, heat, memory); an explicit value is final. Classic
+ * screens ignore it and keep `panelAnimationDurationMs`.
+ */
+export const MotionPreference = Schema.Literals(["system", "full", "reduced", "off"]);
+export type MotionPreference = typeof MotionPreference.Type;
+export const DEFAULT_MOTION_PREFERENCE: MotionPreference = "system";
+
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -353,6 +362,16 @@ export const ClientSettingsSchema = Schema.Struct({
   appearanceContrast: AppearanceContrast.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_APPEARANCE_CONTRAST)),
   ),
+  /**
+   * A value this client does not know, such as a level added later, falls back
+   * to Follow system rather than failing the whole settings decode.
+   */
+  motion: MotionPreference.pipe(
+    Schema.catchDecoding(() => Effect.succeed(Option.some(DEFAULT_MOTION_PREFERENCE))),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_MOTION_PREFERENCE)),
+  ),
+  // Classic screens only; the Motion setting does not change it. Removed together
+  // with `panelAnimations.ts` when the last classic panel goes (E17).
   // Panel motion defaults to zero because width and height transitions cause
   // layout work on every frame, which is noticeable on lower-power clients.
   panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
@@ -1651,6 +1670,7 @@ export const ClientSettingsPatch = Schema.Struct({
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
+  motion: Schema.optionalKey(MotionPreference),
   panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
