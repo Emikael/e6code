@@ -209,7 +209,7 @@ These are reference only and credit only, with no code from React Bits (D3).
 
 | Item                                                          | Licence                                  | Where                                           | Notice path                                                                      |
 | ------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------- |
-| Ambient light shader (5.7)                                    | ours                                     | E02-T10, `shared/src/ambientLight`              | none; first-party, written from the idea, no React Bits source opened            |
+| Ambient light shader (5.7)                                    | ours                                     | E02-T10, `shared/src/ambientLight`              | none; first-party; dither is interleaved gradient noise (Jimenez, SIGGRAPH 2014) |
 | `motion` (5.1)                                                | MIT                                      | planned E02                                     | auto manifest once it is a production dependency                                 |
 | `gsap` (D1)                                                   | Webflow Standard no-charge (proprietary) | `next/motion/cinematic` (app), `apps/marketing` | see trap below                                                                   |
 | Phosphor via `@phosphor-icons/core` (6.1)                     | MIT                                      | planned E03, generated into `next/icons`        | see trap below                                                                   |
