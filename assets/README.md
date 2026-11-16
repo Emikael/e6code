@@ -8,7 +8,7 @@ The three Icon Composer projects are the source of truth for full application ic
 
 Each project uses `text.svg` for the E6 mark and `background.svg` when the background is a vector layer. Additional layers use semantic names that describe their role and placement.
 
-Run `vp run icons:export` from the repository root to regenerate the tracked iOS, Linux, Windows, and web assets. The development web exports are also copied to `apps/web/public` for the browser favicon and splash screen. Run `vp run icons:check` to verify that the generated assets and public copies match their sources without changing files.
+Run `vp run icons:export` from the repository root to regenerate the tracked iOS, Linux, Windows, and web assets. The development web exports are also copied to `apps/web/public` for the browser favicon and the home-screen icon; the boot splash is an inline SVG and uses no PNG. Run `vp run icons:check` to verify that the generated assets and public copies match their sources without changing files.
 
 Exporting requires Icon Composer 2 or newer on macOS. The script selects the newest compatible exporter from Xcode or a standalone Icon Composer installation and pins design generation 26. Set `ICON_COMPOSER_TOOL` to the full path of `Icon Composer.app/Contents/Executables/ictool` to override automatic discovery.
 
@@ -56,10 +56,11 @@ the central two thirds of a 288dp canvas, so the Icon Composer exports cannot be
 their rounded-square silhouette gets framed again and the wordmark is cropped. The Android artwork
 is instead rendered from the same Icon Composer SVG sources by `vp run icons:export:android`:
 
-- `apps/mobile/assets/android-icon-foreground.png` and `android-icon-mark.png`: the shared transparent
-  wordmark, sized for the adaptive and monochrome masks respectively
-- `apps/mobile/assets/android-icon-background-dev.png` and `-nightly.png`: full-bleed variant
-  artwork (blueprint grid and annotations; night sky and clouds). Production uses a solid color.
+- `apps/mobile/assets/android-icon-foreground.png` and `android-icon-mark.png`: the transparent
+  paper wordmark for production and nightly, sized for the adaptive and monochrome masks
+  respectively; `android-icon-foreground-dev.png` is the ink wordmark for dev's light ground
+- `apps/mobile/assets/android-icon-background-dev.png` and `-nightly.png`: the full-bleed channel
+  ground and band. Production uses a solid color.
 - `apps/mobile/assets/android-splash-icon-*.png`: the two layers composed into one 288dp image, so
   the splash mask reproduces the launcher icon's framing.
 

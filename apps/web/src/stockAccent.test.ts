@@ -5,6 +5,7 @@ import {
   E6_CODE_LIGHT_THEME_COLORS,
   STOCK_ACCENT_PALETTES,
 } from "@e6tools/shared/themePalettes";
+import { BRAND_COLORS, stockAccentMarkBand } from "@e6tools/design-tokens/brand";
 import { differenceCiede2000 } from "culori/fn";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -147,7 +148,18 @@ describe("stockAccentVariables", () => {
       "--stock-terminal-selection": "rgb(13 71 161 / 18%)",
       "--stock-terminal-selection-dark": "rgb(99 135 246 / 22%)",
       "--stock-terminal-cursor-dark": cobalt.dark.primary,
+      "--stock-mark-band": cobalt.dark.primary,
     });
+  });
+
+  it("gives the E6 tile a band that reads on brand ink for every accent", () => {
+    for (const accent of StockAccent.literals) {
+      const band = stockAccentMarkBand(accent);
+      expect(contrastRatio(band, BRAND_COLORS.ink)).toBeGreaterThanOrEqual(3);
+      if (accent !== "iris") expect(stockAccentVariables(accent)["--stock-mark-band"]).toBe(band);
+    }
+    // With the Graphite accent the in-app tile is exactly the brand mark.
+    expect(stockAccentMarkBand("graphite")).toBe(BRAND_COLORS.graphite);
   });
 
   it("keeps every accent visibly apart from the info/update blue", () => {

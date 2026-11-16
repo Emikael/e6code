@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { BUILT_IN_THEMES, type ThemeColors } from "@e6tools/shared/themePalettes";
 import { differenceCiede2000 } from "culori/fn";
+import { BRAND_COLORS } from "@e6tools/design-tokens/brand";
 
 import {
   applyThemeColorPreview,
@@ -28,6 +29,7 @@ import {
   serializeThemeFile,
   subscribeToThemePreview,
   subscribeToCustomThemes,
+  themeMarkBand,
   themeAllowsSidebarArtwork,
   E6_CHAT_THEME,
   EMBER_THEME,
@@ -1025,6 +1027,23 @@ describe("derived accent roles", () => {
     const derived = deriveThemeAccentVariables(colors);
     expect(derived["--app-theme-primary-text"]).toBe(asHex(colors.messageAction));
     expect(derived["--app-theme-primary-edge"]).toBe(asHex(colors.messageAction));
+  });
+
+  it("lifts a theme accent until the E6 tile's band reads at 4.5:1 on brand ink", () => {
+    // E6 Chat's deep magenta sits close to ink; it is lightened just past the floor.
+    expect(contrastRatio("#a3004c", BRAND_COLORS.ink)).toBeLessThan(4.5);
+    const chatBand = themeMarkBand("#a3004c");
+    expect(contrastRatio(chatBand, BRAND_COLORS.ink)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(chatBand, BRAND_COLORS.ink)).toBeLessThan(4.7);
+    // An accent that already reads on ink is kept as it is (Ember dark).
+    expect(themeMarkBand("#f78a7a")).toBe("#f78a7a");
+    for (const theme of BUILT_IN_THEMES) {
+      for (const colors of [theme.colors, ...Object.values(theme.variants ?? {})]) {
+        expect(
+          contrastRatio(themeMarkBand(colors.messageAction), BRAND_COLORS.ink),
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 });
 

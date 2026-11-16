@@ -23,6 +23,10 @@
       "types": "./src/keyLight.ts",
       "import": "./src/keyLight.ts"
     },
+    "./brand": {
+      "types": "./src/brand.ts",
+      "import": "./src/brand.ts"
+    },
     "./layout": {
       "types": "./src/layout.ts",
       "import": "./src/layout.ts"

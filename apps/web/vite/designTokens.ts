@@ -7,6 +7,7 @@ import {
   BOOT_THEME_COLOR,
   renderBootStyle,
 } from "@e6tools/design-tokens/bootPalette";
+import { BRAND_COLORS, renderBrandTileSvg } from "@e6tools/design-tokens/brand";
 import { WEB_STOCK_BLOCKS, renderCssRule } from "@e6tools/design-tokens/webStock";
 import type { Plugin } from "vite-plus";
 
@@ -22,7 +23,24 @@ const CSS_BLOCKS: Blocks = Object.fromEntries(
     (indent: string) => renderCssRule(rule, indent),
   ]),
 );
-const HTML_BLOCKS: Blocks = { ...BOOT_SCRIPT_BLOCKS, "boot-style": renderBootStyle };
+// The boot tile is the in-app tile at 64 px, so the launch can match-cut to the header.
+// Its band is graphite until something writes --boot-mark-band.
+const renderBootMark = (indent: string) =>
+  indent +
+  renderBrandTileSvg({
+    id: "boot-mark-clip",
+    size: 64,
+    ground: BRAND_COLORS.ink,
+    glyph: BRAND_COLORS.paper,
+    band: `var(--boot-mark-band, ${BRAND_COLORS.graphite})`,
+    label: "E6 Code",
+  });
+
+const HTML_BLOCKS: Blocks = {
+  ...BOOT_SCRIPT_BLOCKS,
+  "boot-style": renderBootStyle,
+  "boot-mark": renderBootMark,
+};
 
 function injectBlocks(source: string, blocks: Blocks): string {
   return source.replace(PLACEHOLDER, (_line, indent: string, name: string) => {

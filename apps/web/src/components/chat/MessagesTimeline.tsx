@@ -2643,8 +2643,7 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
         aria-hidden
         className="pointer-events-none absolute inset-x-0 -bottom-px flex h-px opacity-0"
       >
-        <span className="flex-1 origin-left bg-(--brand-cyan)" />
-        <span className="flex-1 origin-left bg-(--brand-orange)" />
+        <span className="flex-1 origin-left bg-primary" />
       </span>
       <button
         type="button"

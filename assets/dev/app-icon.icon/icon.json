@@ -1,6 +1,6 @@
 {
   "fill": {
-    "solid": "display-p3:0.09412,0.09412,0.10588,1.00000"
+    "solid": "display-p3:0.93473,0.94092,0.95892,1.00000"
   },
   "groups": [
     {
@@ -9,7 +9,7 @@
           "image-name": "text.svg",
           "name": "Text",
           "position": {
-            "scale": 8.5,
+            "scale": 8.1,
             "translation-in-points": [0, 0]
           }
         },

@@ -94,8 +94,10 @@ const renderForeground = Effect.fn("androidIcons.renderForeground")(function* (
   repositoryRoot: string,
   size: number,
   fraction = WORDMARK_FRACTION,
+  variant: IconVariant = "prod",
 ) {
-  const text = yield* readLayerSource(repositoryRoot, "prod", "text.svg");
+  // Production and nightly share a paper glyph; dev's light ground carries an ink glyph.
+  const text = yield* readLayerSource(repositoryRoot, variant, "text.svg");
   const paths = text.match(/<path[^>]*\/>/g) ?? [];
   return yield* rasterize(
     "foreground",
@@ -120,7 +122,12 @@ const renderSplashIcon = Effect.fn("androidIcons.renderSplashIcon")(function* (
   variant: IconVariant,
 ) {
   const background = yield* renderBackground(repositoryRoot, variant, SPLASH_CANVAS);
-  const foreground = yield* renderForeground(repositoryRoot, SPLASH_CANVAS);
+  const foreground = yield* renderForeground(
+    repositoryRoot,
+    SPLASH_CANVAS,
+    WORDMARK_FRACTION,
+    variant,
+  );
   return yield* composite(`${variant}-splash`, background, [{ input: foreground }]);
 });
 
@@ -130,6 +137,10 @@ const exportAndroidIcons = Effect.gen(function* () {
   const repositoryRoot = path.resolve(import.meta.dirname, "..");
   const outputs = [
     ["android-icon-foreground.png", yield* renderForeground(repositoryRoot, ADAPTIVE_CANVAS)],
+    [
+      "android-icon-foreground-dev.png",
+      yield* renderForeground(repositoryRoot, ADAPTIVE_CANVAS, WORDMARK_FRACTION, "dev"),
+    ],
     ["android-icon-mark.png", yield* renderForeground(repositoryRoot, ADAPTIVE_CANVAS, 0.65)],
     [
       "android-icon-background-dev.png",

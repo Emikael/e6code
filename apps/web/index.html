@@ -321,10 +321,8 @@
         height: 96px;
       }
 
-      #boot-shell-logo {
-        width: 64px;
-        height: 64px;
-        object-fit: contain;
+      #boot-shell-card > svg {
+        display: block;
       }
 
       #boot-error {
@@ -357,7 +355,7 @@
     <div id="root">
       <div id="boot-shell">
         <div id="boot-shell-card" aria-label="E6 Code splash screen">
-          <img id="boot-shell-logo" src="/apple-touch-icon.png" alt="E6 Code" />
+          /* @design-tokens boot-mark */
         </div>
       </div>
     </div>

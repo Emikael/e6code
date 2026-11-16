@@ -2,6 +2,7 @@ import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import "culori/css";
 import { converter, parse } from "culori/fn";
+import { BRAND_COLORS } from "@e6tools/design-tokens/brand";
 import {
   BUILT_IN_THEMES,
   EMBER_THEME,
@@ -955,6 +956,18 @@ export function deriveThemeAccentVariables(colors: ThemeColors): Readonly<Record
 
 const THEME_PRIMARY_TEXT_VARIABLE = "--app-theme-primary-text";
 const THEME_PRIMARY_EDGE_VARIABLE = "--app-theme-primary-edge";
+const THEME_MARK_BAND_VARIABLE = "--app-theme-mark-band";
+
+/**
+ * The E6 tile's band under a theme. The tile is brand ink in both appearances,
+ * so the theme's accent is lifted toward white until it reads at 4.5:1 on ink.
+ */
+export function themeMarkBand(accent: string): string {
+  const ink = parseThemeRgbColor(BRAND_COLORS.ink, THEME_BLACK_FOREGROUND);
+  return themeRgbToHexColor(
+    readableThemeAccent(parseThemeRgbColor(accent, ink), THEME_WHITE_FOREGROUND, [ink], 4.5),
+  );
+}
 
 function readableThemeForeground(background: ThemeRgbColor): ThemeRgbColor {
   const lightContrast = themeContrastRatio(background, THEME_LIGHT_FOREGROUND);
@@ -1683,6 +1696,7 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
     for (const [variable, value] of Object.entries(deriveThemeAccentVariables(colors))) {
       root.style.setProperty(variable, value);
     }
+    root.style.setProperty(THEME_MARK_BAND_VARIABLE, themeMarkBand(colors.messageAction));
   }
 }
 
@@ -1705,6 +1719,9 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
     for (const [variable, value] of Object.entries(deriveThemeAccentVariables(colors))) {
       root.style.setProperty(variable, value);
     }
+    // The tile sits on ink, so it prefers the theme's dark accent when it has one.
+    const darkColors = getThemeColorsForMode(palette, "dark") ?? colors;
+    root.style.setProperty(THEME_MARK_BAND_VARIABLE, themeMarkBand(darkColors.messageAction));
     return;
   }
 
@@ -1714,6 +1731,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
   }
   root.style.removeProperty(THEME_PRIMARY_TEXT_VARIABLE);
   root.style.removeProperty(THEME_PRIMARY_EDGE_VARIABLE);
+  root.style.removeProperty(THEME_MARK_BAND_VARIABLE);
 }
 
 export function resolveThemeAppearance(

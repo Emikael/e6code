@@ -1,4 +1,5 @@
 import type { StockAccent } from "@e6tools/contracts/settings";
+import { stockAccentMarkBand } from "@e6tools/design-tokens/brand";
 import {
   STOCK_ACCENT_PALETTES,
   type StockAccentColors,
@@ -59,6 +60,8 @@ export function stockAccentVariables(accent: StockAccent): Readonly<Record<strin
   );
   // Porcelain's cursor is ink, not accent; only Slate's follows the accent.
   variables["--stock-terminal-cursor-dark"] = palette.dark.primary;
+  // The E6 tile's band sits on ink in both appearances, so it has one value.
+  variables["--stock-mark-band"] = stockAccentMarkBand(accent);
   return variables;
 }
 
