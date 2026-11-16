@@ -42,6 +42,12 @@ export const DUR = {
 /** A set piece is a sequence of tweens; its whole length, in ms. */
 export const SET_PIECE_MS = { min: 600, max: 900 } as const;
 
+/**
+ * The ambient light's intro (D12, ENG-136): its canvas fades in and brightens over this long,
+ * once per mount and at Full only. A continuous effect, not a tween, so not on the `DUR` scale.
+ */
+export const AMBIENT_INTRO_MS = 2400;
+
 /** Cubic Bézier control points, so every client builds its own curve from one source. */
 export const EASE_BEZIER = {
   enter: [0.22, 1, 0.36, 1],
