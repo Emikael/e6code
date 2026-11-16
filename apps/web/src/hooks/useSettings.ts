@@ -89,7 +89,8 @@ function setClientSettingsHydrationStatus(nextStatus: ClientSettingsHydrationSta
   emitClientSettingsHydrationChange();
 }
 
-function subscribeClientSettings(listener: () => void): () => void {
+/** Non-React subscription to client settings changes; starts hydration like the hooks do. */
+export function subscribeClientSettings(listener: () => void): () => void {
   clientSettingsListeners.add(listener);
   void hydrateClientSettings().catch(() => undefined);
   return () => {
@@ -105,7 +106,16 @@ function getClientSettingsHydrationStatusSnapshot(): ClientSettingsHydrationStat
   return clientSettingsHydrationStatus;
 }
 
-function subscribeClientSettingsHydration(listener: () => void): () => void {
+/** Non-hook accessor: `true` once the saved settings (or their absence) are known. */
+export function isClientSettingsHydrated(): boolean {
+  return getClientSettingsHydratedSnapshot();
+}
+
+/**
+ * Non-React subscription to hydration status. A new install with nothing saved reaches
+ * `ready` without a settings change, so callers waiting for saved values need this too.
+ */
+export function subscribeClientSettingsHydration(listener: () => void): () => void {
   clientSettingsHydrationListeners.add(listener);
   void hydrateClientSettings().catch(() => undefined);
   return () => {

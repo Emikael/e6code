@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  activeMotionConstraints,
+  describeMotionResolution,
   type MotionConstraints,
   type MotionPreference,
   resolveMotionLevel,
@@ -62,5 +64,49 @@ describe("resolveMotionLevel", () => {
     for (const [, constraint] of CONSTRAINTS) {
       expect(resolveMotionLevel(preference, { ...UNCONSTRAINED, ...constraint })).toBe(expected);
     }
+  });
+});
+
+describe("activeMotionConstraints", () => {
+  it("lists every constraint that holds, in display order", () => {
+    expect(
+      activeMotionConstraints({
+        prefersReducedMotion: true,
+        onBattery: true,
+        thermalState: "critical",
+        deviceMemoryGb: 2,
+      }),
+    ).toEqual(["reduced-motion", "battery", "thermal", "memory"]);
+    expect(activeMotionConstraints(UNCONSTRAINED)).toEqual([]);
+  });
+});
+
+describe("describeMotionResolution", () => {
+  it("says Follow system resolved to Full when nothing constrains the device", () => {
+    expect(describeMotionResolution("system", [])).toBe("Following system: Full");
+  });
+
+  it("names every reason Follow system dropped to Reduced", () => {
+    expect(describeMotionResolution("system", ["battery"])).toBe(
+      "Following system: Reduced, on battery",
+    );
+    expect(describeMotionResolution("system", ["battery", "thermal"])).toBe(
+      "Following system: Reduced, on battery and running hot",
+    );
+    expect(describeMotionResolution("system", ["reduced-motion", "battery", "memory"])).toBe(
+      "Following system: Reduced, reduced motion is on, on battery and low memory",
+    );
+  });
+
+  it("explains an explicit Full only while the device asks for less", () => {
+    expect(describeMotionResolution("full", [])).toBeNull();
+    expect(describeMotionResolution("full", ["thermal"])).toBe(
+      "Full, even though your device reports running hot",
+    );
+  });
+
+  it("has nothing to say for an explicit Reduced or Off", () => {
+    expect(describeMotionResolution("reduced", ["battery"])).toBeNull();
+    expect(describeMotionResolution("off", [])).toBeNull();
   });
 });
