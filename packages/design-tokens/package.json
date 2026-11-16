@@ -26,6 +26,10 @@
     "./motion": {
       "types": "./src/motion.ts",
       "import": "./src/motion.ts"
+    },
+    "./type": {
+      "types": "./src/type.ts",
+      "import": "./src/type.ts"
     }
   },
   "scripts": {
