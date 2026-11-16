@@ -12,6 +12,7 @@ import {
 } from "./previewAutomation.ts";
 import { SnapShotSource } from "./orchestration.ts";
 import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { HostPowerThermalState } from "./background.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 import type {
   BrowserImportResult,
@@ -118,6 +119,17 @@ export const DesktopAppBrandingSchema = Schema.Struct({
   stageLabel: DesktopAppStageLabelSchema,
   displayName: Schema.String,
 });
+
+/**
+ * The desktop client device's own power state, for MotionPolicy. Never the server host's: a
+ * desktop window on a remote environment follows its own battery.
+ */
+export const DesktopMotionPowerStateSchema = Schema.Struct({
+  onBattery: Schema.Boolean,
+  /** Electron reports a real value on macOS only; elsewhere `unknown`. */
+  thermalState: HostPowerThermalState,
+});
+export type DesktopMotionPowerState = typeof DesktopMotionPowerStateSchema.Type;
 
 export const DesktopSnapShotMode = Schema.Literals(["direct", "portal", "unavailable"]);
 export type DesktopSnapShotMode = typeof DesktopSnapShotMode.Type;
@@ -1174,6 +1186,12 @@ export interface DesktopBridge {
    * regardless of OS settings.
    */
   getSystemLocale?: () => string | null;
+  /**
+   * Battery and thermal state for MotionPolicy, read synchronously so the first frame knows
+   * its level. Absent on desktop builds predating it; the renderer then uses web inputs.
+   */
+  getMotionPowerState?: () => DesktopMotionPowerState | null;
+  onMotionPowerStateChange?: (listener: (state: DesktopMotionPowerState) => void) => () => void;
   // One bootstrap per pool instance currently registered with bootstrap
   // info (omits instances whose backend hasn't produced a config yet).
   // The primary backend is identified by id === PRIMARY_LOCAL_ENVIRONMENT_ID.
