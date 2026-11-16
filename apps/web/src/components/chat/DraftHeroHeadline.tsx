@@ -32,10 +32,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { E6Monogram } from "../E6Monogram";
 import { cn } from "~/lib/utils";
 
-// Hard-stop cyan/orange bands under the project name: the brand stripe as the
-// picker's affordance, replacing a plain dotted underline.
-const BRAND_UNDERLINE =
-  "bg-[linear-gradient(90deg,var(--brand-cyan)_0_50%,var(--brand-orange)_50%)] bg-size-[100%_3px] bg-bottom bg-no-repeat pb-1";
+// A neutral rule under the project name marks the picker; it takes the accent
+// edge only on hover and focus, since primary at rest means the next action.
+const PICKER_UNDERLINE =
+  "border-b-2 border-edge-strong pb-0.5 hover:border-primary-edge focus-visible:border-primary-edge";
 import { resolveProjectSettings } from "@e6tools/shared/projectSettings";
 
 interface DraftHeroHeadlineProps {
@@ -158,8 +158,8 @@ export function DraftHeroHeadline({
             // mid-sentence and baffle screen-reader users.
             <MenuTrigger
               className={cn(
-                BRAND_UNDERLINE,
-                "pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground transition-[background-size] hover:bg-size-[100%_4px] focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                PICKER_UNDERLINE,
+                "pointer-events-auto inline-block max-w-[min(36rem,72vw)] truncate align-baseline font-semibold text-foreground transition-colors focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               )}
             />
           }

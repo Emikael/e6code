@@ -23,6 +23,7 @@ describe("design-token placeholders", () => {
       "boot-palette",
       "boot-reserved-theme-ids",
       "boot-style",
+      "boot-mark",
     ]) {
       expect(count(raw, `/* @design-tokens ${name} */`), name).toBe(1);
     }
@@ -31,6 +32,8 @@ describe("design-token placeholders", () => {
     const rendered = renderIndexHtml(raw);
     expect(rendered).not.toContain("@design-tokens");
     expect(rendered).not.toContain("%E6_BOOT_THEME_COLOR%");
+    // The boot tile is inline and named, not a PNG fetched before first paint.
+    expect(rendered).toContain('role="img" aria-label="E6 Code"');
   });
 
   it("consumes every placeholder in index.css", async () => {
@@ -42,6 +45,7 @@ describe("design-token placeholders", () => {
       "key-light",
       "type",
       "layout",
+      "brand",
     ]) {
       expect(count(raw, `/* @design-tokens ${name} */`), name).toBe(1);
     }

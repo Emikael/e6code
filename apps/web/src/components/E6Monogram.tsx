@@ -1,4 +1,9 @@
-import { useLayoutEffect, useRef } from "react";
+import {
+  BRAND_TILE_UNITS,
+  brandTileGeometry,
+  type BrandTileCut,
+} from "@e6tools/design-tokens/brand";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
 
 import {
   canAnimate,
@@ -6,28 +11,36 @@ import {
   playTransient,
   prefersReducedMotion,
   SPRING_GENTLE,
-  staggerDelay,
 } from "~/lib/motion";
 import { cn } from "~/lib/utils";
 import { E6Wordmark } from "./E6Wordmark";
 
-/** The brand's two-band motif: cyan then orange, hard-stopped. */
-export function BrandStripe({ className }: { className?: string }) {
-  return (
-    <span aria-hidden data-slot="brand-stripe" className={cn("flex", className)}>
-      <span className="flex-1 origin-left bg-(--brand-cyan)" />
-      <span className="flex-1 origin-left bg-(--brand-orange)" />
-    </span>
-  );
+const percent = (units: number) => `${(units / BRAND_TILE_UNITS) * 100}%`;
+
+/** Inline geometry per cut, from the one source the boot tile and app icons share. */
+function tileLayout(cut: BrandTileCut) {
+  const geometry = brandTileGeometry(cut);
+  return {
+    tile: { borderRadius: `${geometry.radius * 100}%` } satisfies CSSProperties,
+    glyph: {
+      left: percent(geometry.glyph.x),
+      top: percent(geometry.glyph.y),
+      width: percent(geometry.glyph.width),
+      height: percent(geometry.glyph.height),
+    } satisfies CSSProperties,
+    band: { height: percent(geometry.band) } satisfies CSSProperties,
+  };
 }
+
+const LAYOUTS = { default: tileLayout("default"), small: tileLayout("small") } as const;
 
 // The assembly greets the first empty surface of a session; repeats are noise.
 let assembledThisSession = false;
 
 function playMonogramAssembly(tile: HTMLElement) {
   const mark = tile.querySelector("svg");
-  const stripe = tile.querySelector("[data-slot=brand-stripe]");
-  if (!canAnimate(mark) || !stripe) return null;
+  const band = tile.querySelector("[data-slot=brand-band]");
+  if (!canAnimate(mark) || !canAnimate(band)) return null;
   const motions = [
     playTransient(tile, {
       opacity: [0, 1],
@@ -41,10 +54,10 @@ function playMonogramAssembly(tile: HTMLElement) {
       delay: 90,
       ease: EASE_OUT,
     }),
-    playTransient(Array.from(stripe.children).filter(canAnimate), {
+    playTransient(band, {
       transform: ["scaleX(0)", "scaleX(1)"],
       duration: 360,
-      delay: staggerDelay(110, 220),
+      delay: 110,
       ease: EASE_OUT,
     }),
   ];
@@ -57,17 +70,21 @@ function playMonogramAssembly(tile: HTMLElement) {
   };
 }
 
-/** The E6 tile: off-white mark on charcoal with a cyan/orange edge. Size it
-    with `size-*`; the mark and edge scale with the tile. `assemble` builds the
-    tile once per session on empty surfaces. */
+/** The E6 tile: paper glyph on brand ink over one band that follows the
+    Accent setting (`--mark-band`). Size it with `size-*`; the glyph and band
+    scale with the tile. Use `cut="small"` at 20 px and below. `assemble`
+    builds the tile once per session on empty surfaces. */
 export function E6Monogram({
   className,
+  cut = "default",
   assemble = false,
 }: {
   className?: string;
+  cut?: BrandTileCut;
   assemble?: boolean;
 }) {
   const tileRef = useRef<HTMLSpanElement>(null);
+  const layout = LAYOUTS[cut];
 
   // Layout effect: the WAAPI start must land before the first paint of the tile.
   useLayoutEffect(() => {
@@ -80,13 +97,19 @@ export function E6Monogram({
     <span
       ref={tileRef}
       aria-hidden
+      style={layout.tile}
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[27%] bg-(--brand-charcoal) text-(--brand-off-white) shadow-[0_1px_2px_rgb(0_0_0/0.25)] ring-1 ring-white/10 ring-inset",
+        // The dark-only ring sits above the band so the silhouette stays whole.
+        "relative inline-block shrink-0 overflow-hidden bg-(--brand-ink) text-(--brand-paper) after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] dark:after:ring-1 dark:after:ring-edge-strong dark:after:ring-inset",
         className,
       )}
     >
-      <E6Wordmark className="h-[36%] w-auto -translate-y-[7%]" />
-      <BrandStripe className="absolute inset-x-0 bottom-0 h-[15%]" />
+      <span
+        data-slot="brand-band"
+        style={layout.band}
+        className="absolute inset-x-0 bottom-0 origin-left bg-(--mark-band)"
+      />
+      <E6Wordmark className="absolute" style={layout.glyph} />
     </span>
   );
 }
