@@ -9,6 +9,8 @@ import {
   renderCssRule,
   type CssNode,
 } from "@e6tools/design-tokens/webStock";
+import "culori/css";
+import { clampRgb, converter, wcagLuminance, type Oklab } from "culori/fn";
 import { describe, expect, it } from "vite-plus/test";
 
 import { getThemeColorVariable } from "../src/themePalette";
@@ -30,6 +32,62 @@ function declarations(nodes: ReadonlyArray<CssNode>): Array<[string, string]> {
 }
 
 const keyLightNames = new Set(declarations(KEY_LIGHT).map(([name]) => name));
+
+const toOklab = converter("oklab");
+const PLANES = ["ground", "well", "stage", "raised", "float"] as const;
+
+/**
+ * Relative luminance of each plane under a theme that only sets `--background`, computed
+ * from the themed block's own expressions. Throws on an expression it cannot evaluate,
+ * such as a plane that reads a legacy variable instead of the background.
+ */
+function themedPlaneLuminance(mode: "dark" | "light", background: string, relativeColour: boolean) {
+  const themed = KEY_LIGHT.find((node) => node.rule === THEMED_SELECTOR)!;
+  const values = new Map<string, string>();
+  const collect = (nodes: ReadonlyArray<CssNode>) => {
+    for (const node of nodes) {
+      if (Array.isArray(node)) values.set(node[0], node[1]);
+      else if ("rule" in node) {
+        if (node.rule === "@variant dark" && mode !== "dark") continue;
+        if (node.rule.startsWith("@supports") && !relativeColour) continue;
+        if (node.rule !== "@variant dark" && !node.rule.startsWith("@supports")) {
+          throw new Error(`Unexpected rule ${node.rule}`);
+        }
+        collect(node.body);
+      }
+    }
+  };
+  collect(themed.body);
+
+  const evaluate = (value: string): Oklab => {
+    let m: RegExpMatchArray | null;
+    if (value === "var(--background)") return toOklab(background)!;
+    if ((m = value.match(/^var\((--plane-[a-z]+)\)$/))) return evaluate(values.get(m[1]!)!);
+    if ((m = value.match(/^color-mix\(in oklab, (.+) (\d+)%, (black|white)\)$/))) {
+      const from = evaluate(m[1]!);
+      const to = toOklab(m[3]!)!;
+      const t = Number(m[2]) / 100;
+      return {
+        mode: "oklab",
+        l: from.l * t + to.l * (1 - t),
+        a: from.a * t + to.a * (1 - t),
+        b: from.b * t + to.b * (1 - t),
+      };
+    }
+    if ((m = value.match(/^oklab\(from (.+) max\(l, ([\d.]+)\) a b\)$/))) {
+      const from = evaluate(m[1]!);
+      return { ...from, l: Math.max(from.l, Number(m[2])) };
+    }
+    throw new Error(`Cannot evaluate ${value} from the theme background`);
+  };
+
+  return Object.fromEntries(
+    PLANES.map((plane) => [
+      plane,
+      wcagLuminance(clampRgb(evaluate(values.get(`--plane-${plane}`)!))),
+    ]),
+  ) as Record<(typeof PLANES)[number], number>;
+}
 
 /** `index.css` rendered with every block except key-light, so only legacy names remain. */
 async function legacyIndexCss() {
@@ -91,6 +149,29 @@ describe("key-light tokens", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  // ENG-141 decision: under a theme the planes derive from its background, so the Lit Stage
+  // order holds whatever the palette. Evaluated from the declared expressions, both where
+  // relative colour syntax applies and where its `@supports` block is skipped.
+  describe.each([
+    ["dark", ["#16181d", "#0b1a10", "#000000", "#050505", "#1e1e2e", "#3b0a5e"]],
+    ["light", ["#ffffff", "#fbf1dc", "#eef1f5"]],
+  ] as const)("planes of a roles-only %s theme", (mode, backgrounds) => {
+    it.each(
+      backgrounds.flatMap((background) => [true, false].map((rcs) => [background, rcs] as const)),
+    )("keep the Lit Stage order on %s (relative colour %s)", (background, relativeColour) => {
+      const L = themedPlaneLuminance(mode, background, relativeColour);
+      expect(L.ground).toBeLessThanOrEqual(L.well);
+      expect(L.well).toBeLessThanOrEqual(L.stage);
+      expect(L.raised).toBeGreaterThanOrEqual(L.stage);
+      expect(L.float).toBeGreaterThanOrEqual(L.stage);
+      // Strict where it can be: only pure black without the floor collapses.
+      if (relativeColour || background !== "#000000") {
+        expect(L.ground).toBeLessThan(L.well);
+        expect(L.well).toBeLessThan(L.stage);
+      }
+    });
   });
 
   it("renders as CSS Tailwind can place after the contrast recompute block", async () => {
