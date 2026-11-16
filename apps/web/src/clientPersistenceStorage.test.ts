@@ -52,6 +52,21 @@ describe("clientPersistenceStorage", () => {
     expect(readBrowserClientSettings()).toEqual(settings);
   });
 
+  it("reads browser settings saved before chat text size existed as the legacy size", async () => {
+    const testWindow = getTestWindow();
+    testWindow.localStorage.setItem(
+      "e6code:client-settings:v1",
+      JSON.stringify({ timestampFormat: "12-hour", fontSizeInterface: 18 }),
+    );
+    const { readBrowserClientSettings } = await import("./clientPersistenceStorage");
+
+    expect(readBrowserClientSettings()).toMatchObject({
+      chatTextSize: null,
+      fontSizeInterface: 18,
+      timestampFormat: "12-hour",
+    });
+  });
+
   it.each(["not-json", '{"wordWrap":"invalid"}'])(
     "does not treat invalid saved settings as absent: %s",
     async (value) => {

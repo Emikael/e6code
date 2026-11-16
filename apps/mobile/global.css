@@ -29,6 +29,28 @@
   --text-2xl--line-height: 32px;
   --text-3xl: 30px;
   --text-3xl--line-height: 36px;
+
+  /* Redesign type scale (E01-T12), mirrored from @e6tools/design-tokens/type. */
+  /* <generated type-scale> */
+  --text-micro: 11px;
+  --text-micro--line-height: 14px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-ui: 13px;
+  --text-ui--line-height: 18px;
+  --text-body: 14px;
+  --text-body--line-height: 21px;
+  --text-prose: 15px;
+  --text-prose--line-height: 24px;
+  --text-title: 15px;
+  --text-title--line-height: 20px;
+  --text-heading: 19px;
+  --text-heading--line-height: 24px;
+  --text-display-s: 26px;
+  --text-display-s--line-height: 30px;
+  --text-display: 36px;
+  --text-display--line-height: 40px;
+  /* </generated type-scale> */
 }
 
 /* ─── Custom utilities ──────────────────────────────────────────────── */

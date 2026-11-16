@@ -3,9 +3,9 @@
  * the motion scale, under names no legacy CSS declares. Legacy roles keep their values; the
  * retune of those roles is E01-T11.
  *
- * Stock (no `data-theme-id`) carries direction C literals. Under a theme every plane maps
- * onto a variable the theme already sets, and edges, light and scrim are mixed from roles,
- * so custom, imported and environment-published themes need no new field. Mobile colour
+ * Stock (no `data-theme-id`) carries direction C literals. Under a theme every plane derives
+ * from the theme's background, and edges, light and scrim are mixed from roles, so custom,
+ * imported and environment-published themes need no new field. Mobile colour
  * keys are E01-T18.
  */
 import { DUR, EASE } from "./motion.ts";
@@ -85,15 +85,33 @@ export const KEY_LIGHT: ReadonlyArray<CssRule> = [
     ],
   },
   {
-    // Themes have no plane roles: each plane takes the legacy variable it replaces, so
-    // themed screens keep today's hierarchy. Specificity (0,2,1) beats `:root` dark.
+    // Themes have no plane roles: the stage takes the theme's background and the other
+    // planes are fixed oklab steps toward black or white, matched to the stock steps, so
+    // the Lit Stage order holds on any palette (ENG-141). Specificity (0,2,1) beats `:root`
+    // dark.
     rule: 'html[data-theme-id]:not([data-theme-id=""])',
     body: [
-      ["--plane-ground", "var(--app-window-background)"],
       ["--plane-stage", "var(--background)"],
-      ["--plane-well", "var(--surface-well)"],
-      ["--plane-raised", "var(--surface-raised)"],
-      ["--plane-float", "var(--surface-floating)"],
+      ["--plane-ground", "color-mix(in oklab, var(--plane-stage) 96%, black)"],
+      ["--plane-well", "color-mix(in oklab, var(--plane-stage) 97%, black)"],
+      ["--plane-raised", "var(--plane-stage)"],
+      ["--plane-float", "var(--plane-stage)"],
+      {
+        rule: "@variant dark",
+        body: [
+          {
+            // A near-black background lifts to oklab L 0.16 so the ground can still sit
+            // below it. oklab, not oklch: oklch drops a near-neutral hue to `none`. Without
+            // relative colour support the stage stays the background; order still holds.
+            rule: "@supports (color: oklab(from red l a b))",
+            body: [["--plane-stage", "oklab(from var(--background) max(l, 0.16) a b)"]],
+          },
+          ["--plane-ground", "color-mix(in oklab, var(--plane-stage) 63%, black)"],
+          ["--plane-well", "color-mix(in oklab, var(--plane-stage) 84%, black)"],
+          ["--plane-raised", "color-mix(in oklab, var(--plane-stage) 96%, white)"],
+          ["--plane-float", "color-mix(in oklab, var(--plane-stage) 95%, white)"],
+        ],
+      },
     ],
   },
   {

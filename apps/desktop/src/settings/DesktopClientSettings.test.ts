@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
@@ -143,6 +144,33 @@ describe("DesktopClientSettings", () => {
             "settings",
           ),
         );
+      }),
+    ),
+  );
+
+  it.effect("keeps the legacy chat size for a file saved before the setting existed", () =>
+    withClientSettings(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        const path = yield* Path.Path;
+        yield* fileSystem.makeDirectory(path.dirname(environment.clientSettingsPath), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFileString(
+          environment.clientSettingsPath,
+          '{"timestampFormat":"12-hour"}',
+        );
+
+        const existing = Option.getOrThrow(yield* settings.get);
+        assert.isNull(existing.chatTextSize);
+
+        yield* settings.set({ ...existing, wordWrap: false });
+        const stored = yield* decodeRecordJson(
+          yield* fileSystem.readFileString(environment.clientSettingsPath),
+        );
+        assert.isNull(stored.chatTextSize);
       }),
     ),
   );
