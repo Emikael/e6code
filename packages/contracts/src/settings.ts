@@ -163,13 +163,13 @@ const DEFAULT_TERMINAL_FONT_SIZE: TerminalFontSize = 12;
  * only an install with nothing stored starts at 15 px, so an existing install never changes
  * size by itself.
  */
-export const MIN_CHAT_TEXT_SIZE = 13;
-export const MAX_CHAT_TEXT_SIZE = 18;
+const MIN_CHAT_TEXT_SIZE = 13;
+const MAX_CHAT_TEXT_SIZE = 18;
 export const ChatTextSize = Schema.Int.check(
   Schema.isBetween({ minimum: MIN_CHAT_TEXT_SIZE, maximum: MAX_CHAT_TEXT_SIZE }),
 );
 export type ChatTextSize = typeof ChatTextSize.Type;
-export const DEFAULT_CHAT_TEXT_SIZE: ChatTextSize = 15;
+const DEFAULT_CHAT_TEXT_SIZE: ChatTextSize = 15;
 
 export const EnvironmentIdentificationMode = Schema.Literals(["artwork", "pill", "none"]);
 export type EnvironmentIdentificationMode = typeof EnvironmentIdentificationMode.Type;
