@@ -44,7 +44,7 @@ export const createViewportTracker = (createObserver: CreateObserver | undefined
   };
 };
 
-const viewportTracker = createViewportTracker(
+const viewportTracker = /* @__PURE__ */ createViewportTracker(
   typeof IntersectionObserver === "undefined"
     ? undefined
     : (callback) => new IntersectionObserver((entries) => callback(entries)),

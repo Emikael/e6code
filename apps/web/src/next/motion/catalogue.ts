@@ -18,8 +18,6 @@ export interface CatalogueEntry {
   readonly credit?: string;
 }
 
-const TRANSITIONS_DEV = "transitions.dev";
-
 export const MOTION_CATALOGUE: ReadonlyArray<CatalogueEntry> = [
   { name: "cut", engine: "none", use: null },
   { name: "fade", engine: "css", use: "fade" },
@@ -29,67 +27,67 @@ export const MOTION_CATALOGUE: ReadonlyArray<CatalogueEntry> = [
     name: "iconSwap",
     engine: "presence",
     use: "PresenceSwap",
-    credit: `${TRANSITIONS_DEV} Icon swap`,
+    credit: "transitions.dev Icon swap",
   },
   {
     name: "numberChange",
     engine: "presence",
     use: "NumberRoll",
-    credit: `${TRANSITIONS_DEV} Number subtle change; React Bits Count Up`,
+    credit: "transitions.dev Number subtle change; React Bits Count Up",
   },
   {
     name: "checkDraw",
     engine: "css",
     use: "checkDraw",
-    credit: `${TRANSITIONS_DEV} Success check, Checkbox check`,
+    credit: "transitions.dev Success check, Checkbox check",
   },
   { name: "press", engine: "css", use: "press" },
-  { name: "pop", engine: "css", use: "pop", credit: `${TRANSITIONS_DEV} Menu dropdown` },
-  { name: "dolly", engine: "css", use: "dolly", credit: `${TRANSITIONS_DEV} Panel reveal` },
+  { name: "pop", engine: "css", use: "pop", credit: "transitions.dev Menu dropdown" },
+  { name: "dolly", engine: "css", use: "dolly", credit: "transitions.dev Panel reveal" },
   { name: "matchCut", engine: "layout", use: "LayoutBox" },
   { name: "layout", engine: "layout", use: "LayoutBox" },
   {
     name: "sideBySide",
     engine: "css",
     use: "sideBySide",
-    credit: `${TRANSITIONS_DEV} Page side-by-side`,
+    credit: "transitions.dev Page side-by-side",
   },
   { name: "sweep", engine: "css", use: "sweep" },
   {
     name: "shake",
     engine: "oneShot",
     use: "oneShots.shake",
-    credit: `${TRANSITIONS_DEV} Error state shake`,
+    credit: "transitions.dev Error state shake",
   },
   // Catalogue moments.
-  { name: "toast", engine: "css", use: "toast", credit: `${TRANSITIONS_DEV} Toast open/close` },
-  { name: "tooltip", engine: "css", use: "tooltip", credit: `${TRANSITIONS_DEV} Tooltip` },
+  { name: "toast", engine: "css", use: "toast", credit: "transitions.dev Toast open/close" },
+  { name: "tooltip", engine: "css", use: "tooltip", credit: "transitions.dev Tooltip" },
   { name: "contextMenu", engine: "css", use: "contextMenu" },
-  { name: "dialog", engine: "css", use: "dialog", credit: `${TRANSITIONS_DEV} Modal open/close` },
+  { name: "dialog", engine: "css", use: "dialog", credit: "transitions.dev Modal open/close" },
   { name: "dialogScrim", engine: "css", use: "dialogScrim" },
   {
     name: "tabIndicator",
     engine: "css",
     use: "tabIndicator",
-    credit: `${TRANSITIONS_DEV} Tabs sliding`,
+    credit: "transitions.dev Tabs sliding",
   },
   { name: "copyConfirm", engine: "presence", use: "PresenceSwap" },
   {
     name: "streamTail",
     engine: "css",
     use: "streamTail",
-    credit: `${TRANSITIONS_DEV} Streaming text`,
+    credit: "transitions.dev Streaming text",
   },
   {
     name: "reasoningEdge",
     engine: "css",
     use: "reasoningEdge",
-    credit: `${TRANSITIONS_DEV} Reasoning stream`,
+    credit: "transitions.dev Reasoning stream",
   },
   {
     name: "skeleton",
     engine: "css",
     use: "skeleton",
-    credit: `${TRANSITIONS_DEV} Skeleton loader and reveal`,
+    credit: "transitions.dev Skeleton loader and reveal",
   },
 ];

@@ -41,17 +41,20 @@ const enter = (duration: number): PresetTransition => ({ duration, ease: EASE_BE
 const leave = (duration: number): PresetTransition => ({ duration, ease: EASE_BEZIER.exit });
 
 /** Reduced presence: a cross-fade with no travel, `DUR.quick`. */
-const crossFade: PresenceForm = {
+const crossFade = (): PresenceForm => ({
   initial: { opacity: 0 },
   animate: { opacity: 1, transition: enter(DUR_S.quick) },
   exit: { opacity: 0, transition: leave(DUR_S.quick) },
-};
+});
 
 /*
  * The leaving half of `swap` and `iconSwap` overlaps the entrance; the design's 80 ms rounds
  * to `DUR.micro`.
  */
-const PRESENCE: Record<PresencePreset, Record<MotionLevel, PresenceForm | null>> = {
+type PresenceTable = Record<PresencePreset, Record<MotionLevel, PresenceForm | null>>;
+
+// Built on first use, so importing the barrel computes nothing.
+const buildPresence = (): PresenceTable => ({
   // A row status changing in place: Running → Done.
   swap: {
     full: {
@@ -59,7 +62,7 @@ const PRESENCE: Record<PresencePreset, Record<MotionLevel, PresenceForm | null>>
       animate: { opacity: 1, y: 0, transition: enter(DUR_S.brisk) },
       exit: { opacity: 0, y: -DISTANCE.revealMin, transition: leave(DUR_S.micro) },
     },
-    reduced: crossFade,
+    reduced: crossFade(),
     off: null,
   },
   // Copy → check. Scales to 0.6, the exception for icons of 20 px or less (ENG-119).
@@ -83,13 +86,17 @@ const PRESENCE: Record<PresencePreset, Record<MotionLevel, PresenceForm | null>>
     reduced: null,
     off: null,
   },
-};
+});
 
-export const presenceForm = (preset: PresencePreset, level: MotionLevel) => PRESENCE[preset][level];
+let presence: PresenceTable | undefined;
+const presenceTable = () => (presence ??= buildPresence());
 
-/** Every presence form, for the property test and the catalogue. */
+export const presenceForm = (preset: PresencePreset, level: MotionLevel) =>
+  presenceTable()[preset][level];
+
+/** Every presence form, for the property test. */
 export const presenceForms = () =>
-  Object.entries(PRESENCE).flatMap(([preset, levels]) =>
+  Object.entries(presenceTable()).flatMap(([preset, levels]) =>
     Object.entries(levels).map(([level, form]) => ({
       preset: preset as PresencePreset,
       level: level as MotionLevel,
@@ -124,4 +131,4 @@ export const layoutTransition = (
 };
 
 /** The region cross-fade `matchCut` plays at Reduced. */
-export const matchCutReducedForm = crossFade;
+export const matchCutReducedForm = () => crossFade();

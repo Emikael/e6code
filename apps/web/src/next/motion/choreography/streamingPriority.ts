@@ -27,7 +27,7 @@ export const createStreamingPriority = (policy: Pick<MotionPolicyStore, "getLeve
   };
 };
 
-export const streamingPriority = createStreamingPriority(motionPolicy);
+export const streamingPriority = /* @__PURE__ */ createStreamingPriority(motionPolicy);
 
 const subscribeBoth = (listener: () => void) => {
   const stopStreaming = streamingPriority.subscribe(listener);

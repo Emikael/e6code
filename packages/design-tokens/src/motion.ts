@@ -123,7 +123,8 @@ const round = (value: number) => Number(value.toFixed(4));
  * The curve lasts `durationMs` (the settling time), emitted as `--spring-<name>` and
  * `--spring-<name>-dur`; a transition must use both together.
  */
-export const SPRING_CURVE = Object.fromEntries(
+// Pure, so a bundle that never reads the curves never computes them.
+export const SPRING_CURVE = /* @__PURE__ */ Object.fromEntries(
   Object.entries(SPRING).map(([name, spring]) => {
     const durationMs = settleMs(spring);
     const points = Array.from({ length: CURVE_SAMPLES + 1 }, (_, index) =>

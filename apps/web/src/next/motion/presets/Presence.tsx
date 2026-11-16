@@ -109,7 +109,7 @@ export function LayoutBox({
   const transition = layoutTransition(preset, level);
 
   if (transition === null || !onScreen) {
-    const crossFade = preset === "matchCut" && level === "reduced" ? matchCutReducedForm : null;
+    const crossFade = preset === "matchCut" && level === "reduced" ? matchCutReducedForm() : null;
     return (
       <m.div
         ref={ref}

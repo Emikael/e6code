@@ -10,12 +10,14 @@
  * First consumers: the Motion setting (E02-T06), the ambient canvas (E02-T10), the v2
  * primitives that adopt the recipes (E01-T14), the style guide's motion gallery (E01-T16) and
  * the v2 shell, which mounts `MotionRoot` (E04-T14).
+ *
+ * `MotionRoot` and `LayoutScope` are imported from `./MotionRoot.tsx`, not from here: they
+ * load the preset CSS, and a barrel re-export would pull it into every policy reader.
  */
 export type { MotionLevel, MotionPreference } from "@e6tools/client-runtime/motion-level";
 export { motionPolicy, useMotionPolicy, type MotionPolicyStore } from "./policy.ts";
 export { allowsViewTransitions, motionConfigFor, type MotionConfigProps } from "./motionConfig.ts";
 export { DISTANCE, DUR, DUR_S, EASE, EASE_BEZIER, SET_PIECE_MS, STAGGER } from "./tokens.ts";
-export { LayoutScope, MotionRoot } from "./MotionRoot.tsx";
 export { MOTION_RECIPES, type MotionRecipe } from "./presets/recipes.ts";
 export { LayoutBox, NumberRoll, PresenceSwap } from "./presets/Presence.tsx";
 export { oneShots } from "./presets/oneShot.ts";

@@ -11,7 +11,7 @@ const miniDriver: AnimateDriver<Element> = (target, keyframes, { duration, ease 
 const travel = (px: number) => `translateX(${px}px)`;
 
 /** Three swings either side of rest, then rest. `motion/mini` takes no `x` alias. */
-const SHAKE_FRAMES = [
+const shakeFrames = () => [
   ...Array.from({ length: 3 }, () => [travel(-DISTANCE.shake), travel(DISTANCE.shake)]).flat(),
   travel(0),
 ];
@@ -33,7 +33,11 @@ export const createOneShots = <Target extends object>(
      */
     shake(target: Target): boolean {
       if (getLevel() !== "full") return false;
-      retargeter.run(target, { transform: SHAKE_FRAMES }, { duration: DUR_S.move, ease: "linear" });
+      retargeter.run(
+        target,
+        { transform: shakeFrames() },
+        { duration: DUR_S.move, ease: "linear" },
+      );
       return true;
     },
     /** Data beats animation: ends a running one-shot at its end state. */
@@ -41,4 +45,5 @@ export const createOneShots = <Target extends object>(
   };
 };
 
-export const oneShots = createOneShots(miniDriver, motionPolicy.getLevel);
+// Pure, so a module that reads only the policy from the barrel does not keep `motion/mini`.
+export const oneShots = /* @__PURE__ */ createOneShots(miniDriver, () => motionPolicy.getLevel());

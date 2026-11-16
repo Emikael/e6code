@@ -13,8 +13,10 @@ const loadDomMax = () => import("./features/domMax.ts").then((module) => module.
 /**
  * The root of every v2 surface (mounted by the v2 shell, E04-T14). It loads the CSS presets,
  * writes the policy level to `data-motion` on `<html>`, loads `motion`'s animation features
- * after first paint (until then `m` components render their end state, a cut), and sets
- * `MotionConfig` from the policy, never from the library's own reduced-motion default.
+ * after first paint, and sets `MotionConfig` from the policy, never from the library's own
+ * reduced-motion default. Until the features arrive `m` components do not animate; a child
+ * that mounts in that window holds its `initial` values until they do (not yet verified in
+ * a browser).
  */
 export function MotionRoot({ children }: { readonly children: ReactNode }) {
   const level = useMotionPolicy();
