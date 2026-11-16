@@ -3,7 +3,12 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@e6tools/contracts";
-import { DEFAULT_CLIENT_SETTINGS, type ClientSettings } from "@e6tools/contracts/settings";
+import {
+  ClientSettingsSchema,
+  DEFAULT_CLIENT_SETTINGS,
+  type ClientSettings,
+} from "@e6tools/contracts/settings";
+import * as Schema from "effect/Schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const persistenceMocks = vi.hoisted(() => ({
@@ -25,6 +30,8 @@ import {
   persistClientSettingsUpdate,
   resolveEnvironmentIdentificationMode,
 } from "./useSettings";
+
+const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
 
 beforeEach(() => {
   persistenceMocks.getClientSettings.mockReset().mockResolvedValue(null);
@@ -55,6 +62,30 @@ describe("client settings hydration", () => {
       expect(getClientSettings().planModeEnabled).toBe(planModeEnabled);
     },
   );
+
+  it("gives a new install 15 px chat text and persists it on the first write", async () => {
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings().chatTextSize).toBe(15);
+
+    await persistClientSettingsPatch({ wordWrap: true });
+    expect(persistenceMocks.setClientSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatTextSize: 15 }),
+    );
+  });
+
+  it("keeps the legacy chat size for an existing install, including after an unrelated write", async () => {
+    // A document saved before the field existed, as storage decodes it.
+    const existing = decodeClientSettings({ timestampFormat: "12-hour" });
+    persistenceMocks.getClientSettings.mockResolvedValue(existing);
+
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings().chatTextSize).toBeNull();
+
+    await persistClientSettingsPatch({ wordWrap: true });
+    expect(persistenceMocks.setClientSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatTextSize: null, timestampFormat: "12-hour" }),
+    );
+  });
 
   const savedSettings = {
     ...DEFAULT_CLIENT_SETTINGS,
