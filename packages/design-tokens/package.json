@@ -19,6 +19,10 @@
       "types": "./src/desktopWindow.ts",
       "import": "./src/desktopWindow.ts"
     },
+    "./keyLight": {
+      "types": "./src/keyLight.ts",
+      "import": "./src/keyLight.ts"
+    },
     "./motion": {
       "types": "./src/motion.ts",
       "import": "./src/motion.ts"
