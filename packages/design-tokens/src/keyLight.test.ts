@@ -84,6 +84,8 @@ describe("key-light stock values (direction C)", () => {
       "--dur-state": "200ms",
       "--dur-move": "280ms",
       "--dur-scene": "420ms",
+      "--dur-reduced": "150ms",
+      "--dur-reduced-quick": "120ms",
       "--ease-enter": "cubic-bezier(0.22, 1, 0.36, 1)",
       "--ease-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
       "--ease-shift": "cubic-bezier(0.65, 0, 0.35, 1)",
