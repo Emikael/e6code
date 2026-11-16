@@ -21,7 +21,8 @@ void main() {
 export const AMBIENT_FRAGMENT_SHADER = `#version 300 es
 precision mediump float;
 uniform vec2 uResolution;
-uniform float uTime;
+// highp: at fp16 mediump, phases drawn from a long session's time would step visibly.
+uniform highp float uTime;
 uniform float uGain;
 uniform vec4 uRay;
 uniform vec3 uTint;
