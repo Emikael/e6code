@@ -1,5 +1,6 @@
 import type {
   DesktopBridge,
+  DesktopMotionPowerState,
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingInputEvent,
   DesktopPreviewRecordingFrame,
@@ -26,6 +27,13 @@ function isSnapShotEvent(value: unknown): value is DesktopSnapShotEvent {
     SNAP_SHOT_EVENT_TYPES.has(type) &&
     (id === undefined || typeof id === "string")
   );
+}
+
+const MOTION_THERMAL_STATES = new Set(["unknown", "nominal", "fair", "serious", "critical"]);
+function isMotionPowerState(value: unknown): value is DesktopMotionPowerState {
+  if (typeof value !== "object" || value === null) return false;
+  const { onBattery, thermalState } = value as { onBattery?: unknown; thermalState?: unknown };
+  return typeof onBattery === "boolean" && MOTION_THERMAL_STATES.has(thermalState as string);
 }
 
 exposeClerkBridge({ passkeys: true });
@@ -82,6 +90,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getSystemLocale: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_SYSTEM_LOCALE_CHANNEL);
     return typeof result === "string" ? result : null;
+  },
+  getMotionPowerState: () => {
+    const result = ipcRenderer.sendSync(IpcChannels.GET_MOTION_POWER_STATE_CHANNEL);
+    return isMotionPowerState(result) ? result : null;
+  },
+  onMotionPowerStateChange: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      if (isMotionPowerState(state)) listener(state);
+    };
+    ipcRenderer.on(IpcChannels.MOTION_POWER_STATE_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.MOTION_POWER_STATE_CHANNEL, wrappedListener);
+    };
   },
   getLocalEnvironmentBootstraps: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL);
