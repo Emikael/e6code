@@ -19,7 +19,7 @@ export const motionConfigFor = (level: MotionLevel): MotionConfigProps => {
     case "full":
       return { reducedMotion: "never" };
     case "reduced":
-      return { reducedMotion: "always", transition: { duration: DUR_S.reduced } };
+      return { reducedMotion: "always", transition: { duration: DUR_S.quick } };
     case "off":
       return { reducedMotion: "always", transition: { duration: 0 } };
   }

@@ -37,12 +37,6 @@ export const DUR = {
   state: 200,
   move: 280,
   scene: 420,
-  /**
-   * The Reduced motion level's forms (ENG-114): opacity-only fades, no travel or scale.
-   * `reduced` is the ceiling; `reducedQuick` is for small state changes.
-   */
-  reduced: 150,
-  reducedQuick: 120,
 } as const;
 
 /** A set piece is a sequence of tweens; its whole length, in ms. */

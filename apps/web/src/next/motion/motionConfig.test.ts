@@ -8,10 +8,10 @@ describe("motionConfigFor", () => {
     expect(motionConfigFor("full")).toEqual({ reducedMotion: "never" });
   });
 
-  it("keeps Reduced to short fades: no transforms, 150 ms default", () => {
+  it("keeps Reduced to short fades: no transforms, dur.quick (140 ms) default", () => {
     expect(motionConfigFor("reduced")).toEqual({
       reducedMotion: "always",
-      transition: { duration: 0.15 },
+      transition: { duration: 0.14 },
     });
   });
 
@@ -33,6 +33,6 @@ describe("allowsViewTransitions", () => {
 
 describe("DUR_S", () => {
   it("gives the engine the token durations in seconds", () => {
-    expect(DUR_S).toMatchObject({ instant: 0, quick: 0.14, scene: 0.42, reduced: 0.15 });
+    expect(DUR_S).toMatchObject({ instant: 0, quick: 0.14, scene: 0.42 });
   });
 });

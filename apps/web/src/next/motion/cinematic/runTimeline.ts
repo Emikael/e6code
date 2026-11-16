@@ -21,7 +21,7 @@ export interface CinematicEngine<Timeline extends CinematicTimeline> {
 }
 
 /**
- * Every sequence declares its Reduced form (opacity only, `DUR.reduced` or less). Off plays
+ * Every sequence declares its Reduced form (opacity only, `DUR.quick` or less). Off plays
  * neither: it builds the full sequence and jumps to its end.
  */
 export interface CinematicSequence<Timeline extends CinematicTimeline> {
