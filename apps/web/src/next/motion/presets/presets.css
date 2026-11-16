@@ -1,0 +1,355 @@
+/*
+ * CSS motion presets for v2 (ENG-119). Class names are exported by `recipes.ts`; feature code
+ * takes them from there. Values come only from the `--dur-*`, `--ease-*`, `--distance-*` and
+ * `--spring-*` tokens. Only transform and opacity move, except `checkDraw`, which draws
+ * `stroke-dashoffset` on a small check (the one paint exception, decided on ENG-119).
+ *
+ * Levels: MotionRoot writes `data-motion` (full, reduced, off) on <html>. Without it, the OS
+ * reduced-motion setting selects Reduced. State changes are transitions, never keyframes, so
+ * a new state retargets from the current value and nothing queues.
+ *
+ * Entrances and exits key on Base UI's `data-starting-style` and `data-ending-style`; Base UI
+ * waits for these transitions before it unmounts. A plain element enters through
+ * `@starting-style`. Credits for the ideas: docs/internals/design-sourcing.md.
+ */
+
+/* Presence presets (`motion-enter` plus one preset class). */
+.motion-enter {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-in-dur);
+  transition-timing-function: var(--motion-in-ease);
+  transform-origin: var(--motion-origin, center);
+}
+
+.motion-enter[data-starting-style] {
+  opacity: 0;
+  transform: var(--motion-from);
+}
+
+@starting-style {
+  .motion-enter {
+    opacity: 0;
+    transform: var(--motion-from);
+  }
+}
+
+.motion-enter[data-ending-style] {
+  opacity: 0;
+  transform: var(--motion-to, var(--motion-from));
+  transition-duration: var(--motion-out-dur);
+  transition-timing-function: var(--motion-out-ease);
+}
+
+/* fade: the "Reconnecting to server…" banner. */
+.motion-fade {
+  --motion-from: none;
+  --motion-in-dur: var(--dur-state);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-quick);
+  --motion-out-ease: var(--ease-exit);
+}
+
+/* reveal: rows rise 6 px; leaving is a fade. */
+.motion-reveal {
+  --motion-from: translateY(var(--distance-reveal));
+  --motion-to: none;
+  --motion-in-dur: var(--dur-state);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-quick);
+  --motion-out-ease: var(--ease-exit);
+}
+
+/* toast: reveal at 8 px. Stacking (E12-T01) also moves by transform only. */
+.motion-toast {
+  --motion-from: translateY(var(--distance-reveal-max));
+  --motion-to: none;
+  --motion-in-dur: var(--dur-state);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-quick);
+  --motion-out-ease: var(--ease-exit);
+}
+
+/* pop: menus and popovers grow from the trigger, never from the centre. */
+.motion-pop {
+  --motion-origin: var(--transform-origin);
+  --motion-from: scale(var(--distance-scale-from));
+  --motion-in-dur: var(--dur-brisk);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-brisk-exit);
+  --motion-out-ease: var(--ease-exit);
+}
+
+/* tooltip, contextMenu: a fade at dur.micro, no scale. */
+.motion-tooltip {
+  --motion-from: none;
+  --motion-in-dur: var(--dur-micro);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-micro);
+  --motion-out-ease: var(--ease-exit);
+}
+
+/* dialog: the scrim fades; the panel scales from 0.98. Escape closes within dur.quick. */
+.motion-dialog-scrim {
+  --motion-from: none;
+  --motion-in-dur: var(--dur-quick);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-quick);
+  --motion-out-ease: var(--ease-exit);
+}
+
+.motion-dialog {
+  --motion-from: scale(var(--distance-dialog-scale-from));
+  --motion-in-dur: var(--dur-state);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-quick);
+  --motion-out-ease: var(--ease-exit);
+}
+
+/*
+ * dolly: a panel arrives 24 px from its edge (`data-edge="start"` for the leading edge). The
+ * chat width commits at frame 0 before this plays (E17-T01). Escape closes within dur.quick.
+ */
+.motion-dolly {
+  --motion-from: translateX(var(--distance-dolly));
+  --motion-in-dur: var(--dur-move);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-quick);
+  --motion-out-ease: var(--ease-exit);
+}
+
+.motion-dolly[data-edge="start"] {
+  --motion-from: translateX(calc(-1 * var(--distance-dolly)));
+}
+
+/*
+ * sideBySide: going deeper enters from the end edge and leaves toward the start; going back
+ * does the opposite (`data-direction`, from `depthDirection`). The leaving half runs at
+ * dur.micro, rounded from half of dur.brisk.
+ */
+.motion-side-by-side {
+  --motion-from: translateX(var(--distance-reveal-max));
+  --motion-to: translateX(calc(-1 * var(--distance-reveal-max)));
+  --motion-in-dur: var(--dur-brisk);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-micro);
+  --motion-out-ease: var(--ease-exit);
+}
+
+.motion-side-by-side[data-direction="back"] {
+  --motion-from: translateX(calc(-1 * var(--distance-reveal-max)));
+  --motion-to: translateX(var(--distance-reveal-max));
+}
+
+/* streamTail: one span per flush fades in; no blur. */
+.motion-stream-flush {
+  --motion-from: none;
+  --motion-in-dur: var(--dur-quick);
+  --motion-in-ease: var(--ease-enter);
+  --motion-out-dur: var(--dur-instant);
+  --motion-out-ease: var(--ease-exit);
+}
+
+/*
+ * swap, iconSwap, numberChange: the leaving and entering children share one grid cell, so
+ * they overlap instead of reflowing.
+ */
+.motion-swap-stack {
+  display: inline-grid;
+}
+
+.motion-swap-stack > * {
+  grid-area: 1 / 1;
+}
+
+.motion-number {
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * press: down at dur.micro, back on spring.snappy. Pointer and keyboard both set
+ * `data-pressed`; `:active` covers the pointer alone.
+ */
+.motion-press {
+  transition-property: transform;
+  transition-duration: var(--spring-snappy-dur);
+  transition-timing-function: var(--spring-snappy);
+}
+
+.motion-press:active,
+.motion-press[data-pressed] {
+  transform: scale(var(--distance-scale-from));
+  transition-duration: var(--dur-micro);
+  transition-timing-function: var(--ease-enter);
+}
+
+/*
+ * checkDraw: the path carries `pathLength="1"`. The paint exception: one 14 px check redraws
+ * for the length of the draw, then nothing. A success check takes dur.state, a checkbox
+ * `data-size="checkbox"` dur.quick. The state and its word apply before the draw.
+ */
+.motion-check-draw path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  transition-property: stroke-dashoffset;
+  transition-duration: var(--dur-state);
+  transition-timing-function: var(--ease-enter);
+}
+
+.motion-check-draw[data-size="checkbox"] path {
+  transition-duration: var(--dur-quick);
+}
+
+.motion-check-draw[data-unchecked] path {
+  stroke-dashoffset: 1;
+  transition-duration: var(--dur-instant);
+}
+
+@starting-style {
+  .motion-check-draw path {
+    stroke-dashoffset: 1;
+  }
+}
+
+/*
+ * tabIndicator: the pill moves and stretches by transform from measured `--tab-x` and
+ * `--tab-scale`, never by width; spring.snappy.
+ */
+.motion-tab-indicator {
+  transform: translateX(var(--tab-x, 0)) scaleX(var(--tab-scale, 1));
+  transform-origin: left center;
+  transition-property: transform;
+  transition-duration: var(--spring-snappy-dur);
+  transition-timing-function: var(--spring-snappy);
+}
+
+/*
+ * sweep: an approval card's ring brightens to 0.8 and settles at 0.3, once. The stops follow
+ * dur.state (to 0.8) and dur.scene (to 0.3). It plays under streaming priority too: an
+ * approval is never decoration.
+ */
+.motion-sweep {
+  position: relative;
+}
+
+.motion-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--primary-edge);
+  pointer-events: none;
+  opacity: 0.3;
+  animation-name: motion-sweep;
+  animation-duration: calc(var(--dur-state) + var(--dur-scene));
+  animation-iteration-count: 1;
+  animation-timing-function: var(--ease-shift);
+}
+
+@keyframes motion-sweep {
+  0% {
+    opacity: 0;
+  }
+
+  32% {
+    opacity: 0.8;
+  }
+
+  100% {
+    opacity: 0.3;
+  }
+}
+
+/*
+ * skeleton: one stepped breath, then still. Nothing loops; E02-T11 tunes it against live
+ * loading.
+ */
+.motion-skeleton {
+  animation-name: motion-skeleton;
+  animation-duration: calc(2 * var(--dur-scene));
+  animation-iteration-count: 1;
+  animation-timing-function: steps(6, jump-none);
+}
+
+@keyframes motion-skeleton {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* reasoningEdge: older reasoning fades under a static mask. Nothing animates. */
+.motion-reasoning-edge {
+  mask-image: linear-gradient(to bottom, transparent, black 1lh);
+}
+
+/*
+ * Reduced: opacity only, at dur.quick, no travel, scale, stagger or spring. Presence keeps
+ * its fade; press and the tab indicator cut; checkDraw cuts; sweep shows its ring at 0.3;
+ * skeleton is static.
+ */
+:root[data-motion="reduced"] .motion-enter {
+  --motion-from: none;
+  --motion-to: none;
+  --motion-in-dur: var(--dur-quick);
+  --motion-out-dur: var(--dur-quick);
+}
+
+:root[data-motion="reduced"] :is(.motion-press, .motion-tab-indicator),
+:root[data-motion="reduced"] .motion-check-draw path {
+  transition-duration: var(--dur-instant);
+}
+
+:root[data-motion="reduced"] .motion-press:active,
+:root[data-motion="reduced"] .motion-press[data-pressed] {
+  transform: none;
+}
+
+:root[data-motion="reduced"] .motion-sweep::after,
+:root[data-motion="reduced"] .motion-skeleton {
+  animation-name: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion]) .motion-enter {
+    --motion-from: none;
+    --motion-to: none;
+    --motion-in-dur: var(--dur-quick);
+    --motion-out-dur: var(--dur-quick);
+  }
+
+  :root:not([data-motion]) :is(.motion-press, .motion-tab-indicator),
+  :root:not([data-motion]) .motion-check-draw path {
+    transition-duration: var(--dur-instant);
+  }
+
+  :root:not([data-motion]) .motion-press:active,
+  :root:not([data-motion]) .motion-press[data-pressed] {
+    transform: none;
+  }
+
+  :root:not([data-motion]) .motion-sweep::after,
+  :root:not([data-motion]) .motion-skeleton {
+    animation-name: none;
+  }
+}
+
+/* Off: every change is a cut. Base UI sees no transition and unmounts at once. */
+:root[data-motion="off"] :is(.motion-press, .motion-tab-indicator),
+:root[data-motion="off"] .motion-check-draw path {
+  transition-duration: var(--dur-instant);
+}
+
+:root[data-motion="off"] .motion-enter {
+  --motion-in-dur: var(--dur-instant);
+  --motion-out-dur: var(--dur-instant);
+}
+
+:root[data-motion="off"] .motion-press:active,
+:root[data-motion="off"] .motion-press[data-pressed] {
+  transform: none;
+}
+
+:root[data-motion="off"] .motion-sweep::after,
+:root[data-motion="off"] .motion-skeleton {
+  animation-name: none;
+}

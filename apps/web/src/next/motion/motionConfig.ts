@@ -3,8 +3,7 @@ import type { MotionLevel } from "@e6tools/client-runtime/motion-level";
 import { DUR_S } from "./tokens.ts";
 
 /**
- * The props the v2 root passes to `motion`'s `MotionConfig`. The component and the pinned
- * `motion` dependency arrive with the v2 shell (E04-T14), the first place that mounts them.
+ * The props `MotionRoot` passes to `motion`'s `MotionConfig`.
  *
  * Never `reducedMotion: "user"`: `motion` reads the media query once at mount, and the policy
  * also weighs the setting, power and memory.
