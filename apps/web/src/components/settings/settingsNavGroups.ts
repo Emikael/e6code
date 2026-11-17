@@ -52,7 +52,7 @@ const SETTINGS_PAGE_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "/settings/connections":
     "Environments this client reaches, and the clients paired with this one.",
   "/settings/archived": "Archived threads. Restore one to bring it back to the sidebar.",
-  "/settings/diagnostics": "Recent failures, slow spans, and logs from the server.",
+  "/settings/diagnostics": "Server performance, recent failures, slow spans, and logs.",
   "/settings/open-source-licenses": "Licenses for the open source software E6 Code ships with.",
 };
 

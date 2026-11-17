@@ -9,7 +9,7 @@
  * Every `TRACE_EVERY_INTERVALS` intervals, and on shutdown, it writes one
  * `metrics-snapshot` record to the server trace file.
  */
-import { monitorEventLoopDelay, performance } from "node:perf_hooks";
+import * as NodePerfHooks from "node:perf_hooks";
 
 import type { ServerPerformanceMetricsResult } from "@e6tools/contracts";
 import type { SqliteStatementObserver } from "@e6tools/shared/nodeSqliteClient";
@@ -86,14 +86,14 @@ export interface EventLoopDelaySource {
 }
 
 export function nodeEventLoopDelaySource(resolutionMs: number): EventLoopDelaySource {
-  const histogram = monitorEventLoopDelay({ resolution: resolutionMs });
+  const histogram = NodePerfHooks.monitorEventLoopDelay({ resolution: resolutionMs });
   histogram.enable();
-  let lastUtilization = performance.eventLoopUtilization();
+  let lastUtilization = NodePerfHooks.performance.eventLoopUtilization();
   return {
     resolutionMs,
     read: () => {
-      const utilization = performance.eventLoopUtilization();
-      const delta = performance.eventLoopUtilization(utilization, lastUtilization);
+      const utilization = NodePerfHooks.performance.eventLoopUtilization();
+      const delta = NodePerfHooks.performance.eventLoopUtilization(utilization, lastUtilization);
       lastUtilization = utilization;
       const samples = histogram.count;
       const reading = {

@@ -44,6 +44,7 @@ import {
   formatCount,
 } from "./diagnosticsPrimitives";
 import { ResourceTelemetryDiagnostics } from "./ResourceTelemetryDiagnostics";
+import { ServerPerformanceDiagnostics } from "./ServerPerformanceDiagnostics";
 import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSettingsScope } from "./SettingsScopeContext";
@@ -733,6 +734,11 @@ export function DiagnosticsSettingsPanel() {
   return (
     <SettingsPageContainer width="expanded" className="gap-10">
       <ResourceTelemetryDiagnostics environmentId={environmentId} />
+
+      <ServerPerformanceDiagnostics
+        environmentId={environmentId}
+        supported={environment?.serverConfig?.environment.capabilities.performanceMetrics === true}
+      />
 
       <SettingsSection
         title="Live Processes"
