@@ -56,6 +56,17 @@ describe("sqlStatementName", () => {
     expect(sqlStatementName("RELEASE SAVEPOINT effect_sql_42")).toBe("RELEASE");
   });
 
+  it("names schema changes by kind so migrations add only a few names", () => {
+    expect(sqlStatementName("CREATE TABLE IF NOT EXISTS projection_threads (id TEXT)")).toBe(
+      "CREATE TABLE",
+    );
+    expect(sqlStatementName("CREATE UNIQUE INDEX idx_a ON t(a)")).toBe("CREATE INDEX");
+    expect(sqlStatementName("ALTER TABLE projection_threads ADD COLUMN x TEXT")).toBe(
+      "ALTER TABLE",
+    );
+    expect(sqlStatementName("DROP INDEX IF EXISTS idx_a")).toBe("DROP INDEX");
+  });
+
   it("names pragmas by pragma without the value", () => {
     expect(sqlStatementName("PRAGMA busy_timeout = 5000")).toBe("PRAGMA busy_timeout");
     expect(sqlStatementName("pragma journal_mode")).toBe("PRAGMA journal_mode");

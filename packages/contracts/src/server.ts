@@ -371,7 +371,7 @@ export type ServerTraceDiagnosticsResult = typeof ServerTraceDiagnosticsResult.T
 
 /**
  * One fixed interval of event-loop delay. Delays have the monitor resolution
- * subtracted, so an idle loop reads close to 0 ms.
+ * subtracted, so an idle server reads a couple of milliseconds of jitter.
  */
 export const ServerPerformanceEventLoopInterval = Schema.Struct({
   endedAt: Schema.DateTimeUtc,
@@ -445,6 +445,9 @@ export const ServerPerformanceShell = Schema.Struct({
   inputEvents: NonNegativeInt,
   liveRefetches: NonNegativeInt,
   catchUpRefetches: NonNegativeInt,
+  /** Refetches whose first read failed and were retried once. */
+  retries: NonNegativeInt,
+  /** Refetches dropped after the retry also failed. */
   failures: NonNegativeInt,
   maxRefetchesPerWindow: NonNegativeInt,
   p95RefetchesPerWindowAtMost: NonNegativeInt,

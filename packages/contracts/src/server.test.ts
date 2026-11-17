@@ -6,6 +6,7 @@ import {
   resolveEnvironmentMachineKind,
   ServerConfig,
   ServerObservability,
+  ServerPerformanceMetricsResult,
   ServerProvider,
   ServerProviders,
   ServerUpsertKeybindingResult,
@@ -264,5 +265,99 @@ describe("resolveEnvironmentMachineKind", () => {
     expect(
       resolveEnvironmentMachineKind({ environment: parsed, settings: decodeSettings({}) }),
     ).toBe("server");
+  });
+});
+
+describe("ServerPerformanceMetricsResult", () => {
+  const codec = Schema.toCodecJson(ServerPerformanceMetricsResult);
+  const encoded = {
+    readAt: "2026-11-17T12:00:10.000Z",
+    startedAt: "2026-11-17T12:00:00.000Z",
+    intervalMs: 10_000,
+    coveredMs: 10_000,
+    eventLoop: {
+      _tag: "Some",
+      value: {
+        resolutionMs: 20,
+        latest: {
+          endedAt: "2026-11-17T12:00:10.000Z",
+          p50Ms: 2.04,
+          p99Ms: 18.67,
+          maxMs: 51.43,
+          utilization: 0.08,
+        },
+        worstP99Ms: 18.67,
+        maxMs: 51.43,
+        intervals: [],
+      },
+    },
+    rpcTotals: {
+      frames: 2,
+      bytes: 300,
+      maxFrameBytes: 200,
+      p95FrameBytesAtMost: 200,
+      framesOver4KiB: 0,
+      framesOver256KiB: 0,
+    },
+    rpc: [
+      {
+        method: "orchestration.subscribeShell",
+        chunkFrames: 1,
+        chunkValues: 2,
+        chunkBytes: 200,
+        exitFrames: 1,
+        exitBytes: 100,
+        maxFrameBytes: 200,
+        p95FrameBytesAtMost: 200,
+        framesOver4KiB: 0,
+        framesOver256KiB: 0,
+      },
+    ],
+    sqliteTotals: {
+      count: 1,
+      failures: 0,
+      totalMs: 0.4,
+      maxMs: 0.4,
+      statements: 1,
+      overflowedNames: 0,
+    },
+    sqlite: [
+      {
+        name: "SELECT projection_threads#3fa2c1",
+        sample: "SELECT * FROM projection_threads WHERE id = ?",
+        count: 1,
+        failures: 0,
+        totalMs: 0.4,
+        maxMs: 0.4,
+        p95MsAtMost: 0.4,
+      },
+    ],
+    shell: {
+      subscribers: 1,
+      maxSubscribers: 2,
+      windows: 3,
+      inputEvents: 40,
+      liveRefetches: 4,
+      catchUpRefetches: 2,
+      retries: 0,
+      failures: 0,
+      maxRefetchesPerWindow: 2,
+      p95RefetchesPerWindowAtMost: 2,
+    },
+  };
+
+  it("round-trips event-loop delay through the wire encoding", () => {
+    const decoded = Schema.decodeUnknownSync(codec)(encoded);
+    const eventLoop = decoded.eventLoop;
+    expect(eventLoop._tag).toBe("Some");
+    if (eventLoop._tag === "Some") {
+      expect(eventLoop.value.latest).toMatchObject({ p50Ms: 2.04, p99Ms: 18.67, maxMs: 51.43 });
+    }
+    expect(Schema.encodeSync(codec)(decoded)).toEqual(encoded);
+  });
+
+  it("decodes a server without event-loop samples yet", () => {
+    const decoded = Schema.decodeUnknownSync(codec)({ ...encoded, eventLoop: { _tag: "None" } });
+    expect(decoded.eventLoop._tag).toBe("None");
   });
 });

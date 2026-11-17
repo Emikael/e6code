@@ -119,6 +119,8 @@ describe("PerformanceMetrics", () => {
       yield* metrics.trackShellSubscriber.pipe(Scope.provide(subscriberScope));
       metrics.recordShellWindow("live", 40, 3);
       metrics.recordShellWindow("catch-up", 21, 9);
+      metrics.recordShellFailedRead();
+      metrics.recordShellFailedRead();
       metrics.recordShellFailure();
       yield* Scope.close(subscriberScope, Exit.void);
 
@@ -130,6 +132,7 @@ describe("PerformanceMetrics", () => {
         inputEvents: 61,
         liveRefetches: 3,
         catchUpRefetches: 9,
+        retries: 1,
         failures: 1,
         maxRefetchesPerWindow: 9,
         p95RefetchesPerWindowAtMost: 9,
@@ -140,16 +143,24 @@ describe("PerformanceMetrics", () => {
   it.effect("writes one bounded metrics snapshot to the trace every six intervals", () =>
     Effect.gen(function* () {
       const traces: Array<TraceRecord> = [];
-      const { source } = fakeEventLoop([]);
+      const { source } = fakeEventLoop(
+        Array.from({ length: 12 }, () => reading(22.123456, 41.987654, 120.555555)),
+      );
       const metrics = yield* makeMetrics({ eventLoop: source, traces });
-      // Fill every table past its row limit with long names.
+      // Fill every table past its row limit with long, realistic names.
       for (let index = 0; index < 120; index++) {
-        metrics.recordFrame(`orchestration.method${index}`, "chunk", 4000 + index, 2);
-        const name = metrics.sqliteObserver!.register(
-          `SELECT ${"column_name_".repeat(20)}${index} FROM projection_threads_${index}`,
+        metrics.recordFrame(
+          `orchestration.subscribeThreadActivityWindow${index}`,
+          index % 2 === 0 ? "chunk" : "exit",
+          4000 + index * 997,
+          3,
         );
-        metrics.sqliteObserver!.record(name, 1.234567, true);
+        const name = metrics.sqliteObserver!.register(
+          `SELECT ${"column_name_".repeat(20)}${index} FROM projection_thread_activities_${index}`,
+        );
+        metrics.sqliteObserver!.record(name, 1.234567 + index, index % 7 === 0);
       }
+      metrics.recordShellWindow("live", 512, 37);
 
       yield* advanceIntervals(5);
       assert.equal(traces.length, 0);
@@ -160,10 +171,13 @@ describe("PerformanceMetrics", () => {
       assert.equal(record.type, "metrics-snapshot");
       assert.equal(record.windowMs, 6 * PerformanceMetrics.INTERVAL_MS);
       assert.notProperty(record, "traceId");
-      assert.isAtMost(JSON.stringify(record).length, 8 * 1024);
+      const eventLoop = record.metrics.eventLoop as { intervals: Array<unknown> };
+      assert.equal(eventLoop.intervals.length, 6);
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      assert.isAtMost(Buffer.byteLength(JSON.stringify(record)), 8 * 1024);
       const rpc = record.metrics.rpc as { totals: { frames: number }; methods: Array<unknown> };
       assert.equal(rpc.totals.frames, 120);
-      assert.equal(rpc.methods.length, 16);
+      assert.equal(rpc.methods.length, 11);
 
       yield* advanceIntervals(6);
       assert.equal(traces.length, 2);
@@ -184,6 +198,27 @@ describe("PerformanceMetrics", () => {
       const record = traces[0] as MetricsSnapshotTraceRecord;
       assert.equal(record.windowMs, 2 * PerformanceMetrics.INTERVAL_MS + 3_000);
       assert.equal((record.metrics.rpc as { totals: { bytes: number } }).totals.bytes, 10);
+    }),
+  );
+
+  it.effect("keeps closing intervals when the event-loop monitor throws", () =>
+    Effect.gen(function* () {
+      const traces: Array<TraceRecord> = [];
+      const source: PerformanceMetrics.EventLoopDelaySource = {
+        resolutionMs: 20,
+        read: () => {
+          throw new Error("monitor unavailable");
+        },
+        close: () => {},
+      };
+      const metrics = yield* makeMetrics({ eventLoop: source, traces });
+      yield* advanceIntervals(1);
+      metrics.recordFrame("server.getConfig", "exit", 10, 0);
+      yield* advanceIntervals(5);
+
+      assert.isTrue(Option.isNone((yield* metrics.read).eventLoop));
+      assert.equal(traces.length, 1);
+      assert.equal(metrics.totals().rpc.get("server.getConfig")?.exitFrames, 1);
     }),
   );
 

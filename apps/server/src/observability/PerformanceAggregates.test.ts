@@ -131,6 +131,10 @@ describe("PerformanceInterval", () => {
     interval.recordShellWindow("live", 30, 2);
     interval.recordShellWindow("live", 4, 4);
     interval.recordShellWindow("catch-up", 21, 9);
+    // One read recovered on retry; one failed twice and was dropped.
+    interval.recordShellFailedRead();
+    interval.recordShellFailedRead();
+    interval.recordShellFailedRead();
     interval.recordShellFailure();
 
     expect(shellSummary(interval)).toEqual({
@@ -138,6 +142,7 @@ describe("PerformanceInterval", () => {
       inputEvents: 55,
       liveRefetches: 6,
       catchUpRefetches: 9,
+      retries: 2,
       failures: 1,
       maxRefetchesPerWindow: 9,
       p95RefetchesPerWindowAtMost: 9,

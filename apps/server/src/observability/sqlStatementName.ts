@@ -6,10 +6,15 @@
  * The hash covers the normalised SQL, so two different queries on one table get
  * different names while `IN (?)` and `IN (?,?,?)` (from `sql.in`) or multi-row
  * `VALUES` inserts collapse to one. Transaction control statements are named by
- * their verb alone because savepoint names carry a counter.
+ * their verb alone because savepoint names carry a counter, and schema changes
+ * by their kind (`CREATE INDEX`).
  */
 
 const TRANSACTION_CONTROL = /^(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b/;
+// Schema changes run once, mostly in migrations; naming them by kind keeps a
+// fresh database's migrations from using up the statement-name limit.
+const SCHEMA_CHANGE =
+  /^(CREATE|ALTER|DROP)\s+(?:UNIQUE\s+|TEMP\s+|TEMPORARY\s+|VIRTUAL\s+)?(TABLE|INDEX|VIEW|TRIGGER)\b/;
 const TABLE_AFTER_KEYWORD: Readonly<Record<string, RegExp>> = {
   SELECT: /\bFROM\s+([A-Za-z_][\w.]*|"[^"]+")/,
   DELETE: /\bFROM\s+([A-Za-z_][\w.]*|"[^"]+")/,
@@ -48,6 +53,8 @@ export function sqlStatementName(sql: string): string {
   const upper = normalized.toUpperCase();
   const control = TRANSACTION_CONTROL.exec(upper);
   if (control) return control[1]!;
+  const schemaChange = SCHEMA_CHANGE.exec(upper);
+  if (schemaChange) return `${schemaChange[1]} ${schemaChange[2]}`;
 
   const verb = /^[A-Z]+/.exec(upper)?.[0] ?? "SQL";
   if (verb === "PRAGMA") {

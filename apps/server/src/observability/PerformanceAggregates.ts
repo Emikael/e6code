@@ -12,10 +12,10 @@
 export const FRAME_BYTE_BOUNDARIES: ReadonlyArray<number> = [
   512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 1048576,
 ];
-export const SQLITE_MS_BOUNDARIES: ReadonlyArray<number> = [
+const SQLITE_MS_BOUNDARIES: ReadonlyArray<number> = [
   0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100, 250, 1000,
 ];
-export const REFETCHES_PER_WINDOW_BOUNDARIES: ReadonlyArray<number> = [
+const REFETCHES_PER_WINDOW_BOUNDARIES: ReadonlyArray<number> = [
   0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512,
 ];
 
@@ -102,6 +102,9 @@ export interface ShellRow {
   inputEvents: number;
   liveRefetches: number;
   catchUpRefetches: number;
+  /** Refetch attempts that failed, including ones a retry then recovered. */
+  failedReads: number;
+  /** Refetches dropped after their retry also failed. */
   failures: number;
   readonly refetchesPerWindow: FixedHistogram;
 }
@@ -139,6 +142,7 @@ const makeShellRow = (): ShellRow => ({
   inputEvents: 0,
   liveRefetches: 0,
   catchUpRefetches: 0,
+  failedReads: 0,
   failures: 0,
   refetchesPerWindow: new FixedHistogram(REFETCHES_PER_WINDOW_BOUNDARIES),
 });
@@ -195,6 +199,10 @@ export class PerformanceInterval {
     shell.refetchesPerWindow.record(refetches);
   }
 
+  recordShellFailedRead(): void {
+    this.shell.failedReads += 1;
+  }
+
   recordShellFailure(): void {
     this.shell.failures += 1;
   }
@@ -228,6 +236,7 @@ export class PerformanceInterval {
     shell.inputEvents += other.shell.inputEvents;
     shell.liveRefetches += other.shell.liveRefetches;
     shell.catchUpRefetches += other.shell.catchUpRefetches;
+    shell.failedReads += other.shell.failedReads;
     shell.failures += other.shell.failures;
     shell.refetchesPerWindow.mergeFrom(other.shell.refetchesPerWindow);
     if (includeEventLoop) this.eventLoop.push(...other.eventLoop);
@@ -440,6 +449,8 @@ export function shellSummary(interval: PerformanceInterval) {
     inputEvents: shell.inputEvents,
     liveRefetches: shell.liveRefetches,
     catchUpRefetches: shell.catchUpRefetches,
+    // Each refetch is retried once, so every failed read except a final failure was retried.
+    retries: shell.failedReads - shell.failures,
     failures: shell.failures,
     maxRefetchesPerWindow: shell.refetchesPerWindow.max,
     p95RefetchesPerWindowAtMost: shell.refetchesPerWindow.quantileAtMost(0.95),

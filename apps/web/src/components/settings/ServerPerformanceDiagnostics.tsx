@@ -93,7 +93,10 @@ function SqliteStatementRow({ row }: { row: ServerPerformanceSqliteStatement }) 
         <Tooltip>
           <TooltipTrigger
             render={
-              <span className="block cursor-default truncate font-mono text-[11px]">
+              <span
+                tabIndex={0}
+                className="block cursor-default truncate rounded-sm font-mono text-[11px] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 {row.name}
               </span>
             }
@@ -145,8 +148,18 @@ export function ServerPerformanceDiagnostics({
   }
 
   const eventLoop = data ? Option.getOrNull(data.eventLoop) : null;
+  // The first sample lands when the first interval closes; past that, no sample
+  // means the server could not start its event-loop monitor.
   const loopValue = (pick: (value: NonNullable<typeof eventLoop>) => string) =>
-    data === null ? "..." : eventLoop === null ? "Collecting" : pick(eventLoop);
+    data === null
+      ? "..."
+      : eventLoop !== null
+        ? pick(eventLoop)
+        : data.coveredMs >= data.intervalMs
+          ? "Unavailable"
+          : "Collecting";
+  const emptyLabel = (loading: string, empty: string) =>
+    data !== null ? empty : isPending ? loading : "Not loaded. Refresh to try again.";
   const notices = data ? budgetNotices(data) : [];
   const windowLabel = data ? formatWindow(data.coveredMs) : "the last few minutes";
   const rpcRows = data?.rpc.slice(0, TABLE_ROWS) ?? [];
@@ -171,7 +184,7 @@ export function ServerPerformanceDiagnostics({
         <StatBlock
           label="Loop delay p50"
           value={loopValue((value) => formatMs(value.latest.p50Ms))}
-          tooltip="How late the server's event loop ran its timers during the last 10 seconds. 0 ms means no delay; the monitor's own resolution is already subtracted."
+          tooltip="How late the server's event loop ran its timers during the last 10 seconds. The monitor's own resolution is subtracted, so an idle server reads only a couple of milliseconds of timer jitter."
         />
         <StatBlock
           label="Loop delay p99"
@@ -245,7 +258,9 @@ export function ServerPerformanceDiagnostics({
           ))}
         </DiagnosticsTable>
       ) : (
-        <EmptyRows label={data ? "No WebSocket frames sent yet." : "Loading payload counters..."} />
+        <EmptyRows
+          label={emptyLabel("Loading payload counters...", "No WebSocket frames sent yet.")}
+        />
       )}
 
       <div className="border-t border-border/60 px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 sm:px-5">
@@ -274,7 +289,9 @@ export function ServerPerformanceDiagnostics({
           ))}
         </DiagnosticsTable>
       ) : (
-        <EmptyRows label={data ? "No SQLite statements run yet." : "Loading SQLite timings..."} />
+        <EmptyRows
+          label={emptyLabel("Loading SQLite timings...", "No SQLite statements run yet.")}
+        />
       )}
 
       <div className="border-t border-border/60 px-4 pt-3 pb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 sm:px-5">
@@ -296,7 +313,7 @@ export function ServerPerformanceDiagnostics({
           value={data ? formatCount(data.shell.liveRefetches + data.shell.catchUpRefetches) : "..."}
           tooltip={
             data
-              ? `${formatCount(data.shell.liveRefetches)} live, ${formatCount(data.shell.catchUpRefetches)} while catching up, ${formatCount(data.shell.failures)} failed.`
+              ? `${formatCount(data.shell.liveRefetches)} live, ${formatCount(data.shell.catchUpRefetches)} while catching up. ${formatCount(data.shell.retries)} retried, ${formatCount(data.shell.failures)} failed after a retry.`
               : undefined
           }
         />

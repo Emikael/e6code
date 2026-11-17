@@ -76,12 +76,14 @@ The performance metrics in `apps/server/src/observability/PerformanceMetrics.ts`
 memory over 10 s intervals and reset when the server restarts:
 
 - event-loop delay p50, p99 and max from `perf_hooks.monitorEventLoopDelay` at 20 ms resolution.
-  The resolution is subtracted, so an idle loop reads about 0 ms; the trace record also keeps the
-  raw `rawP50Ms`, `rawP99Ms` and `rawMaxMs` values Node reports.
+  The resolution is subtracted, so an idle server reads about 2 ms of timer jitter rather than
+  20 ms; the trace record also keeps the raw `rawP50Ms`, `rawP99Ms` and `rawMaxMs` values Node
+  reports.
 - encoded WebSocket frame bytes per RPC method before compression, split into stream `Chunk`
   frames and the final `Exit` frame.
 - SQLite execute time per statement name. A name is `VERB table#hash` from the normalised SQL, so
-  every `IN (...)` length shares one name. Only the first 256 names are kept separately.
+  every `IN (...)` length shares one name; schema changes are named by kind, such as
+  `CREATE INDEX`. Only the first 256 names are kept separately.
 - shell refetches per `subscribeShell` coalescing window, live or catch-up, and the number of
   shell subscribers. Every subscriber coalesces and refetches on its own.
 

@@ -55,18 +55,18 @@ import { sqlStatementName, sqlStatementSample } from "./sqlStatementName.ts";
 
 export const INTERVAL_MS = 10_000;
 const RING_INTERVALS = 30;
-export const TRACE_EVERY_INTERVALS = 6;
+const TRACE_EVERY_INTERVALS = 6;
 /**
  * 20 ms keeps the monitor's idle cost near 0.1–0.2% of a core (10 ms doubles
  * it) while every stall long enough to break the 20 ms p99 budget still lands
  * on a sample.
  */
-export const EVENT_LOOP_RESOLUTION_MS = 20;
+const EVENT_LOOP_RESOLUTION_MS = 20;
 const STATEMENT_NAME_LIMIT = 256;
 const SQL_NAME_CACHE_LIMIT = 2_048;
 const READ_TOP_ROWS = 25;
-const TRACE_TOP_ROWS = 15;
-const TRACE_SAMPLE_LENGTH = 100;
+const TRACE_TOP_ROWS = 10;
+const TRACE_SAMPLE_LENGTH = 80;
 export const OVERFLOW_STATEMENT_NAME = "(overflow)";
 
 /** Raw event-loop reading since the previous `read`, as Node reports it. */
@@ -85,7 +85,7 @@ export interface EventLoopDelaySource {
   readonly close: () => void;
 }
 
-export function nodeEventLoopDelaySource(resolutionMs: number): EventLoopDelaySource {
+function nodeEventLoopDelaySource(resolutionMs: number): EventLoopDelaySource {
   const histogram = NodePerfHooks.monitorEventLoopDelay({ resolution: resolutionMs });
   histogram.enable();
   let lastUtilization = NodePerfHooks.performance.eventLoopUtilization();
@@ -112,7 +112,8 @@ export function nodeEventLoopDelaySource(resolutionMs: number): EventLoopDelaySo
 
 /**
  * Node's monitor times a repeating timer, so an idle loop reads about one
- * resolution. Subtracting it makes 0 mean "no delay".
+ * resolution. Subtracting it leaves the delay itself; an idle server still
+ * reads about 2 ms of timer jitter (measured on Node 22 and 26).
  */
 export function adjustEventLoopReading(
   reading: EventLoopReading,
@@ -146,6 +147,8 @@ export interface PerformanceMetricsShape {
     inputEvents: number,
     refetches: number,
   ) => void;
+  /** A refetch read failed; it is retried once before counting as a failure. */
+  readonly recordShellFailedRead: () => void;
   readonly recordShellFailure: () => void;
   /** Counts a live `subscribeShell` subscriber for the life of the scope. */
   readonly trackShellSubscriber: Effect.Effect<void, never, Scope.Scope>;
@@ -297,15 +300,20 @@ export const make = Effect.fnUntraced(function* (options: {
     if (record) options.pushTrace(record);
   };
 
+  // A monitor that throws must not take the ticker, and with it every interval, down.
+  const readEventLoop = (): EventLoopReading | undefined => {
+    try {
+      return options.eventLoop?.read();
+    } catch {
+      return undefined;
+    }
+  };
+
   const closeInterval = (nowMs: number) => {
     const closed = open;
-    if (options.eventLoop) {
-      const reading = options.eventLoop.read();
-      if (reading.samples > 0) {
-        closed.eventLoop.push(
-          adjustEventLoopReading(reading, options.eventLoop.resolutionMs, nowMs),
-        );
-      }
+    const reading = readEventLoop();
+    if (reading && reading.samples > 0 && options.eventLoop) {
+      closed.eventLoop.push(adjustEventLoopReading(reading, options.eventLoop.resolutionMs, nowMs));
     }
     closed.endedAtMs = nowMs;
     sinceStart.mergeFrom(closed, false);
@@ -384,6 +392,7 @@ export const make = Effect.fnUntraced(function* (options: {
     sqliteObserver,
     recordShellWindow: (source, inputEvents, refetches) =>
       open.recordShellWindow(source, inputEvents, refetches),
+    recordShellFailedRead: () => open.recordShellFailedRead(),
     recordShellFailure: () => open.recordShellFailure(),
     trackShellSubscriber: Effect.acquireRelease(
       Effect.sync(() => {
@@ -423,6 +432,7 @@ export const disabled: PerformanceMetricsShape = PerformanceMetrics.of({
   recordFrame: () => {},
   sqliteObserver: undefined,
   recordShellWindow: () => {},
+  recordShellFailedRead: () => {},
   recordShellFailure: () => {},
   trackShellSubscriber: Effect.void,
   read: Effect.gen(function* () {
