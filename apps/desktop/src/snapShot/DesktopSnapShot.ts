@@ -24,6 +24,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
@@ -169,6 +170,12 @@ export class DesktopSnapShot extends Context.Service<
   DesktopSnapShot,
   {
     readonly initialize: Effect.Effect<void>;
+    /**
+     * Completes once `initialize` has applied the stored settings. Startup runs `initialize` after
+     * the login-shell import, so renderer calls that would otherwise see default state, or bind
+     * shortcuts and session-bus connections with the pre-import environment, wait on this.
+     */
+    readonly awaitInitialized: Effect.Effect<void>;
     readonly configure: (settings: ClientSettings) => Effect.Effect<void>;
     readonly requestPermissions: (includeAccessibility: boolean) => Effect.Effect<void>;
     readonly state: Effect.Effect<DesktopSnapShotState>;
@@ -721,6 +728,7 @@ export const make = Effect.gen(function* () {
   });
   const snapshotMutex = yield* Semaphore.make(1);
   const configurationMutex = yield* Semaphore.make(1);
+  const initializedLatch = yield* Deferred.make<void>();
   const context = yield* Effect.context<
     DesktopEnvironment.DesktopEnvironment | DesktopWindow.DesktopWindow
   >();
@@ -1503,17 +1511,20 @@ export const make = Effect.gen(function* () {
   });
 
   return DesktopSnapShot.of({
-    initialize: configurationMutex.withPermits(1)(
-      clientSettings.get.pipe(
-        Effect.flatMap((stored) =>
-          applySettings(
-            Option.getOrElse(stored, () => DEFAULT_CLIENT_SETTINGS),
-            null,
+    initialize: configurationMutex
+      .withPermits(1)(
+        clientSettings.get.pipe(
+          Effect.flatMap((stored) =>
+            applySettings(
+              Option.getOrElse(stored, () => DEFAULT_CLIENT_SETTINGS),
+              null,
+            ),
           ),
+          Effect.catch(() => Effect.void),
         ),
-        Effect.catch(() => Effect.void),
-      ),
-    ),
+      )
+      .pipe(Effect.ensuring(Deferred.succeed(initializedLatch, undefined))),
+    awaitInitialized: Deferred.await(initializedLatch),
     configure,
     requestPermissions,
     setup,

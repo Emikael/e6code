@@ -117,23 +117,27 @@ export class DesktopWindow extends Context.Service<
     readonly createMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly ensureMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    // Startup's window step: from here on activation and renderer events may
+    // create the main window, and it is created now. Activation that arrives
+    // earlier (macOS can emit `activate` at launch) waits for this, so no window
+    // exists before the protocol, IPC, duplicate check and local status.
+    readonly openMainAtStartup: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
+    // Reveals the main window, or creates it. Only a WSL-only launch still
+    // waits for the backend: it re-reveals the connecting splash instead.
     readonly activate: Effect.Effect<void, DesktopWindowError>;
     readonly createMainIfBackendReady: Effect.Effect<void, DesktopWindowError>;
-    // Show a lightweight "Connecting to WSL" splash window immediately (wsl-only
-    // mode), before the WSL backend that acts as the primary is ready. It is
-    // dismissed automatically once the real main window reveals.
+    // WSL-only launches: shows a lightweight "Connecting to WSL" splash window
+    // immediately and keeps the main window behind the WSL backend's readiness
+    // for the rest of the launch. It is dismissed automatically once the real
+    // main window reveals. Every other launch opens the main window at startup.
     readonly showConnectingSplash: Effect.Effect<void>;
-    // Marks the primary backend as ready so `createMainIfBackendReady` and the
-    // macOS "activate without windows" path may open the real main window. The
-    // renderer now always loads the local client URL (getDesktopUrl) and connects
-    // to the backend through the connection layer, so the reported httpBaseUrl is
-    // no longer used to point the window at the backend — it is kept only for the
-    // readiness log and to preserve the callback contract the backend pool drives.
+    // Marks the primary backend as ready. On a WSL-only launch this opens the
+    // main window; otherwise the window is already open and the renderer
+    // follows the local environment status instead. The renderer always loads
+    // the local client URL (getDesktopUrl), so httpBaseUrl only feeds the log.
     readonly handleBackendReady: (httpBaseUrl: URL) => Effect.Effect<void, DesktopWindowError>;
     // Called when the backend transitions back to "not ready" (clean stop,
-    // restart, crash). Clears the latch that lets `activate` auto-create a
-    // window so a "macOS dock click" while the backend is down doesn't
-    // produce a stranded window pointing at nothing.
+    // restart, crash), so a WSL-only launch's activation keeps waiting.
     readonly handleBackendNotReady: Effect.Effect<void>;
     readonly flushMainWindowBounds: Effect.Effect<void>;
     readonly prepareCaptureReveal: Effect.Effect<void>;
@@ -342,10 +346,14 @@ export const make = Effect.gen(function* () {
   const electronApp = yield* ElectronApp.ElectronApp;
   // Window-side latch for the primary backend's readiness. Set by
   // handleBackendReady (driven by the pool's onReady callback), cleared
-  // by handleBackendNotReady (driven by onShutdown). Only consumed by
-  // createMainIfBackendReady, which gates the post-readiness window
-  // open in development and the macOS "activate without windows" path.
+  // by handleBackendNotReady (driven by onShutdown). Only a WSL-only launch,
+  // marked by mainWaitsForBackendRef, keeps its main window behind it.
   const backendReadyRef = yield* Ref.make(false);
+  // Set for the whole launch by showConnectingSplash, so the in-memory Windows
+  // fallback after a failed WSL preflight still opens the window at readiness.
+  const mainWaitsForBackendRef = yield* Ref.make(false);
+  // Released by startup's window step (openMainAtStartup, or the WSL splash).
+  const startupWindowStepReachedRef = yield* Ref.make(false);
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -891,11 +899,13 @@ export const make = Effect.gen(function* () {
     return window;
   }).pipe(Effect.withSpan("desktop.window.revealOrCreateMain"));
 
-  // With the local environment disabled there is no backend to wait for: the
-  // renderer is served from bundled assets and only talks to remote environments.
+  // The renderer is served from bundled assets and can open without a backend;
+  // only a WSL-only launch still waits for it. Before startup's window step
+  // every launch waits.
   const waitingForBackend = Effect.gen(function* () {
+    if (!(yield* Ref.get(startupWindowStepReachedRef))) return true;
     if (yield* Ref.get(backendReadyRef)) return false;
-    return (yield* desktopSettings.get).localEnvironmentEnabled;
+    return yield* Ref.get(mainWaitsForBackendRef);
   });
 
   const createMainIfBackendReady = Effect.gen(function* () {
@@ -906,6 +916,8 @@ export const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
   const showConnectingSplash = Effect.gen(function* () {
+    yield* Ref.set(mainWaitsForBackendRef, true);
+    yield* Ref.set(startupWindowStepReachedRef, true);
     // Only when nothing is shown yet: no real window, no existing splash.
     const existingSplash = yield* Ref.get(splashWindowRef);
     if (Option.isSome(existingSplash)) return;
@@ -979,6 +991,10 @@ export const make = Effect.gen(function* () {
     createMain,
     ensureMain,
     revealOrCreateMain,
+    openMainAtStartup: Ref.set(startupWindowStepReachedRef, true).pipe(
+      Effect.andThen(ensureMain),
+      Effect.withSpan("desktop.window.openMainAtStartup"),
+    ),
     prepareCaptureReveal: Effect.gen(function* () {
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
@@ -1011,7 +1027,11 @@ export const make = Effect.gen(function* () {
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
-      yield* createMainIfBackendReady;
+      // Elsewhere the window opened at startup; a window the user has since
+      // closed stays closed until they activate the app.
+      if (yield* Ref.get(mainWaitsForBackendRef)) {
+        yield* createMainIfBackendReady;
+      }
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
       Effect.withSpan("desktop.window.handleBackendNotReady"),

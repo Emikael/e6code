@@ -52,7 +52,12 @@ const setup = Effect.gen(function* () {
         isPackaged: true,
         isDevelopment: false,
       },
-      launch: { localEnvironmentEnabled: true, wslOnly: false, wslBackendEnabled: false },
+      launch: {
+        localEnvironmentEnabled: true,
+        wslOnly: false,
+        wslBackendEnabled: false,
+        environmentIdKnown: true,
+      },
     }),
     sampleMemory: Effect.succeed(memory),
     writeLine: (line) => Ref.update(lines, (current) => [...current, decodeLine(line)]),

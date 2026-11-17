@@ -39,7 +39,12 @@ const context: StartupRecordContext = {
     isPackaged: true,
     isDevelopment: false,
   },
-  launch: { localEnvironmentEnabled: true, wslOnly: false, wslBackendEnabled: false },
+  launch: {
+    localEnvironmentEnabled: true,
+    wslOnly: false,
+    wslBackendEnabled: false,
+    environmentIdKnown: true,
+  },
 };
 
 describe("StartupClock", () => {
@@ -149,6 +154,107 @@ describe("renderer startup marks", () => {
       status: "reached",
       atMs: 1_100,
       syncStatus: "cached",
+    });
+  });
+
+  it("records where the interactive shell's snapshots came from, and when it went live", () => {
+    const { clock } = makeClock();
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:shell-interactive:synchronizing:cache",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 700,
+    });
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:shell-live",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 4_000,
+    });
+
+    expect(clock.get("shellInteractive")).toEqual({
+      status: "reached",
+      atMs: 700,
+      syncStatus: "synchronizing",
+      source: "cache",
+    });
+    expect(clock.get("shellLive")).toEqual({ status: "reached", atMs: 4_000 });
+  });
+
+  it("records the surface the renderer lands on after the starting panel", () => {
+    const { clock } = makeClock();
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:landing:starting",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 500,
+    });
+    expect(clock.get("rendererLanding")).toEqual({
+      status: "reached",
+      atMs: 500,
+      landing: "starting",
+    });
+    // The panel gives way to a surface, so it does not rule the shell out.
+    expect(clock.get("shellInteractive")).toBeUndefined();
+
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:landing:welcome",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 9_000,
+    });
+    expect(clock.get("rendererLanding")).toEqual({
+      status: "reached",
+      atMs: 9_000,
+      landing: "welcome",
+    });
+    expect(clock.get("shellInteractive")).toEqual({
+      status: "not-applicable",
+      reason: "landing:welcome",
+    });
+
+    // The real landing then keeps its first stamp, like every phase.
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:landing:app",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 9_500,
+    });
+    expect(clock.get("rendererLanding")).toMatchObject({ landing: "welcome" });
+  });
+
+  it("keeps the app landing after the starting panel open for the shell", () => {
+    const { clock } = makeClock();
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:landing:starting",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 500,
+    });
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:landing:app",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 7_000,
+    });
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:shell-interactive:live:server",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 7_200,
+    });
+
+    expect(clock.get("rendererLanding")).toEqual({
+      status: "reached",
+      atMs: 7_000,
+      landing: "app",
+    });
+    expect(clock.get("shellInteractive")).toEqual({
+      status: "reached",
+      atMs: 7_200,
+      syncStatus: "live",
+      source: "server",
+    });
+  });
+
+  it("keeps the starting landing when nothing else lands", () => {
+    const { clock } = makeClock();
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:landing:starting",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 500,
+    });
+    applyRendererStartupMark(clock, {
+      name: "e6:startup:landing:starting",
+      epochMs: PROCESS_CREATED_EPOCH_MS + 800,
+    });
+    expect(clock.get("rendererLanding")).toEqual({
+      status: "reached",
+      atMs: 500,
+      landing: "starting",
     });
   });
 

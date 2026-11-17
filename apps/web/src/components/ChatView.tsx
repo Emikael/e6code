@@ -440,6 +440,9 @@ import {
   ThreadErrorBanner,
 } from "./chat/ThreadErrorBanner";
 import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { localEnvironmentNoticeItem } from "./chat/localEnvironmentNotice";
+import { useLocalEnvironmentWord } from "../hooks/useLocalEnvironmentWord";
+import { localEnvironmentSendToastCopy } from "../localEnvironmentWord";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import {
   hasAvailableCompactionProvider,
@@ -2436,9 +2439,15 @@ export default function ChatView(props: ChatViewProps) {
   const activeEnvironmentConnectionPhase = activeEnvironment?.connection.phase ?? "available";
   const activeEnvironmentUnavailable =
     activeEnvironment !== null && activeEnvironmentConnectionPhase !== "connected";
+  // While the desktop's local environment starts, its status, not the connection's retry
+  // ladder, says why the thread's environment is unavailable.
+  const activeLocalEnvironmentWord = useLocalEnvironmentWord(
+    activeEnvironmentUnavailable ? activeEnvironment.environmentId : null,
+  );
   const activeReconnectingEnvironmentId =
     activeEnvironmentConnectionPhase === "connecting" ||
-    activeEnvironmentConnectionPhase === "reconnecting"
+    activeEnvironmentConnectionPhase === "reconnecting" ||
+    activeLocalEnvironmentWord !== null
       ? (activeEnvironment?.environmentId ?? null)
       : null;
   const [reconnectWarningGraceElapsedEnvironmentId, setReconnectWarningGraceElapsedEnvironmentId] =
@@ -2779,11 +2788,15 @@ export default function ChatView(props: ChatViewProps) {
     // action must stay visible.
     const reconnectingThroughVersionSkew =
       serverUpdateState.status === "idle" && environmentReconnecting && versionMismatch !== null;
+    const localEnvironmentWord = activeEnvironmentUnavailableState
+      ? activeLocalEnvironmentWord
+      : null;
     // While an update runs, transient connect blips are expected (the server
     // restarts) and the update banner already shows progress. Hard failure
-    // phases still surface so the Reconnect action stays reachable.
+    // phases still surface so the Reconnect action stays reachable. A starting
+    // local environment waits out the same grace whatever its connection phase.
     const suppressUnavailableBanner =
-      environmentReconnecting &&
+      (environmentReconnecting || localEnvironmentWord !== null) &&
       (updateRunning || (!reconnectingThroughVersionSkew && !reconnectWarningGraceElapsed));
     if (activeEnvironmentUnavailableState && unavailableConnection && !suppressUnavailableBanner) {
       if (reconnectingThroughVersionSkew) {
@@ -2797,6 +2810,13 @@ export default function ChatView(props: ChatViewProps) {
           description: "Finishing an update",
           actions: disconnectAction,
         });
+      } else if (localEnvironmentWord) {
+        items.push(
+          localEnvironmentNoticeItem(
+            activeEnvironmentUnavailableState.environmentId,
+            localEnvironmentWord,
+          ),
+        );
       } else {
         items.push({
           id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
@@ -2910,6 +2930,7 @@ export default function ChatView(props: ChatViewProps) {
     automaticEnvironment,
     autoBalanceUpdateBanner,
     activeEnvironmentUnavailableState,
+    activeLocalEnvironmentWord,
     reconnectWarningGraceElapsed,
     handleReconnectActiveEnvironment,
     canDisconnectActiveEnvironment,
@@ -7830,11 +7851,16 @@ export default function ChatView(props: ChatViewProps) {
       const toastSlot = environmentUnavailableSendToastSlotRef.current;
       environmentUnavailableSendToastSlotRef.current =
         (toastSlot + 1) % ENVIRONMENT_UNAVAILABLE_SEND_TOAST_TRAIL_SIZE;
+      const localEnvironmentToast = activeLocalEnvironmentWord
+        ? localEnvironmentSendToastCopy(activeLocalEnvironmentWord)
+        : null;
       toastManager.add({
         ...stackedThreadToast({
           type: "warning",
-          title: "Not connected: message not sent",
-          description: "Reconnecting to the environment. Try again once it is connected.",
+          title: localEnvironmentToast?.title ?? "Not connected: message not sent",
+          description:
+            localEnvironmentToast?.description ??
+            "Reconnecting to the environment. Try again once it is connected.",
         }),
         id: `chat-send-environment-unavailable:${toastSlot}`,
       });

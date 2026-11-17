@@ -32,6 +32,8 @@ export const STARTUP_MARK_PREFIX = "e6:startup:";
 export const GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL = "desktop:get-local-environment-bootstraps";
 export const GET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL = "desktop:get-local-environment-enabled";
 export const SET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL = "desktop:set-local-environment-enabled";
+export const GET_LOCAL_ENVIRONMENT_STATUS_CHANNEL = "desktop:get-local-environment-status";
+export const LOCAL_ENVIRONMENT_STATUS_CHANNEL = "desktop:local-environment-status";
 export const GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL =
   "desktop:get-local-environment-bearer-token";
 export const GET_CLIENT_SETTINGS_CHANNEL = "desktop:get-client-settings";

@@ -465,6 +465,11 @@ export async function resolveInitialServerAuthGateState(): Promise<ServerAuthGat
     });
 }
 
+/** True once this renderer has authenticated to the primary; later checks reuse that result. */
+export function hasAuthenticatedPrimaryThisSession(): boolean {
+  return resolvedAuthenticatedGateState?.status === "authenticated";
+}
+
 export function __resetServerAuthBootstrapForTests() {
   bootstrapPromise = null;
   resolvedAuthenticatedGateState = null;

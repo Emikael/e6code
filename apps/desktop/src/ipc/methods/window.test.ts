@@ -59,6 +59,7 @@ const readyWslConfig: DesktopBackendManager.DesktopBackendStartConfig = {
 const defaultWslInstance: DesktopBackendManager.DesktopBackendInstance = {
   id: DesktopBackendManager.BackendInstanceId("wsl:default"),
   label: Effect.succeed("WSL (default distro)"),
+  prepare: Effect.void,
   start: Effect.void,
   stop: () => Effect.void,
   currentConfig: Effect.succeed(Option.some(readyWslConfig)),

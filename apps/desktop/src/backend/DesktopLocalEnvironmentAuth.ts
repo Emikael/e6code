@@ -1,6 +1,7 @@
 import { bootstrapRemoteBearerSession } from "@e6tools/client-runtime/authorization";
 import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@e6tools/contracts";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -28,6 +29,12 @@ export class DesktopLocalEnvironmentAuthSessionBootstrapError extends Schema.Tag
     return "Failed to create the local desktop bearer session.";
   }
 }
+
+/**
+ * The exchange runs under a mutex every bearer request waits on, so a backend that accepts the
+ * connection and never answers must not hold every caller forever.
+ */
+export const BEARER_EXCHANGE_TIMEOUT = Duration.seconds(5);
 
 export const DesktopLocalEnvironmentAuthError = Schema.Union([
   DesktopLocalEnvironmentAuthBackendNotConfiguredError,
@@ -77,6 +84,7 @@ export const make = Effect.gen(function* () {
           },
         }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
+          Effect.timeout(BEARER_EXCHANGE_TIMEOUT),
           Effect.mapError(
             (cause) =>
               new DesktopLocalEnvironmentAuthSessionBootstrapError({

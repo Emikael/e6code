@@ -1,11 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { canEnterApp } from "../localEnvironmentStatus";
 
 export const Route = createFileRoute("/projects/$projectKey")({
   beforeLoad: async ({ context, params }) => {
-    if (
-      context.authGateState.status !== "authenticated" &&
-      context.authGateState.status !== "hosted-static"
-    ) {
+    if (!canEnterApp(context.authGateState)) {
       throw redirect({ to: "/pair", replace: true });
     }
     throw redirect({

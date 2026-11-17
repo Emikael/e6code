@@ -1,7 +1,12 @@
 import { remoteHttpClientLayer } from "@e6tools/client-runtime/rpc";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+} from "effect/unstable/http";
 
 import { readDesktopPrimaryBearerToken } from "./desktopAuth";
 import { resolvePrimaryEnvironmentHttpUrl } from "./target";
@@ -18,10 +23,25 @@ function isSameOriginBrowserPrimary(): boolean {
   return new URL(resolvePrimaryEnvironmentHttpUrl("/")).origin === window.location.origin;
 }
 
+/**
+ * Adds the bearer token the desktop mints for its local environment. Minting needs the
+ * backend, so it fails while the backend is starting; that failure is the request's own
+ * transport failure, never a defect that would end whoever is waiting on the request.
+ */
 function withPrimaryBearerToken(client: HttpClient.HttpClient): HttpClient.HttpClient {
   return client.pipe(
     HttpClient.mapRequestEffect((request) =>
-      Effect.promise(readDesktopPrimaryBearerToken).pipe(
+      Effect.tryPromise({
+        try: readDesktopPrimaryBearerToken,
+        catch: (cause) =>
+          new HttpClientError.HttpClientError({
+            reason: new HttpClientError.TransportError({
+              request,
+              cause,
+              description: "Could not load the desktop primary credential.",
+            }),
+          }),
+      }).pipe(
         Effect.map((bearerToken) =>
           bearerToken ? HttpClientRequest.bearerToken(request, bearerToken) : request,
         ),

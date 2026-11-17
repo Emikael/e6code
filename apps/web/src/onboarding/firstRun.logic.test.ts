@@ -4,7 +4,9 @@ import {
   isFirstRunWorkspaceProvenanceAuthoritative,
   isFreshFirstRunWorkspace,
   resolveFirstRunDecision,
+  resolveFirstRunPendingView,
   resolveHostedFirstRunDecision,
+  shouldStartFirstRunStallTimer,
   transitionFirstRunGateState,
 } from "./firstRun.logic";
 
@@ -522,5 +524,100 @@ describe("isFreshFirstRunWorkspace", () => {
         threads: [{ ...bootstrapThread, session: { status: "ready" } }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("first run while the local environment starts", () => {
+  const starting = {
+    ...freshWorkspace,
+    enabled: false,
+    localStarting: true,
+    bootstrapped: false,
+    authoritative: false,
+    workspaceAuthoritative: false,
+    workspaceProvenanceAuthoritative: false,
+    serverConfigAvailable: false,
+  } as const;
+
+  it("opens the app from cache for an onboarded client", () => {
+    expect(resolveFirstRunDecision({ ...starting, completed: true })).toEqual({
+      decision: "app",
+      persistCompletion: false,
+    });
+  });
+
+  it("waits for the server before deciding anything else, even with cached projects", () => {
+    expect(resolveFirstRunDecision(starting)).toEqual({
+      decision: "pending",
+      persistCompletion: false,
+    });
+    expect(resolveFirstRunDecision({ ...starting, projectCount: 4, threadCount: 9 })).toEqual({
+      decision: "pending",
+      persistCompletion: false,
+    });
+  });
+
+  it("shows the starting panel once settings say onboarding is not done, and never stalls", () => {
+    // Before hydration, and for an onboarded client between hydration and the app decision,
+    // the panel would flash ahead of the cached app.
+    expect(
+      resolveFirstRunPendingView({
+        localStarting: true,
+        hydrated: false,
+        completed: false,
+        stalled: false,
+      }),
+    ).toBe("none");
+    expect(
+      resolveFirstRunPendingView({
+        localStarting: true,
+        hydrated: true,
+        completed: true,
+        stalled: false,
+      }),
+    ).toBe("none");
+    expect(
+      resolveFirstRunPendingView({
+        localStarting: true,
+        hydrated: true,
+        completed: false,
+        stalled: false,
+      }),
+    ).toBe("starting");
+    expect(
+      shouldStartFirstRunStallTimer({
+        enabled: false,
+        localStarting: true,
+        decision: "pending",
+        hydrated: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("starts the stall timer only once the server can answer", () => {
+    expect(
+      shouldStartFirstRunStallTimer({
+        enabled: true,
+        localStarting: false,
+        decision: "pending",
+        hydrated: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveFirstRunPendingView({
+        localStarting: false,
+        hydrated: true,
+        completed: false,
+        stalled: false,
+      }),
+    ).toBe("none");
+    expect(
+      resolveFirstRunPendingView({
+        localStarting: false,
+        hydrated: true,
+        completed: false,
+        stalled: true,
+      }),
+    ).toBe("recovery");
   });
 });

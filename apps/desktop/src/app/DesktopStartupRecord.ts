@@ -41,6 +41,8 @@ export interface StartupRecordContext {
     readonly localEnvironmentEnabled: boolean;
     readonly wslOnly: boolean;
     readonly wslBackendEnabled: boolean;
+    /** The primary's environment id was known before it started, so a cached shell could show. */
+    readonly environmentIdKnown: boolean;
   };
 }
 
@@ -79,7 +81,10 @@ export function buildStartupRecord(input: {
 /**
  * Folds one entry forwarded by the main window's preload into the clock: Chromium's paint
  * entries, and the web client's `e6:startup:` marks. A landing other than the app shell
- * means this launch never shows the shell, so `shellInteractive` cannot happen.
+ * means this launch never shows the shell, so `shellInteractive` cannot happen. The
+ * `starting` landing is provisional: the panel gives way to the shell or the wizard once the
+ * backend is ready, and the record carries that later landing instead. `starting` stays only
+ * when nothing else lands.
  */
 export function applyRendererStartupMark(
   clock: StartupClock,
@@ -92,12 +97,30 @@ export function applyRendererStartupMark(
   }
   const parsed = parseStartupMark(mark.name);
   if (parsed?.kind === "landing") {
-    clock.reach("rendererLanding", { landing: parsed.landing }, atMs);
-    if (parsed.landing !== "app") {
+    const current = clock.get("rendererLanding");
+    if (
+      current?.status === "reached" &&
+      current.landing === "starting" &&
+      parsed.landing !== "starting"
+    ) {
+      clock.revise("rendererLanding", { status: "reached", atMs, landing: parsed.landing });
+    } else {
+      clock.reach("rendererLanding", { landing: parsed.landing }, atMs);
+    }
+    if (parsed.landing !== "app" && parsed.landing !== "starting") {
       clock.notApplicable("shellInteractive", `landing:${parsed.landing}`);
     }
   } else if (parsed?.kind === "shell-interactive") {
-    clock.reach("shellInteractive", { syncStatus: parsed.syncStatus }, atMs);
+    clock.reach(
+      "shellInteractive",
+      {
+        syncStatus: parsed.syncStatus,
+        ...(parsed.source === undefined ? {} : { source: parsed.source }),
+      },
+      atMs,
+    );
+  } else if (parsed?.kind === "shell-live") {
+    clock.reach("shellLive", {}, atMs);
   }
 }
 

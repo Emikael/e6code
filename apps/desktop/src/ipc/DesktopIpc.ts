@@ -161,6 +161,18 @@ export const make = (ipcMain: DesktopIpcMain): DesktopIpc["Service"] =>
 export const layer = (ipcMain: DesktopIpcMain) => Layer.succeed(DesktopIpc, make(ipcMain));
 
 /**
+ * Holds every call of `method` until `gate` completes. Startup gates methods whose work needs
+ * something that is still being prepared when the renderer is already up, such as a process
+ * spawn that needs the login-shell environment.
+ */
+export const afterGate =
+  <GE, GR>(gate: Effect.Effect<void, GE, GR>) =>
+  <E, R>(method: DesktopIpcMethod<E, R>): DesktopIpcMethod<E | GE, R | GR> => ({
+    channel: method.channel,
+    handler: (raw, event) => Effect.andThen(gate, method.handler(raw, event)),
+  });
+
+/**
  * Convenience helpers for creating IPC methods
  */
 

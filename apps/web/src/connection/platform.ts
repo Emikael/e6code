@@ -29,6 +29,7 @@ import {
   AuthStandardClientScopes,
   type DesktopBridge,
   type DesktopEnvironmentBootstrap,
+  type DesktopLocalEnvironmentStatus,
   type DesktopSshEnvironmentTarget,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@e6tools/contracts";
@@ -52,6 +53,7 @@ import {
 import { clearComposerDraftsEnvironment } from "../composerDraftStore";
 import { isHostedStaticApp } from "../hostedPairing";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
+import { readLocalEnvironmentStatus } from "../localEnvironmentStatus";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { acknowledgeRpcRequest, trackRpcRequestSent } from "../rpc/requestLatencyState";
 import {
@@ -366,8 +368,9 @@ const loadSecondaryConnectionRegistration = Effect.fn(
   };
 });
 
-// Poll cadence for the desktop bootstrap topology. There is no change event on
-// the bridge, so the renderer polls; successful registrations are cached by a
+// Poll cadence for the desktop bootstrap topology. The bridge has no topology
+// change event, so the renderer polls, and also re-reads on every local
+// environment status change; successful registrations are cached by a
 // signature of their endpoint + token until bearer credentials approach expiry.
 const PLATFORM_POLL_INTERVAL = "3 seconds";
 const SECONDARY_BEARER_REFRESH_SKEW_MS = 5_000;
@@ -395,6 +398,66 @@ interface CachedPlatformRegistration {
   readonly registration: PlatformConnectionRegistration;
   readonly expiresAtEpochMs?: number;
   readonly refreshAtEpochMs?: number;
+  /** A primary registered from the desktop's status before its backend could describe itself. */
+  readonly provisional?: true;
+}
+
+export type PrimaryRegistrationPlan =
+  | { readonly _tag: "Reuse"; readonly cached: CachedPlatformRegistration }
+  | { readonly _tag: "Provisional"; readonly cached: CachedPlatformRegistration }
+  | { readonly _tag: "Discover" }
+  | { readonly _tag: "Wait" };
+
+/**
+ * How to register the primary on this read. While the desktop's local environment starts,
+ * its backend cannot describe itself, so the primary registers from the id it persisted on an
+ * earlier run: the cached shell shows at once. Once ready, the descriptor replaces that
+ * provisional registration. Without a persisted id (first run, WSL-only) the primary waits.
+ */
+export function planPrimaryRegistration(input: {
+  readonly target: PrimaryEnvironmentTarget;
+  readonly signature: string;
+  readonly cached: CachedPlatformRegistration | undefined;
+  readonly localStatus: DesktopLocalEnvironmentStatus | null | undefined;
+  readonly nowEpochMs: number;
+}): PrimaryRegistrationPlan {
+  const starting = input.localStatus != null && input.localStatus.state !== "ready";
+  if (
+    input.cached !== undefined &&
+    canReuseCachedPlatformRegistration(input.cached, input.signature, input.nowEpochMs) &&
+    (input.cached.provisional !== true || starting)
+  ) {
+    return { _tag: "Reuse", cached: input.cached };
+  }
+  if (!starting) return { _tag: "Discover" };
+  const environmentId = input.localStatus?.environmentId ?? null;
+  if (environmentId === null) return { _tag: "Wait" };
+  return {
+    _tag: "Provisional",
+    cached: {
+      signature: input.signature,
+      provisional: true,
+      registration: new PrimaryConnectionRegistration({
+        target: new PrimaryConnectionTarget({
+          environmentId,
+          label: input.localStatus?.label ?? "",
+          httpBaseUrl: input.target.target.httpBaseUrl,
+          wsBaseUrl: input.target.target.wsBaseUrl,
+        }),
+      }),
+    },
+  };
+}
+
+/**
+ * A primary that has been registered stays registered when its descriptor cannot be read:
+ * dropping it would remove the environment and clear its cached shell and drafts.
+ */
+export function primaryRegistrationToRetainAfterDiscoveryFailure(
+  cached: CachedPlatformRegistration | undefined,
+  signature: string,
+): CachedPlatformRegistration | undefined {
+  return cached?.signature === signature ? cached : undefined;
 }
 
 export type PrimaryEnvironmentTargetRead =
@@ -462,6 +525,20 @@ export function secondaryRegistrationsToRetainAfterTopologyRead(
   );
 }
 
+/** One element per local environment status push; empty without a desktop that sends them. */
+export function localEnvironmentStatusChanges(
+  bridge: Pick<DesktopBridge, "onLocalEnvironmentStatus"> | undefined,
+): Stream.Stream<void> {
+  const subscribe = bridge?.onLocalEnvironmentStatus;
+  if (subscribe === undefined) return Stream.empty;
+  return Stream.callback<void>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => subscribe(() => Queue.offerUnsafe(queue, undefined))),
+      (stop) => Effect.sync(stop),
+    ).pipe(Effect.asVoid),
+  );
+}
+
 const platformConnectionSourceLayer = Layer.effect(
   PlatformConnectionSource,
   Effect.gen(function* () {
@@ -500,23 +577,29 @@ const platformConnectionSourceLayer = Layer.effect(
         const primaryTarget = primaryTopologyRead.target;
         const signature = `primary|${primaryTarget.target.httpBaseUrl}|${primaryTarget.target.wsBaseUrl}`;
         const cached = previous.get(PRIMARY_LOCAL_ENVIRONMENT_ID);
-        if (
-          cached !== undefined &&
-          canReuseCachedPlatformRegistration(cached, signature, nowEpochMs)
-        ) {
-          next.set(PRIMARY_LOCAL_ENVIRONMENT_ID, cached);
-          registrations.push(cached.registration);
-        } else {
+        const plan = planPrimaryRegistration({
+          target: primaryTarget,
+          signature,
+          cached,
+          localStatus: readLocalEnvironmentStatus(window.desktopBridge),
+          nowEpochMs,
+        });
+        if (plan._tag === "Reuse" || plan._tag === "Provisional") {
+          next.set(PRIMARY_LOCAL_ENVIRONMENT_ID, plan.cached);
+          registrations.push(plan.cached.registration);
+        } else if (plan._tag === "Discover") {
           const built = yield* loadPrimaryConnectionRegistration(primaryTarget).pipe(
             Effect.tapError((error) =>
               Effect.logWarning("Could not discover the primary environment.", { error }),
             ),
             Effect.option,
           );
-          if (Option.isSome(built)) {
-            const cacheEntry = { signature, registration: built.value };
-            next.set(PRIMARY_LOCAL_ENVIRONMENT_ID, cacheEntry);
-            registrations.push(built.value);
+          const retained = Option.isSome(built)
+            ? { signature, registration: built.value }
+            : primaryRegistrationToRetainAfterDiscoveryFailure(cached, signature);
+          if (retained !== undefined) {
+            next.set(PRIMARY_LOCAL_ENVIRONMENT_ID, retained);
+            registrations.push(retained.registration);
           }
         }
       }
@@ -575,9 +658,10 @@ const platformConnectionSourceLayer = Layer.effect(
     }).pipe(Effect.provide(FetchHttpClient.layer));
 
     return PlatformConnectionSource.of({
-      registrations: Stream.tick(PLATFORM_POLL_INTERVAL).pipe(
-        Stream.mapEffect(() => buildPlatformRegistrations),
-      ),
+      registrations: Stream.merge(
+        Stream.tick(PLATFORM_POLL_INTERVAL),
+        localEnvironmentStatusChanges(window.desktopBridge),
+      ).pipe(Stream.mapEffect(() => buildPlatformRegistrations)),
     });
   }),
 );

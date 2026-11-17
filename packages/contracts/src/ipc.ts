@@ -381,6 +381,41 @@ export interface DesktopEnvironmentBootstrap {
   bootstrapToken?: string;
 }
 
+/**
+ * Where the desktop's local environment (the primary backend) is in its lifecycle. The window
+ * opens before the backend is up, so the renderer reads this to show a starting state instead
+ * of a failed connection.
+ *
+ * - `starting`: launched, not ready yet.
+ * - `ready`: answering HTTP; the renderer authenticates and connects.
+ * - `restarting`: the backend exited or never came up and a restart is scheduled.
+ * - `failed`: the start failed, or a fatal preflight gave up; `reason` says why.
+ * - `stopped`: deliberately stopped, for example while the app quits.
+ */
+export const DesktopLocalEnvironmentState = Schema.Literals([
+  "starting",
+  "ready",
+  "restarting",
+  "failed",
+  "stopped",
+]);
+export type DesktopLocalEnvironmentState = typeof DesktopLocalEnvironmentState.Type;
+
+export const DesktopLocalEnvironmentStatusSchema = Schema.Struct({
+  state: DesktopLocalEnvironmentState,
+  /** The id the backend persisted on an earlier run; `null` on a first run and for WSL-only. */
+  environmentId: Schema.NullOr(EnvironmentId),
+  /** The local environment's bootstrap label, such as "Local environment" or "WSL (Ubuntu)". */
+  label: Schema.String,
+  /** When `state` began, for wording that changes the longer a state lasts. */
+  sinceEpochMs: Schema.Number,
+  /** Unplanned restarts since the backend was last ready; 0 when ready or deliberately restarted. */
+  restartAttempt: Schema.Number,
+  /** One line on why the backend is `failed` or restarting unplanned; otherwise `null`. */
+  reason: Schema.NullOr(Schema.String),
+});
+export type DesktopLocalEnvironmentStatus = typeof DesktopLocalEnvironmentStatusSchema.Type;
+
 export const DesktopEnvironmentBootstrapSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
@@ -1197,6 +1232,15 @@ export interface DesktopBridge {
   // The primary backend is identified by id === PRIMARY_LOCAL_ENVIRONMENT_ID.
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   getLocalEnvironmentEnabled?: () => boolean;
+  /**
+   * The local environment's lifecycle, read synchronously so the first route decision knows
+   * whether the backend is still starting. `null` when the local environment is disabled.
+   * Absent in browsers and on desktop builds predating it; the renderer then uses today's gate.
+   */
+  getLocalEnvironmentStatus?: () => DesktopLocalEnvironmentStatus | null;
+  onLocalEnvironmentStatus?: (
+    listener: (status: DesktopLocalEnvironmentStatus) => void,
+  ) => () => void;
   setLocalEnvironmentEnabled?: (enabled: boolean) => Promise<void>;
   getLocalEnvironmentBearerToken: () => Promise<string>;
   getClientSettings: () => Promise<ClientSettings | null>;

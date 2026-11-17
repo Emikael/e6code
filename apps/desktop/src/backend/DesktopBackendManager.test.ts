@@ -126,6 +126,8 @@ interface MakeInstanceInput {
   readonly onPreflightFailed?: (
     failure: DesktopBackendManager.PreflightFailure,
   ) => Effect.Effect<boolean>;
+  readonly onRestartScheduled?: DesktopBackendManager.BackendInstanceSpec["onRestartScheduled"];
+  readonly onStartFailed?: DesktopBackendManager.BackendInstanceSpec["onStartFailed"];
   readonly config?: DesktopBackendManager.DesktopBackendStartConfig;
   readonly configResolve?: Effect.Effect<
     DesktopBackendManager.DesktopBackendStartConfig,
@@ -185,6 +187,8 @@ function makeTestInstance(input: MakeInstanceInput) {
     ...(input.onReady ? { onReady: () => input.onReady! } : {}),
     ...(input.onShutdown ? { onShutdown: () => input.onShutdown! } : {}),
     ...(input.onPreflightFailed ? { onPreflightFailed: input.onPreflightFailed } : {}),
+    ...(input.onRestartScheduled ? { onRestartScheduled: input.onRestartScheduled } : {}),
+    ...(input.onStartFailed ? { onStartFailed: input.onStartFailed } : {}),
   });
 
   return instance.pipe(Effect.provide(servicesLayer));
@@ -1573,6 +1577,114 @@ describe("DesktopBackendManager", () => {
         const finished = yield* Queue.takeN(teardownFinished, 2);
         assert.deepEqual(finished.toSorted(), ["instance1", "instance2"]);
       }).pipe(Effect.provide(TestClock.layer())),
+    ),
+  );
+
+  it.effect("prepare exposes the start config without spawning, and start resolves again", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        // Stands in for process.env, which the login-shell import changes after prepare.
+        let shellPath = "/usr/bin";
+        let resolveCount = 0;
+        const spawned = yield* Deferred.make<ChildProcess.Command>();
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) =>
+            Deferred.succeed(spawned, command).pipe(
+              Effect.as(makeProcess({ exitCode: Effect.never })),
+            ),
+          ),
+        );
+
+        const instance = yield* makeTestInstance({
+          spawnerLayer,
+          httpClientLayer: httpClientLayer(() => Effect.never),
+          configResolve: Effect.sync(() => {
+            resolveCount += 1;
+            return { ...baseConfig, env: { ...baseConfig.env, SEEN_PATH: shellPath } };
+          }),
+        });
+
+        yield* instance.prepare;
+        const prepared = yield* instance.currentConfig;
+        assert.isTrue(Option.isSome(prepared));
+        assert.equal(Option.getOrThrow(prepared).bootstrap.desktopBootstrapToken, "token");
+        assert.isFalse(yield* Deferred.isDone(spawned));
+        assert.isFalse((yield* instance.snapshot).desiredRunning);
+
+        // A second prepare keeps the config it has.
+        yield* instance.prepare;
+        assert.equal(resolveCount, 1);
+
+        shellPath = "/opt/homebrew/bin:/usr/bin";
+        yield* instance.start;
+        const command = yield* Deferred.await(spawned);
+        assert.equal(resolveCount, 2);
+        if (command._tag !== "StandardCommand") {
+          throw new Error("Expected backend to spawn a standard command.");
+        }
+        assert.equal(command.options.env?.SEEN_PATH, "/opt/homebrew/bin:/usr/bin");
+        assert.equal(command.options.extendEnv, true);
+      }),
+    ),
+  );
+
+  it.effect("reports each unplanned restart with its reason and attempt", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const restarts = yield* Queue.unbounded<{ reason: string; attempt: number }>();
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() =>
+            Effect.succeed(
+              makeProcess({ exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(1)) }),
+            ),
+          ),
+        );
+
+        const instance = yield* makeTestInstance({
+          spawnerLayer,
+          httpClientLayer: httpClientLayer(() => Effect.never),
+          onRestartScheduled: (restart) => Queue.offer(restarts, restart).pipe(Effect.asVoid),
+        });
+
+        yield* instance.start;
+        assert.deepEqual(yield* Queue.take(restarts), { reason: "code=1", attempt: 1 });
+        yield* TestClock.adjust(Duration.millis(500));
+        assert.deepEqual(yield* Queue.take(restarts), { reason: "code=1", attempt: 2 });
+      }).pipe(Effect.provide(TestClock.layer())),
+    ),
+  );
+
+  it.effect("reports a first start whose config cannot be resolved as failed", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const failures: string[] = [];
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() => Effect.die("unexpected backend spawn")),
+        );
+
+        const instance = yield* makeTestInstance({
+          spawnerLayer,
+          configResolve: Effect.fail(
+            PlatformError.systemError({
+              _tag: "Unknown",
+              module: "Crypto",
+              method: "randomBytes",
+              description: "no entropy",
+            }),
+          ),
+          onStartFailed: (reason) =>
+            Effect.sync(() => {
+              failures.push(reason);
+            }),
+        });
+
+        yield* instance.start;
+        assert.deepEqual(failures, ["failed to generate desktop backend configuration"]);
+        assert.isFalse((yield* instance.snapshot).restartScheduled);
+      }),
     ),
   );
 });

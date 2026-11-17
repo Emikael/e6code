@@ -6,7 +6,9 @@
 import type { EnvironmentConnectionPhase } from "@e6tools/client-runtime/connection";
 import type { EnvironmentId } from "@e6tools/contracts";
 
+import { useLocalEnvironmentWord } from "~/hooks/useLocalEnvironmentWord";
 import { cn } from "~/lib/utils";
+import { localEnvironmentDetailLines } from "~/localEnvironmentWord";
 import { useEnvironment } from "~/state/environments";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { connectionPhaseDotClassName } from "./ConnectionStatusDot";
@@ -34,7 +36,8 @@ export function connectionPhaseWord(phase: EnvironmentConnectionPhase): string {
 /**
  * A quiet dot and word: "MacBook Pro · Connected". The word carries the state, the dot tints it.
  * Below the thread header's `@2xl/header-actions` width it compacts to the dot and the word; the
- * environment name stays for screen readers and in the tooltip.
+ * environment name stays for screen readers and in the tooltip. While the desktop's local
+ * environment starts, its status gives the word ("Starting…") instead of the connection.
  */
 export function EnvironmentConnectionChip({
   environmentId,
@@ -44,9 +47,11 @@ export function EnvironmentConnectionChip({
   className?: string;
 }) {
   const environment = useEnvironment(environmentId);
+  const localWord = useLocalEnvironmentWord(environmentId);
   if (!environment) return null;
-  const phase = environment.connection.phase;
-  const word = connectionPhaseWord(phase);
+  const phase = localWord?.dotPhase ?? environment.connection.phase;
+  const word = localWord?.word ?? connectionPhaseWord(phase);
+  const details = localWord ? localEnvironmentDetailLines(localWord) : [];
   return (
     <Tooltip>
       <TooltipTrigger
@@ -73,8 +78,16 @@ export function EnvironmentConnectionChip({
         </span>
         <span className="shrink-0">{word}</span>
       </TooltipTrigger>
-      <TooltipPopup side="top">
+      <TooltipPopup
+        side="top"
+        className={cn(details.length > 0 && "max-w-80 whitespace-pre-wrap leading-tight")}
+      >
         {environment.label} · {word}
+        {details.map((detail) => (
+          <span key={detail.text} className={cn("block", detail.mono && "font-mono")}>
+            {detail.text}
+          </span>
+        ))}
       </TooltipPopup>
     </Tooltip>
   );

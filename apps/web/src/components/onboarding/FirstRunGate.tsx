@@ -15,10 +15,14 @@ import {
   isFirstRunWorkspaceProvenanceAuthoritative,
   isFreshFirstRunWorkspace,
   resolveFirstRunDecision,
+  resolveFirstRunPendingView,
   resolveHostedFirstRunDecision,
+  shouldStartFirstRunStallTimer,
   transitionFirstRunGateState,
   type FirstRunGateState,
 } from "../../onboarding/firstRun.logic";
+import { LocalEnvironmentStartingPanel } from "../LocalEnvironmentStartingPanel";
+import { StartupLandingMark } from "../StartupMarks";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -43,6 +47,8 @@ import { Button } from "../ui/button";
  * waits for environment shells to bootstrap and inspects the workspace.
  * Hosted mode instead checks its saved environment catalog. A timeout shows
  * recovery for an unreachable primary server without mounting the app tree.
+ * While the desktop's local environment starts, an onboarded client gets the app
+ * from cache at once; anyone else sees a starting panel until the server answers.
  */
 
 const FIRST_RUN_DECISION_TIMEOUT_MS = 4_000;
@@ -73,10 +79,12 @@ const workspaceEvidenceLiveAtom = Atom.make((get) => {
 export function FirstRunGate({
   enabled,
   hostedStatic,
+  localStarting,
   children,
 }: {
   readonly enabled: boolean;
   readonly hostedStatic: boolean;
+  readonly localStarting: boolean;
   readonly children: React.ReactNode;
 }) {
   const navigate = useNavigate();
@@ -97,7 +105,7 @@ export function FirstRunGate({
   // the wizard) resolve synchronously instead of blanking a frame.
   const [gateState, setGateState] = useState<FirstRunGateState>(() => ({
     decision:
-      (!enabled && !hostedStatic) || (hydrated && onboardingCompletedAt !== null)
+      (!enabled && !hostedStatic && !localStarting) || (hydrated && onboardingCompletedAt !== null)
         ? "app"
         : "pending",
     stalled: false,
@@ -135,6 +143,7 @@ export function FirstRunGate({
       })
     : resolveFirstRunDecision({
         enabled,
+        localStarting,
         hydrated,
         completed: onboardingCompletedAt !== null,
         bootstrapped,
@@ -174,13 +183,13 @@ export function FirstRunGate({
   // The timer starts after settings hydrate so slow local hydration does not
   // show a false connection failure.
   useEffect(() => {
-    if (!enabled || decision !== "pending" || !hydrated) return;
+    if (!shouldStartFirstRunStallTimer({ enabled, localStarting, decision, hydrated })) return;
     const timer = window.setTimeout(
       () => setGateState((state) => transitionFirstRunGateState(state, { type: "timeout" })),
       FIRST_RUN_DECISION_TIMEOUT_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [decision, enabled, hydrated]);
+  }, [decision, enabled, hydrated, localStarting]);
 
   useEffect(() => {
     if (decision === "wizard" && pathname !== "/welcome") {
@@ -192,7 +201,26 @@ export function FirstRunGate({
     return <FirstRunRecovery reason="settings" retrying={hydrationStatus === "retrying"} />;
   }
   if (decision !== "app") {
-    return stalled ? <FirstRunRecovery reason="connection" /> : null;
+    switch (
+      resolveFirstRunPendingView({
+        localStarting,
+        hydrated,
+        completed: onboardingCompletedAt !== null,
+        stalled,
+      })
+    ) {
+      case "recovery":
+        return <FirstRunRecovery reason="connection" />;
+      case "starting":
+        return (
+          <>
+            <StartupLandingMark landing="starting" />
+            <LocalEnvironmentStartingPanel placement="window" />
+          </>
+        );
+      case "none":
+        return null;
+    }
   }
   return children;
 }

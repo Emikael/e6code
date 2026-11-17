@@ -29,7 +29,14 @@ export const REQUIRED_STARTUP_PHASES = [
 ] as const;
 
 /** Recorded when they happen; they never hold the record back. */
-export const OPTIONAL_STARTUP_PHASES = ["rendererFirstContentfulPaint", "rendererLanding"] as const;
+export const OPTIONAL_STARTUP_PHASES = [
+  "rendererFirstContentfulPaint",
+  "rendererLanding",
+  /** Right before the primary backend's spawn is requested, after the shell environment import. */
+  "backendStartRequested",
+  /** The first renderer frame in which the primary environment's shell is live. */
+  "shellLive",
+] as const;
 
 export type RequiredStartupPhase = (typeof REQUIRED_STARTUP_PHASES)[number];
 export type StartupPhase = RequiredStartupPhase | (typeof OPTIONAL_STARTUP_PHASES)[number];
@@ -42,6 +49,8 @@ export type StartupPhaseState =
       readonly startMs?: number;
       /** `shellInteractive`: the least-synced shell status on screen (`cached`, `synchronizing`, `live`). */
       readonly syncStatus?: string;
+      /** `shellInteractive`: where the snapshots on screen came from (`cache`, `server`). */
+      readonly source?: string;
       /** `rendererLanding`: which root surface the first route rendered. */
       readonly landing?: string;
     }
@@ -95,6 +104,7 @@ export class StartupClock {
     detail: {
       readonly startMs?: number;
       readonly syncStatus?: string;
+      readonly source?: string;
       readonly landing?: string;
     } = {},
     atMs: number = this.nowMs(),
@@ -105,6 +115,15 @@ export class StartupClock {
   /** Marks a phase that cannot happen in this launch. Only the first stamp of a phase counts. */
   notApplicable(phase: StartupPhase, reason: string): void {
     this.#set(phase, { status: "not-applicable", reason });
+  }
+
+  /**
+   * Overwrites a provisional stamp, such as the renderer's `starting` landing, with what
+   * actually happened. Everything else keeps its first stamp through `reach`.
+   */
+  revise(phase: StartupPhase, state: StartupPhaseState): void {
+    this.#phases.set(phase, state);
+    for (const listener of this.#listeners) listener();
   }
 
   get(phase: StartupPhase): StartupPhaseState | undefined {

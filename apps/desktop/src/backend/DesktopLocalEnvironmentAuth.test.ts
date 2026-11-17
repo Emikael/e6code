@@ -1,5 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -77,5 +79,48 @@ describe("DesktopLocalEnvironmentAuth", () => {
       assert.strictEqual(second, "desktop-bearer-token");
       assert.strictEqual(yield* Ref.get(requestCount), 1);
     }),
+  );
+
+  it.effect("gives up on a backend that accepts the exchange and never answers", () =>
+    Effect.gen(function* () {
+      const requestCount = yield* Ref.make(0);
+      const httpClientLayer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() =>
+          Ref.update(requestCount, (count) => count + 1).pipe(Effect.andThen(Effect.never)),
+        ),
+      );
+      const poolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
+        list: Effect.succeed([
+          {
+            id: PRIMARY_LOCAL_ENVIRONMENT_ID,
+            label: Effect.succeed("Local environment"),
+            currentConfig: Effect.succeed(Option.some(config)),
+          },
+        ]),
+      } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
+      const testLayer = DesktopLocalEnvironmentAuth.layer.pipe(
+        Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
+      );
+
+      yield* Effect.gen(function* () {
+        const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
+        const first = yield* Effect.forkChild(Effect.flip(auth.getBearerToken));
+        const second = yield* Effect.forkChild(Effect.flip(auth.getBearerToken));
+        yield* TestClock.adjust(DesktopLocalEnvironmentAuth.BEARER_EXCHANGE_TIMEOUT);
+        yield* TestClock.adjust(DesktopLocalEnvironmentAuth.BEARER_EXCHANGE_TIMEOUT);
+
+        // Both callers return instead of queueing behind the stalled exchange forever.
+        assert.strictEqual(
+          (yield* Fiber.join(first))._tag,
+          "DesktopLocalEnvironmentAuthSessionBootstrapError",
+        );
+        assert.strictEqual(
+          (yield* Fiber.join(second))._tag,
+          "DesktopLocalEnvironmentAuthSessionBootstrapError",
+        );
+        assert.strictEqual(yield* Ref.get(requestCount), 2);
+      }).pipe(Effect.provide(testLayer));
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 });

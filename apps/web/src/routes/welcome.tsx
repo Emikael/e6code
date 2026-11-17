@@ -4,12 +4,12 @@ import { useState } from "react";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { WelcomeWizard } from "../components/onboarding/WelcomeWizard";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { canEnterApp } from "../localEnvironmentStatus";
 
 /** Onboarding overlays the workspace. Visiting /welcome reopens setup. */
 export const Route = createFileRoute("/welcome")({
   beforeLoad: ({ context }) => {
-    const { authGateState } = context;
-    if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
+    if (!canEnterApp(context.authGateState)) {
       throw redirect({ to: "/pair", replace: true });
     }
   },
@@ -26,9 +26,11 @@ function WelcomeRouteView() {
   const openNewThread = useNewThreadHandler();
   // An authenticated gate means a primary server is serving this app —
   // desktop, `npx @e6code/e6`, or a dev server — and that server is "this machine"
-  // no matter what hostname the browser used. Only hosted-static has no
-  // local server to offer.
-  const localAvailable = authGateState.status === "authenticated";
+  // no matter what hostname the browser used. A desktop whose local environment
+  // is still starting is on its way to that. Only hosted-static has no local
+  // server to offer.
+  const localAvailable =
+    authGateState.status === "authenticated" || authGateState.status === "local-starting";
   return (
     <>
       <NoProjectsHero />

@@ -4,7 +4,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useAtomValue } from "@effect/atom-react";
+
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
+import { localEnvironmentWordAtom, showsLocalEnvironmentStage } from "../localEnvironmentWord";
+import { LocalEnvironmentStartingPanel } from "../components/LocalEnvironmentStartingPanel";
 import { isElectron } from "../env";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
@@ -18,7 +22,7 @@ import {
   useProjects,
   useThreadShells,
 } from "../state/entities";
-import { useEnvironments } from "../state/environments";
+import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 
@@ -37,13 +41,17 @@ function ChatIndexRouteView() {
 /**
  * Landing on the index route drops straight into a draft thread for the most
  * recently active project, so the first screen is a prompt instead of a dead
- * end. Falls back to an add-project hero when no project exists yet.
+ * end. Falls back to an add-project hero when no project exists yet. While the
+ * desktop's local environment starts, whatever would leave the stage empty, or
+ * claim there are no projects, shows the starting panel instead.
  */
 function IndexDraftLanding() {
   const projects = useProjects();
   const threads = useThreadShells();
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
+  const localStarting = useAtomValue(localEnvironmentWordAtom) !== null;
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const startingRef = useRef(false);
   const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
 
@@ -68,6 +76,17 @@ function IndexDraftLanding() {
     });
   }, [handleNewThread, mostRecentProject, startState.retryRequest]);
 
+  if (
+    showsLocalEnvironmentStage({
+      localStarting,
+      bootstrapped,
+      landingProjectEnvironmentId: mostRecentProject?.environmentId ?? null,
+      primaryEnvironmentId,
+      draftStartFailed: startState.failed,
+    })
+  ) {
+    return <LocalEnvironmentStartingPanel placement="stage" />;
+  }
   if (!bootstrapped) {
     return null;
   }

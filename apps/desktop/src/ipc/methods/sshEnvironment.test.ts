@@ -1,15 +1,20 @@
 import { assert, describe, it } from "@effect/vitest";
 import { SshHttpBridgeError } from "@e6tools/ssh/errors";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
+import * as DesktopSshEnvironment from "../../ssh/DesktopSshEnvironment.ts";
+import * as DesktopIpc from "../DesktopIpc.ts";
 import {
   DesktopSshEnvironmentRequestError,
   fetchSshEnvironmentDescriptor,
+  resolveSshHost,
 } from "./sshEnvironment.ts";
 
 function jsonResponse(request: HttpClientRequest.HttpClientRequest, body: unknown, status = 200) {
@@ -112,4 +117,36 @@ describe("SSH environment IPC", () => {
       assert.equal(requestCount, 0);
     }).pipe(Effect.provide(layer));
   });
+
+  it.effect("holds an SSH host lookup until the login-shell import has finished", () =>
+    Effect.gen(function* () {
+      const imported = yield* Deferred.make<void>();
+      const lookups: Array<string> = [];
+      const sshLayer = Layer.mock(DesktopSshEnvironment.DesktopSshEnvironment)({
+        resolveHost: (alias) =>
+          Effect.sync(() => {
+            lookups.push(alias);
+            return { alias, hostname: "devbox.internal", username: null, port: null };
+          }),
+      });
+      const gated = DesktopIpc.afterGate(Deferred.await(imported))(resolveSshHost);
+
+      const lookup = yield* Effect.forkChild(
+        gated.handler("devbox").pipe(Effect.provide(sshLayer)),
+      );
+      yield* Effect.yieldNow;
+      // `ssh -G` would otherwise run with the GUI launch's PATH and SSH agent.
+      assert.deepEqual(lookups, []);
+
+      yield* Deferred.succeed(imported, undefined);
+      const target = yield* Fiber.join(lookup);
+      assert.deepEqual(lookups, ["devbox"]);
+      assert.deepEqual(target, {
+        alias: "devbox",
+        hostname: "devbox.internal",
+        username: null,
+        port: null,
+      });
+    }),
+  );
 });

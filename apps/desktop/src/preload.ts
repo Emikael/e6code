@@ -1,5 +1,6 @@
 import type {
   DesktopBridge,
+  DesktopLocalEnvironmentStatus,
   DesktopMotionPowerState,
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingInputEvent,
@@ -34,6 +35,23 @@ function isMotionPowerState(value: unknown): value is DesktopMotionPowerState {
   if (typeof value !== "object" || value === null) return false;
   const { onBattery, thermalState } = value as { onBattery?: unknown; thermalState?: unknown };
   return typeof onBattery === "boolean" && MOTION_THERMAL_STATES.has(thermalState as string);
+}
+
+const LOCAL_ENVIRONMENT_STATES = new Set(["starting", "ready", "restarting", "failed", "stopped"]);
+function isLocalEnvironmentStatus(value: unknown): value is DesktopLocalEnvironmentStatus {
+  if (typeof value !== "object" || value === null) return false;
+  const { state, environmentId, label, sinceEpochMs, restartAttempt, reason } = value as Record<
+    string,
+    unknown
+  >;
+  return (
+    LOCAL_ENVIRONMENT_STATES.has(state as string) &&
+    (environmentId === null || typeof environmentId === "string") &&
+    typeof label === "string" &&
+    typeof sinceEpochMs === "number" &&
+    typeof restartAttempt === "number" &&
+    (reason === null || typeof reason === "string")
+  );
 }
 
 exposeClerkBridge({ passkeys: true });
@@ -141,6 +159,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL),
   getLocalEnvironmentEnabled: () =>
     ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL) !== false,
+  getLocalEnvironmentStatus: () => {
+    const result = ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_STATUS_CHANNEL);
+    return isLocalEnvironmentStatus(result) ? result : null;
+  },
+  onLocalEnvironmentStatus: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, status: unknown) => {
+      if (isLocalEnvironmentStatus(status)) listener(status);
+    };
+    ipcRenderer.on(IpcChannels.LOCAL_ENVIRONMENT_STATUS_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.LOCAL_ENVIRONMENT_STATUS_CHANNEL, wrappedListener);
+    };
+  },
   setLocalEnvironmentEnabled: (enabled) =>
     ipcRenderer.invoke(IpcChannels.SET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL, enabled),
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),

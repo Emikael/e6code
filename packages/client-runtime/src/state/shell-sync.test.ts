@@ -317,6 +317,8 @@ describe("environment shell synchronization", () => {
       const synchronizing = yield* SubscriptionRef.get(shellState);
       expect(synchronizing.status).toBe("synchronizing");
       expect(Option.getOrThrow(synchronizing.snapshot)).toEqual(cachedSnapshot);
+      // Connecting does not make a cached snapshot the server's.
+      expect(synchronizing.snapshotSource).toBe("cache");
 
       yield* Queue.offer(events, { kind: "snapshot", snapshot: resetSnapshot });
       yield* Queue.offer(events, { kind: "synchronized" });
@@ -328,6 +330,7 @@ describe("environment shell synchronization", () => {
       const live = yield* SubscriptionRef.get(shellState);
       expect(Option.getOrThrow(live.snapshot)).toEqual(resetSnapshot);
       expect(yield* Ref.get(loaderCalls)).toBe(1);
+      expect(live.snapshotSource).toBe("server");
 
       yield* Queue.offer(wakeups, "application-active");
       const resumedInput = yield* Queue.take(subscribeInputs);

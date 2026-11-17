@@ -33,6 +33,12 @@ export interface EnvironmentShellState {
   readonly snapshot: Option.Option<OrchestrationShellSnapshot>;
   readonly status: EnvironmentShellStatus;
   readonly error: Option.Option<string>;
+  /**
+   * Where `snapshot` came from: `cache` when restored from the client cache, `server` once a
+   * server snapshot or synchronized marker has arrived. Unset while there is no snapshot, and
+   * on states built by clients that do not track it.
+   */
+  readonly snapshotSource?: "cache" | "server";
 }
 
 const EMPTY_SHELL_STATE: EnvironmentShellState = {
@@ -70,6 +76,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     snapshot: cachedSnapshot,
     status: shellStatusForSnapshot(cachedSnapshot),
     error: Option.none(),
+    ...(Option.isSome(cachedSnapshot) ? { snapshotSource: "cache" as const } : {}),
   });
   const awaitingCompletion = yield* Ref.make(false);
   const lastAuthoritativeSession = yield* Ref.make<RpcSession | null>(null);
@@ -149,7 +156,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       if (item.kind === "synchronized") {
         waiting = false;
         if (Option.isSome(next.snapshot)) {
-          next = { ...next, status: "live", error: Option.none() };
+          next = { ...next, status: "live", error: Option.none(), snapshotSource: "server" };
         }
         continue;
       }
@@ -165,10 +172,13 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             });
       if (nextSnapshot === null) continue;
       receivedSnapshot ||= item.kind === "snapshot";
+      const snapshotSource =
+        item.kind === "snapshot" ? ("server" as const) : (next.snapshotSource ?? "server");
       next = {
         snapshot: Option.some(nextSnapshot),
         status: waiting ? "synchronizing" : "live",
         error: Option.none(),
+        snapshotSource,
       };
     }
     yield* Ref.set(awaitingCompletion, waiting);
@@ -245,6 +255,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             ...value,
             status: "live" as const,
             error: Option.none(),
+            snapshotSource: "server" as const,
           }));
         }
         return {

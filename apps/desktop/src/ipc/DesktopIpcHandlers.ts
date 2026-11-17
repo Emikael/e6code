@@ -1,5 +1,7 @@
 import * as Effect from "effect/Effect";
 
+import * as DesktopShellEnvironment from "../shell/DesktopShellEnvironment.ts";
+import * as DesktopSnapShot from "../snapShot/DesktopSnapShot.ts";
 import * as DesktopIpc from "./DesktopIpc.ts";
 import { installNotificationBadge } from "./methods/notificationBadge.ts";
 import { getMotionPowerState, installMotionPowerStateForwarding } from "./methods/motionPower.ts";
@@ -12,6 +14,8 @@ import {
 } from "./methods/connectionCatalog.ts";
 import {
   getLocalEnvironmentEnabled,
+  getLocalEnvironmentStatus,
+  installLocalEnvironmentStatusForwarding,
   setLocalEnvironmentEnabled,
 } from "./methods/localEnvironment.ts";
 import {
@@ -75,9 +79,17 @@ import { getWslState, setWslBackendEnabled, setWslDistro, setWslOnly } from "./m
 
 export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
   const ipc = yield* DesktopIpc.DesktopIpc;
+  const shellEnvironment = yield* DesktopShellEnvironment.DesktopShellEnvironment;
+  const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
+  // The renderer is up before the login-shell import finishes. Methods that spawn something
+  // needing the user's PATH, SSH agent or desktop session wait for the import; SnapShot methods
+  // wait for SnapShot's own initialization, which runs after the import.
+  const afterShellEnvironment = DesktopIpc.afterGate(shellEnvironment.awaitInstalled);
+  const afterSnapShot = DesktopIpc.afterGate(snapShot.awaitInitialized);
   yield* installNotificationBadge();
   yield* PreviewIpc.installPreviewEventForwarding();
   yield* installMotionPowerStateForwarding();
+  yield* installLocalEnvironmentStatusForwarding();
 
   yield* ipc.handle(AppActivationIpc.setReady);
   yield* ipc.handle(AppActivationIpc.complete);
@@ -89,18 +101,19 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handleSync(getWindowFullscreenState);
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);
   yield* ipc.handleSync(getLocalEnvironmentEnabled);
+  yield* ipc.handleSync(getLocalEnvironmentStatus);
   yield* ipc.handle(setLocalEnvironmentEnabled);
   yield* ipc.handle(getLocalEnvironmentBearerToken);
 
   yield* ipc.handle(getClientSettings);
   yield* ipc.handle(setClientSettings);
   yield* ipc.handle(getConnectionCatalog);
-  yield* ipc.handle(getSnapShotState);
-  yield* ipc.handle(setupSnapShot);
-  yield* ipc.handle(previewSnapShotConfig);
-  yield* ipc.handle(applySnapShotConfig);
+  yield* ipc.handle(afterSnapShot(getSnapShotState));
+  yield* ipc.handle(afterSnapShot(setupSnapShot));
+  yield* ipc.handle(afterSnapShot(previewSnapShotConfig));
+  yield* ipc.handle(afterSnapShot(applySnapShotConfig));
   yield* ipc.handle(requestSnapShotPermissions);
-  yield* ipc.handle(checkSnapShotShortcut);
+  yield* ipc.handle(afterSnapShot(checkSnapShotShortcut));
   yield* ipc.handle(setSnapShotShortcutSuppressed);
   yield* ipc.handle(listPendingSnapShots);
   yield* ipc.handle(readSnapShot);
@@ -111,9 +124,9 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(clearConnectionCatalog);
 
   yield* ipc.handle(discoverSshHosts);
-  yield* ipc.handle(resolveSshHost);
-  yield* ipc.handle(ensureSshEnvironment);
-  yield* ipc.handle(disconnectSshEnvironment);
+  yield* ipc.handle(afterShellEnvironment(resolveSshHost));
+  yield* ipc.handle(afterShellEnvironment(ensureSshEnvironment));
+  yield* ipc.handle(afterShellEnvironment(disconnectSshEnvironment));
   yield* ipc.handle(fetchSshEnvironmentDescriptor);
   yield* ipc.handle(bootstrapSshBearerSession);
   yield* ipc.handle(fetchSshSessionState);
@@ -123,11 +136,11 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(getServerExposureState);
   yield* ipc.handle(setServerExposureMode);
   yield* ipc.handle(setTailscaleServeEnabled);
-  yield* ipc.handle(getAdvertisedEndpoints);
+  yield* ipc.handle(afterShellEnvironment(getAdvertisedEndpoints));
 
   yield* ipc.handle(getWslState);
-  yield* ipc.handle(setWslBackendEnabled);
-  yield* ipc.handle(setWslDistro);
+  yield* ipc.handle(afterShellEnvironment(setWslBackendEnabled));
+  yield* ipc.handle(afterShellEnvironment(setWslDistro));
   yield* ipc.handle(setWslOnly);
 
   yield* ipc.handle(pickFolder);
@@ -139,7 +152,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(checkSystemPermission);
   yield* ipc.handle(pasteAsText);
-  yield* ipc.handle(probeRemoteEditors);
+  yield* ipc.handle(afterShellEnvironment(probeRemoteEditors));
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(downloadUpdate);
@@ -148,6 +161,6 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   for (const previewMethod of PreviewIpc.methods) {
     yield* ipc.handle(previewMethod);
   }
-  yield* ipc.handle(PreviewIpc.listBrowserImportSources);
-  yield* ipc.handle(PreviewIpc.importBrowserCookies);
+  yield* ipc.handle(afterShellEnvironment(PreviewIpc.listBrowserImportSources));
+  yield* ipc.handle(afterShellEnvironment(PreviewIpc.importBrowserCookies));
 });
