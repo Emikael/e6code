@@ -146,6 +146,12 @@ describe("scrim and light wash", () => {
     expect(Object.keys(topLevel(".scrim")!)).not.toContain("backdrop-filter");
   });
 
+  // A `fixed` utility cannot do this: the sheet is unlayered and outranks the utilities.
+  it("fills its parent, and the viewport only when asked", () => {
+    expect(topLevel(".scrim")).toMatchObject({ position: "absolute", inset: "0" });
+    expect(topLevel(".scrim[data-viewport]")).toEqual({ position: "fixed" });
+  });
+
   it("lights with a static gradient shown by opacity", () => {
     expect(topLevel(".light-wash")).toMatchObject({
       opacity: "0",

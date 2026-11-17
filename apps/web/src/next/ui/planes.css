@@ -4,6 +4,11 @@
  * so every built-in, custom and imported theme follows. Radius is the caller's, through the
  * `rounded-*` utilities.
  *
+ * This sheet is unlayered, so what it declares outranks Tailwind's utilities, which sit in a
+ * layer: a `fixed`, `absolute` or `sticky` class on a plane, a scrim or a decision surface
+ * does nothing. Place a plane or a decision surface through a positioned wrapper; a scrim
+ * takes `data-viewport`.
+ *
  * Nothing here moves: the only transitions are opacity fades, on the layer that carries a
  * plane's shadow and on the light wash. `box-shadow` and the blur radius never animate.
  * Levels come from `data-motion` on <html> (MotionRoot); without it the OS reduced-motion
@@ -106,11 +111,18 @@
   }
 }
 
-/* Scrim: the focus pull behind an overlay. It dims; the app behind is never blurred or scaled. */
+/*
+ * Scrim: the focus pull behind an overlay. It dims; the app behind is never blurred or scaled.
+ * It fills its positioned parent, or the viewport with `data-viewport`.
+ */
 .scrim {
   position: absolute;
   inset: 0;
   background-color: var(--scrim);
+}
+
+.scrim[data-viewport] {
+  position: fixed;
 }
 
 /*

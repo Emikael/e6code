@@ -8,7 +8,8 @@ import { washClaims, type WashKind } from "./washClaims.ts";
  * its positioned parent, which is sized to what it lights, and shows or hides by opacity.
  * `enter` fades it in on mount, for light that arrives with new content.
  *
- * A view draws one wash per kind: when several are mounted, only the newest renders.
+ * A view draws one wash per kind: when several are on, only the one that mounted or turned on
+ * last renders, and the light moves between them as a cut.
  * Decorative, so hidden from assistive technology; the state it marks needs its own words.
  */
 export function LightWash({
@@ -21,7 +22,7 @@ export function LightWash({
   readonly enter?: boolean;
 }) {
   const id = useId();
-  useLayoutEffect(() => washClaims.claim(kind, id), [kind, id]);
+  useLayoutEffect(() => washClaims.claim(kind, id, on), [kind, id, on]);
   const holds = useSyncExternalStore(
     washClaims.subscribe,
     () => washClaims.holder(kind) === id,

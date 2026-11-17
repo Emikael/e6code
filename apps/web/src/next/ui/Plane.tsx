@@ -23,7 +23,8 @@ type PlaneProps = ComponentProps<"div"> &
 
 /**
  * A Key Light plane: fill, edge and elevation for its level. An `overlay` sits over a `Scrim`.
- * Radius comes from `className` (`rounded-card`, `rounded-overlay`, ...).
+ * Radius comes from `className` (`rounded-card`, `rounded-overlay`, ...). Position does not: a
+ * plane is always `relative`, so place it through a positioned wrapper (see `planes.css`).
  */
 export function Plane({ level, material, shadow = true, className, ...props }: PlaneProps) {
   return (
@@ -38,11 +39,21 @@ export function Plane({ level, material, shadow = true, className, ...props }: P
 }
 
 /**
- * The dim behind an overlay. It fills its positioned parent; pass `fixed` in `className` to
- * cover the viewport. The stage behind is never blurred or scaled.
+ * The dim behind an overlay. It fills its positioned parent, or the viewport with `viewport`
+ * (a `fixed` class does not move it; see `planes.css`). The stage behind is never blurred or
+ * scaled.
  */
-export function Scrim({ className, ...props }: ComponentProps<"div">) {
+export function Scrim({
+  viewport,
+  className,
+  ...props
+}: ComponentProps<"div"> & { readonly viewport?: boolean }) {
   return (
-    <div aria-hidden="true" {...props} className={className ? `scrim ${className}` : "scrim"} />
+    <div
+      aria-hidden="true"
+      {...props}
+      className={className ? `scrim ${className}` : "scrim"}
+      data-viewport={viewport ? "" : undefined}
+    />
   );
 }
