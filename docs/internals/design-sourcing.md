@@ -201,7 +201,7 @@ These are reference only and credit only, with no code from React Bits (D3).
 | --------------------------- | ------------------------------ | ---------------------------------------- |
 | Blur Text, Split Text       | `RevealText`                   | hero, onboarding, marketing              |
 | Count Up                    | `numberChange` / `NumberRoll`  | usage totals, diff stats                 |
-| Light Rays, Soft Aurora     | our ambient shader (row below) | welcome, empty state, pairing, marketing |
+| Light Rays, Soft Aurora     | our ambient shader (row below) | live: welcome, onboarding, pairing, hero |
 | Spotlight Card, Glare Hover | static hover wash              | onboarding and marketing cards           |
 | Stack, Swipe Toast          | toast stacking                 | toasts                                   |
 
@@ -209,7 +209,7 @@ These are reference only and credit only, with no code from React Bits (D3).
 
 | Item                                                          | Licence                                  | Where                                           | Notice path                                                                      |
 | ------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------- |
-| Ambient light shader (5.7)                                    | ours                                     | planned E02                                     | none; first-party                                                                |
+| Ambient light shader (5.7)                                    | ours                                     | E02-T10, `shared/src/ambientLight`              | none; first-party; dither is interleaved gradient noise (Jimenez, SIGGRAPH 2014) |
 | `motion` (5.1)                                                | MIT                                      | `apps/web/src/next/motion`                      | auto manifest                                                                    |
 | `gsap` (D1)                                                   | Webflow Standard no-charge (proprietary) | `next/motion/cinematic` (app), `apps/marketing` | see trap below                                                                   |
 | Phosphor via `@phosphor-icons/core` (6.1)                     | MIT                                      | planned E03, generated into `next/icons`        | see trap below                                                                   |

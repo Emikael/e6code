@@ -9,6 +9,11 @@ import {
 } from "@e6tools/contracts";
 import { filterFilesystemBrowseEntries } from "@e6tools/client-runtime/state/filesystem";
 import type { SidebarThreadSortOrder } from "@e6tools/contracts/settings";
+import {
+  MOTION_PREFERENCE_OPTIONS,
+  type MotionLevel,
+  type MotionPreference,
+} from "@e6tools/client-runtime/motion-level";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import { type ReactNode } from "react";
@@ -20,6 +25,36 @@ import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 export const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
 export const ADDON_ICON_CLASS = "size-4";
+
+interface MotionPaletteEntries {
+  /** The root item's sublabel, e.g. "Current: Follow system (Reduced)". */
+  readonly sublabel: string;
+  readonly options: ReadonlyArray<{
+    readonly value: MotionPreference;
+    readonly label: string;
+    readonly description: string;
+    readonly current: boolean;
+  }>;
+}
+
+const LEVEL_LABELS: Record<MotionLevel, string> = { full: "Full", reduced: "Reduced", off: "Off" };
+
+/**
+ * What "Change motion" shows, from one MotionPolicy snapshot so the current choice and the
+ * level in use agree. Follow system also names the level it resolved to.
+ */
+export function buildMotionPaletteEntries(state: {
+  readonly preference: MotionPreference;
+  readonly level: MotionLevel;
+}): MotionPaletteEntries {
+  const options = MOTION_PREFERENCE_OPTIONS.map((option) => ({
+    ...option,
+    current: option.value === state.preference,
+  }));
+  const label = options.find((option) => option.current)?.label ?? state.preference;
+  const resolved = state.preference === "system" ? ` (${LEVEL_LABELS[state.level]})` : "";
+  return { sublabel: `Current: ${label}${resolved}`, options };
+}
 
 /** A PR's relations include archived threads that normal palette search omits. */
 export function buildLinkedThreadActionItems(

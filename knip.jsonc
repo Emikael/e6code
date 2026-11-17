@@ -57,6 +57,7 @@
         "scripts/warm-dep-cache.ts",
         "src/next/motion/index.ts",
         "src/next/motion/MotionRoot.tsx",
+        "src/next/motion/ambient/index.ts",
       ],
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still

@@ -1,4 +1,5 @@
 import type { DesktopMotionPowerState } from "@e6tools/contracts";
+import type { MotionPreference } from "@e6tools/client-runtime/motion-level";
 import { describe, expect, it } from "vite-plus/test";
 
 import { createMotionPolicyStore } from "./policy.ts";
@@ -311,5 +312,133 @@ describe("createMotionPolicyStore", () => {
     expect(desktop.listenerCount()).toBe(1);
     unsubscribe();
     expect(desktop.listenerCount()).toBe(0);
+  });
+});
+
+const fakePreference = (initial: MotionPreference) => {
+  let current = initial;
+  const listeners = new Set<() => void>();
+  return {
+    source: {
+      get: () => current,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+    },
+    set(next: MotionPreference) {
+      current = next;
+      for (const listener of listeners) listener();
+    },
+    listenerCount: () => listeners.size,
+  };
+};
+
+describe("createMotionPolicyStore with the Motion setting", () => {
+  it("follows the system until the saved setting loads, then applies it", () => {
+    const media = fakeMediaQuery(true);
+    const preference = fakePreference("system"); // The pre-hydration default.
+    const store = createMotionPolicyStore({
+      matchMedia: media.matchMedia,
+      preference: preference.source,
+    });
+    const { seen } = subscribeLevels(store);
+    expect(store.getLevel()).toBe("reduced");
+
+    preference.set("off");
+
+    expect(seen).toEqual(["off"]);
+  });
+
+  it("applies a changed setting without a reload", () => {
+    const preference = fakePreference("system");
+    const store = createMotionPolicyStore({ preference: preference.source });
+    const { seen } = subscribeLevels(store);
+
+    preference.set("reduced");
+    preference.set("off");
+    preference.set("full");
+
+    expect(seen).toEqual(["reduced", "off", "full"]);
+  });
+
+  it("keeps an explicit level through OS and battery changes, and Follow system reacts", async () => {
+    const media = fakeMediaQuery(false);
+    const battery = fakeBattery(true);
+    const preference = fakePreference("full");
+    const store = createMotionPolicyStore({
+      matchMedia: media.matchMedia,
+      getBattery: battery.getBattery,
+      preference: preference.source,
+    });
+    const { seen } = subscribeLevels(store);
+    await battery.ready;
+
+    media.set(true);
+    battery.set(false);
+    expect(seen).toEqual([]);
+
+    preference.set("system");
+    media.set(false);
+    battery.set(true);
+
+    expect(seen).toEqual(["reduced", "full"]);
+  });
+
+  it("reads the setting fresh for callers that do not subscribe", () => {
+    const preference = fakePreference("system");
+    const store = createMotionPolicyStore({ preference: preference.source });
+    expect(store.getLevel()).toBe("full");
+
+    preference.set("reduced");
+
+    expect(store.getLevel()).toBe("reduced");
+  });
+
+  it("stops listening to the setting with the last subscriber", () => {
+    const preference = fakePreference("system");
+    const store = createMotionPolicyStore({ preference: preference.source });
+    const levels = subscribeLevels(store);
+    const stopState = store.subscribeState(() => undefined);
+    expect(preference.listenerCount()).toBe(1);
+
+    levels.unsubscribe();
+    expect(preference.listenerCount()).toBe(1);
+    stopState();
+    expect(preference.listenerCount()).toBe(0);
+  });
+});
+
+describe("createMotionPolicyStore state", () => {
+  it("reports the setting, the level and the constraints an explicit level ignores", () => {
+    const media = fakeMediaQuery(true);
+    const store = createMotionPolicyStore({ matchMedia: media.matchMedia, deviceMemory: 2 });
+    store.setPreference("full");
+
+    expect(store.getState()).toEqual({
+      preference: "full",
+      level: "full",
+      reasons: ["reduced-motion", "memory"],
+      settingResolved: true,
+    });
+  });
+
+  it("notifies state listeners without disturbing level listeners", () => {
+    const desktop = fakeBridge({ onBattery: true, thermalState: "nominal" });
+    const store = createMotionPolicyStore({ bridge: desktop.bridge });
+    const levels = subscribeLevels(store);
+    const seenReasons: Array<ReadonlyArray<string>> = [];
+    store.subscribeState(() => seenReasons.push(store.getState().reasons));
+
+    desktop.push({ onBattery: true, thermalState: "critical" }); // Still Reduced.
+    desktop.push({ onBattery: true, thermalState: "fair" });
+
+    expect(levels.seen).toEqual([]);
+    expect(seenReasons).toEqual([["battery", "thermal"], ["battery"]]);
+  });
+
+  it("keeps the same state object while nothing changes", () => {
+    const store = createMotionPolicyStore({ deviceMemory: 2 });
+    expect(store.getState()).toBe(store.getState());
   });
 });

@@ -77,6 +77,12 @@ export const KEY_LIGHT: ReadonlyArray<CssRule> = [
       ["--light-attention", tint("--warning", 12)],
       ["--scrim", tint("--foreground", 30)],
       {
+        comment:
+          "Ambient light (ENG-136): rays are light, not colour, on light grounds; the accent\nonly tints them near the source, by --ray-tint (a 0 to 1 amount).",
+      },
+      ["--light-ray", tint("--plane-stage", 92)],
+      ["--ray-tint", "0.45"],
+      {
         rule: "@variant dark",
         body: [
           ["--edge-subtle", edge(6)],
@@ -84,6 +90,8 @@ export const KEY_LIGHT: ReadonlyArray<CssRule> = [
           ["--light-key", tint("--primary", 30)],
           ["--light-attention", tint("--warning", 22)],
           ["--scrim", tint("--plane-ground", 66)],
+          ["--light-ray", "var(--light-key)"],
+          ["--ray-tint", "0"],
         ],
       },
     ],

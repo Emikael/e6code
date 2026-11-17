@@ -208,6 +208,30 @@ describe("searchSettings", () => {
     expect(browser).toContain("publish-agent-activity");
   });
 
+  it("offers the Motion setting only while a redesigned screen is enabled", () => {
+    const availability = {
+      hasCloudPublicConfig: false,
+      hasEnvironment: false,
+      hasProviderSettingsEnvironment: false,
+      canManageLocalBackend: false,
+      isWslSettingsRowVisible: false,
+      hasThreadAutoSettlement: false,
+    };
+    const classic = filterAvailableSettingsSearchItems(availability);
+    expect(searchSettings("reduced motion", classic)).toEqual([]);
+    expect(searchSettings("animations", classic).map((item) => item.id)).not.toContain(
+      "setting-motion",
+    );
+
+    const redesigned = filterAvailableSettingsSearchItems({
+      ...availability,
+      hasRedesignedScreen: true,
+    });
+    expect(searchSettings("reduced motion", redesigned).map((item) => item.id)).toEqual([
+      "setting-motion",
+    ]);
+  });
+
   it("shows automatic settlement settings when the server supports them", () => {
     const available = filterAvailableSettingsSearchItems({
       hasCloudPublicConfig: false,

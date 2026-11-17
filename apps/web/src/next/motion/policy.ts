@@ -1,10 +1,15 @@
 import type { DesktopBridge, DesktopMotionPowerState } from "@e6tools/contracts";
 import {
+  activeMotionConstraints,
+  type MotionConstraintReason,
+  type MotionConstraints,
   type MotionLevel,
   type MotionPreference,
   resolveMotionLevel,
 } from "@e6tools/client-runtime/motion-level";
 import { useSyncExternalStore } from "react";
+
+import { clientSettingsMotionPreference } from "./settingsPreference.ts";
 
 interface ChangeSource<Event extends string> {
   addEventListener(type: Event, listener: () => void): void;
@@ -20,6 +25,17 @@ interface WebBattery extends ChangeSource<"chargingchange"> {
   readonly charging: boolean;
 }
 
+/**
+ * Where the Motion setting comes from. Before the saved value is known, and when it cannot be
+ * read, the source reports Follow system (ENG-126): nothing reaches Off automatically.
+ */
+export interface MotionPreferenceSource {
+  readonly get: () => MotionPreference;
+  /** `true` once the saved setting has loaded or failed to load. Absent means always resolved. */
+  readonly isResolved?: () => boolean;
+  readonly subscribe: (listener: () => void) => () => void;
+}
+
 /** The device inputs MotionPolicy reads; each one is optional and absent means unconstrained. */
 export interface MotionEnvironment {
   readonly matchMedia?: (query: string) => ReducedMotionQuery;
@@ -27,28 +43,60 @@ export interface MotionEnvironment {
   /** `navigator.deviceMemory`, in GB. */
   readonly deviceMemory?: number;
   readonly bridge?: Pick<DesktopBridge, "getMotionPowerState" | "onMotionPowerStateChange">;
+  /** The Motion setting. Absent means Follow system unless `setPreference` says otherwise. */
+  readonly preference?: MotionPreferenceSource;
+}
+
+/**
+ * Everything the Motion control shows, from one computation, so its words, icon and the level
+ * in use always agree.
+ */
+export interface MotionPolicyState {
+  readonly preference: MotionPreference;
+  readonly level: MotionLevel;
+  /** The device constraints that hold now, even when an explicit level ignores them. */
+  readonly reasons: ReadonlyArray<MotionConstraintReason>;
+  /**
+   * Whether the saved Motion setting has loaded (or failed to load). Until then the level
+   * follows the system, so a v2 screen holds its entrance until this is true: someone who
+   * chose Off or Reduced must never see Full motion at boot.
+   */
+  readonly settingResolved: boolean;
 }
 
 export interface MotionPolicyStore {
   readonly getLevel: () => MotionLevel;
   readonly subscribe: (listener: () => void) => () => void;
-  /** The Motion setting; E02-T06 feeds it from client settings. */
+  /** Keeps its identity until the preference, level or reasons change. */
+  readonly getState: () => MotionPolicyState;
+  /** Notified on any state change; level subscribers are notified only on level changes. */
+  readonly subscribeState: (listener: () => void) => () => void;
+  /** Sets the Motion setting directly; the page store takes it from `preference` instead. */
   readonly setPreference: (preference: MotionPreference) => void;
 }
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
+const sameState = (a: MotionPolicyState, b: MotionPolicyState) =>
+  a.preference === b.preference &&
+  a.level === b.level &&
+  a.settingResolved === b.settingResolved &&
+  a.reasons.length === b.reasons.length &&
+  a.reasons.every((reason, index) => reason === b.reasons[index]);
+
 /**
- * One shared store per page. Device listeners are installed with the first subscriber and
- * removed with the last, so a page with no v2 motion pays nothing.
+ * One shared store per page. Device and setting listeners are installed with the first
+ * subscriber and removed with the last, so a page with no v2 motion pays nothing.
  */
 export const createMotionPolicyStore = (environment: MotionEnvironment): MotionPolicyStore => {
-  const { bridge, deviceMemory } = environment;
+  const { bridge, deviceMemory, preference: preferenceSource } = environment;
   const hasDesktopPower = bridge?.getMotionPowerState !== undefined;
   // A shell with the getter but no change events gives a one-shot value; battery changes
   // then come from the web API when the browser has it.
   const hasDesktopEvents = hasDesktopPower && bridge?.onMotionPowerStateChange !== undefined;
-  const listeners = new Set<() => void>();
+  const levelListeners = new Set<() => void>();
+  const stateListeners = new Set<() => void>();
+  const listening = () => levelListeners.size + stateListeners.size > 0;
 
   // Queried on first need, so importing this module never touches the DOM.
   let media: ReducedMotionQuery | undefined;
@@ -64,7 +112,8 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
   let preference: MotionPreference = "system";
   let desktopPower: DesktopMotionPowerState | null = null;
   let webOnBattery: boolean | null = null;
-  let level: MotionLevel = "full";
+  let settingResolved = preferenceSource?.isResolved === undefined;
+  let state: MotionPolicyState = { preference, level: "full", reasons: [], settingResolved };
   let teardown: Array<() => void> = [];
   let generation = 0;
 
@@ -76,26 +125,55 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
     if (hasDesktopPower) desktopPower = bridge.getMotionPowerState?.() ?? null;
   };
 
-  const compute = () =>
-    resolveMotionLevel(preference, {
-      prefersReducedMotion: reducedMotionQuery()?.matches ?? false,
-      // Only set when the desktop cannot push changes; then the live web value wins.
-      onBattery: webOnBattery ?? desktopPower?.onBattery ?? null,
-      thermalState: desktopPower?.thermalState ?? "unknown",
-      deviceMemoryGb: deviceMemory ?? null,
-    });
+  const readPreference = () => {
+    if (preferenceSource === undefined) return;
+    preference = preferenceSource.get();
+    settingResolved = preferenceSource.isResolved?.() ?? true;
+  };
+
+  const constraints = (): MotionConstraints => ({
+    prefersReducedMotion: reducedMotionQuery()?.matches ?? false,
+    // Only set when the desktop cannot push changes; then the live web value wins.
+    onBattery: webOnBattery ?? desktopPower?.onBattery ?? null,
+    thermalState: desktopPower?.thermalState ?? "unknown",
+    deviceMemoryGb: deviceMemory ?? null,
+  });
+
+  /** The next state, or the current object when nothing changed. */
+  const compute = (): MotionPolicyState => {
+    const current = constraints();
+    const next = {
+      preference,
+      level: resolveMotionLevel(preference, current),
+      reasons: activeMotionConstraints(current),
+      settingResolved,
+    };
+    return sameState(next, state) ? state : next;
+  };
 
   const refresh = () => {
     const next = compute();
-    if (next === level) return;
-    level = next;
-    for (const listener of listeners) listener();
+    if (next === state) return;
+    const levelChanged = next.level !== state.level;
+    state = next;
+    if (levelChanged) for (const listener of levelListeners) listener();
+    for (const listener of stateListeners) listener();
   };
 
   const install = () => {
     const current = ++generation;
     readDesktopPower();
-    level = compute();
+    readPreference();
+    state = compute();
+
+    if (preferenceSource !== undefined) {
+      teardown.push(
+        preferenceSource.subscribe(() => {
+          readPreference();
+          refresh();
+        }),
+      );
+    }
 
     const query = reducedMotionQuery();
     if (query !== undefined) {
@@ -104,8 +182,8 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
     }
 
     if (hasDesktopEvents) {
-      const stop = bridge.onMotionPowerStateChange?.((state) => {
-        desktopPower = state;
+      const stop = bridge.onMotionPowerStateChange?.((power) => {
+        desktopPower = power;
         refresh();
       });
       if (stop !== undefined) teardown.push(stop);
@@ -136,24 +214,35 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
     desktopPowerRead = false;
   };
 
+  // Unsubscribed callers (React's first render, code outside React) recompute from the
+  // media query, the setting and the cached power state; only listening keeps the cache fresh.
+  const readUnsubscribed = () => {
+    if (listening()) return;
+    if (!desktopPowerRead) readDesktopPower();
+    readPreference();
+    state = compute();
+  };
+
+  const subscribeTo = (set: Set<() => void>) => (listener: () => void) => {
+    if (!listening()) install();
+    set.add(listener);
+    return () => {
+      if (!set.delete(listener) || listening()) return;
+      uninstall();
+    };
+  };
+
   return {
     getLevel: () => {
-      // Unsubscribed callers (React's first render, code outside React) recompute from the
-      // media query and the cached power state; only listening keeps the cache fresh.
-      if (listeners.size === 0) {
-        if (!desktopPowerRead) readDesktopPower();
-        level = compute();
-      }
-      return level;
+      readUnsubscribed();
+      return state.level;
     },
-    subscribe: (listener) => {
-      if (listeners.size === 0) install();
-      listeners.add(listener);
-      return () => {
-        if (!listeners.delete(listener) || listeners.size > 0) return;
-        uninstall();
-      };
+    subscribe: subscribeTo(levelListeners),
+    getState: () => {
+      readUnsubscribed();
+      return state;
     },
+    subscribeState: subscribeTo(stateListeners),
     setPreference: (next) => {
       preference = next;
       refresh();
@@ -181,9 +270,37 @@ const browserEnvironment = (): MotionEnvironment => {
   };
 };
 
-/** The page's MotionPolicy, for code outside React such as timeline runners. */
-export const motionPolicy = createMotionPolicyStore(browserEnvironment());
+/**
+ * The page's MotionPolicy, for code outside React such as timeline runners. It reads the
+ * Motion setting from client settings and follows the system until they load. The first v2
+ * screen (E04-T14 shell, E04-T16 launch) holds its entrance until `getState().settingResolved`
+ * is true, so someone who chose Off or Reduced never sees Full motion at boot.
+ */
+export const motionPolicy = createMotionPolicyStore({
+  ...browserEnvironment(),
+  preference: clientSettingsMotionPreference,
+});
 
 /** The current motion level. Re-renders only when the level itself changes. */
 export const useMotionPolicy = (): MotionLevel =>
   useSyncExternalStore(motionPolicy.subscribe, motionPolicy.getLevel);
+
+const subscribeNothing = () => () => undefined;
+const IDLE_STATE: MotionPolicyState = {
+  preference: "system",
+  level: "full",
+  reasons: [],
+  settingResolved: true,
+};
+const getIdleState = () => IDLE_STATE;
+
+/**
+ * The Motion setting, the level in use and the reasons, from one snapshot. While `enabled` is
+ * false it neither subscribes nor reads, so an always-mounted caller (the command palette)
+ * starts no device listeners for classic users.
+ */
+export const useMotionPolicyState = (enabled = true): MotionPolicyState =>
+  useSyncExternalStore(
+    enabled ? motionPolicy.subscribeState : subscribeNothing,
+    enabled ? motionPolicy.getState : getIdleState,
+  );

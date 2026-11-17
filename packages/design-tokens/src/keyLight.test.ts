@@ -57,6 +57,9 @@ describe("key-light stock values (direction C)", () => {
       "--light-key": "color-mix(in oklab, var(--primary) 15%, transparent)",
       "--light-attention": "color-mix(in oklab, var(--warning) 12%, transparent)",
       "--scrim": "color-mix(in oklab, var(--foreground) 30%, transparent)",
+      // Ambient light roles, approved on ENG-136 (light theme: white rays, faint accent tint).
+      "--light-ray": "color-mix(in oklab, var(--plane-stage) 92%, transparent)",
+      "--ray-tint": "0.45",
     });
     expect(declarationsAt([DERIVED, "@variant dark"])).toEqual({
       "--edge-subtle": edge(6),
@@ -64,6 +67,8 @@ describe("key-light stock values (direction C)", () => {
       "--light-key": "color-mix(in oklab, var(--primary) 30%, transparent)",
       "--light-attention": "color-mix(in oklab, var(--warning) 22%, transparent)",
       "--scrim": "color-mix(in oklab, var(--plane-ground) 66%, transparent)",
+      "--light-ray": "var(--light-key)",
+      "--ray-tint": "0",
     });
   });
 

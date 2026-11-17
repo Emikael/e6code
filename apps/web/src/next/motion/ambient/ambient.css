@@ -1,0 +1,53 @@
+/*
+ * The ambient light's static gradient (ENG-136). It is the whole picture under Reduced and Off,
+ * without WebGL2, after a failure and on mobile web, and the base the canvas adds to at Full.
+ * Colour roles only, so every built-in, custom and imported theme follows; every stop is a
+ * percentage, so the composition scales with its box. The source sits above the top centre,
+ * where the shader's sits.
+ */
+.ambient-light {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  background-color: var(--plane-ground);
+}
+
+.ambient-light__wash,
+.ambient-light__rays,
+.ambient-light__canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.ambient-light__wash {
+  background-image: radial-gradient(110% 70% at 50% -14%, var(--light-key), transparent 72%);
+}
+
+/* Five rays about ±30° around straight down; the canvas fades in over them in the intro. */
+.ambient-light__rays {
+  background-image: conic-gradient(
+    from 146deg at 50% -22%,
+    transparent 0deg,
+    var(--light-ray) 6deg,
+    transparent 10deg 15deg,
+    var(--light-ray) 19deg,
+    transparent 24deg 29deg,
+    var(--light-ray) 34deg,
+    transparent 40deg 44deg,
+    var(--light-ray) 48deg,
+    transparent 53deg 57deg,
+    var(--light-ray) 61deg,
+    transparent 66deg
+  );
+  /* A mask reads alpha only, so its black is not a colour and takes no role. */
+  mask-image: radial-gradient(95% 92% at 50% -12%, black 18%, transparent 82%);
+}
+
+.ambient-light__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
