@@ -70,16 +70,22 @@ function RpcPayloadRow({ row }: { row: ServerPerformanceRpcMethod }) {
       <td className="max-w-[260px] truncate px-4 py-2 font-mono text-[11px] sm:pl-5">
         {row.method}
       </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
         {formatCount(row.chunkFrames)}
       </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">{formatBytes(row.chunkBytes)}</td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">{formatCount(row.exitFrames)}</td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">{formatBytes(row.exitBytes)}</td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
+        {formatBytes(row.chunkBytes)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
+        {formatCount(row.exitFrames)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
+        {formatBytes(row.exitBytes)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
         {formatBytes(row.p95FrameBytesAtMost)}
       </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums sm:pr-5">
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums sm:pr-5">
         {formatBytes(row.maxFrameBytes)}
       </td>
     </tr>
@@ -109,11 +115,19 @@ function SqliteStatementRow({ row }: { row: ServerPerformanceSqliteStatement }) 
           </TooltipPopup>
         </Tooltip>
       </td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">{formatCount(row.count)}</td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">{formatMs(row.totalMs)}</td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">{formatMs(row.p95MsAtMost)}</td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums">{formatMs(row.maxMs)}</td>
-      <td className="px-4 py-2 text-right font-mono tabular-nums sm:pr-5">
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
+        {formatCount(row.count)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
+        {formatMs(row.totalMs)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
+        {formatMs(row.p95MsAtMost)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums">
+        {formatMs(row.maxMs)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-right font-mono tabular-nums sm:pr-5">
         {row.failures > 0 ? `${formatCount(row.failures)} failed` : "None"}
       </td>
     </tr>
