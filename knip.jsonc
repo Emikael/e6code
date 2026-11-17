@@ -53,7 +53,11 @@
       // Worktree setup invokes this directly from e6.json. The v2 motion layer is public
       // surface for the v2 screens (E02-T03, E02-T06, E02-T10, E04-T14) before they exist;
       // drop it from here once the v2 shell imports it.
-      "entry": ["scripts/warm-dep-cache.ts", "src/next/motion/index.ts"],
+      "entry": [
+        "scripts/warm-dep-cache.ts",
+        "src/next/motion/index.ts",
+        "src/next/motion/ambient/index.ts",
+      ],
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.
