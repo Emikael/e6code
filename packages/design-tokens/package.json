@@ -38,6 +38,26 @@
     "./type": {
       "types": "./src/type.ts",
       "import": "./src/type.ts"
+    },
+    "./icons": {
+      "types": "./src/icons/registry.ts",
+      "import": "./src/icons/registry.ts"
+    },
+    "./projectIcons": {
+      "types": "./src/icons/projectIcons.ts",
+      "import": "./src/icons/projectIcons.ts"
+    },
+    "./iconMorphs": {
+      "types": "./src/icons/morphs.ts",
+      "import": "./src/icons/morphs.ts"
+    },
+    "./lucideIconTable": {
+      "types": "./src/icons/lucideTable.ts",
+      "import": "./src/icons/lucideTable.ts"
+    },
+    "./iconArtwork": {
+      "types": "./src/icons/customArtwork.ts",
+      "import": "./src/icons/customArtwork.ts"
     }
   },
   "scripts": {

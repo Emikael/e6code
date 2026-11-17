@@ -212,7 +212,7 @@ These are reference only and credit only, with no code from React Bits (D3).
 | Ambient light shader (5.7)                                    | ours                                     | E02-T10, `shared/src/ambientLight`              | none; first-party; dither is interleaved gradient noise (Jimenez, SIGGRAPH 2014) |
 | `motion` (5.1)                                                | MIT                                      | `apps/web/src/next/motion`                      | auto manifest                                                                    |
 | `gsap` (D1)                                                   | Webflow Standard no-charge (proprietary) | `next/motion/cinematic` (app), `apps/marketing` | see trap below                                                                   |
-| Phosphor via `@phosphor-icons/core` (6.1)                     | MIT                                      | planned E03, generated into `next/icons`        | see trap below                                                                   |
+| Phosphor via `@phosphor-icons/core` (6.1)                     | MIT                                      | `design-tokens/src/icons`, then `next/icons`    | see trap below                                                                   |
 | Geist, Geist Mono (4.3)                                       | OFL-1.1                                  | web, mobile, marketing                          | auto manifest (web, mobile); marketing ships `public/fonts/*-OFL.txt`            |
 | Taste Skill easing and rules (7.3)                            | MIT                                      | motion tokens, review rules                     | credit only; no code                                                             |
 | Marketing `nightly-sky.svg`                                   | first-party                              | download page                                   | none; hand-written gradients                                                     |
@@ -222,7 +222,10 @@ Provider logos and screenshots on the marketing site are out of scope for this r
 
 **Phosphor trap.** The manifest generator follows production dependencies only. If
 `@phosphor-icons/core` is a devDependency used only to generate components, the shipped SVGs have
-no notice. The task that lands them must add a `customNotices` MIT entry for Phosphor Icons.
+no notice. The task that lands them must add a `customNotices` MIT entry for Phosphor Icons. The
+derived artwork in `packages/design-tokens/src/icons` (`customArtwork.ts`, `morphs.ts`) carries the
+MIT notice in its header but ships nothing until a client imports it; the first task that imports
+it into a client bundle owes the same entry.
 
 **`gsap` trap.** The web licence check fails on `gsap`: its tarball has no licence file and its
 `license` field is a sentence linking the licence page, not an SPDX id, so `generatedNotice` has no
