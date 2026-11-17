@@ -40,7 +40,7 @@ export type StartupPhaseState =
       readonly atMs: number;
       /** Set for phases that are spans of work, such as the shell environment import. */
       readonly startMs?: number;
-      /** `shellInteractive`: where the shell's data came from. */
+      /** `shellInteractive`: how far the shell's data had synced (`cached`, `synchronizing`, `live`). */
       readonly source?: string;
       /** `rendererLanding`: which root surface the first route rendered. */
       readonly landing?: string;

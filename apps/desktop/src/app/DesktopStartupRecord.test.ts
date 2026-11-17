@@ -140,7 +140,7 @@ describe("renderer startup marks", () => {
     expect(clock.get("shellInteractive")).toBeUndefined();
 
     applyRendererStartupMark(clock, {
-      name: "e6:startup:shell-interactive:cache",
+      name: "e6:startup:shell-interactive:cached",
       epochMs: PROCESS_CREATED_EPOCH_MS + 1_100,
     });
     applyRendererStartupMark(clock, { name: "unrelated", epochMs: PROCESS_CREATED_EPOCH_MS });
@@ -148,7 +148,7 @@ describe("renderer startup marks", () => {
     expect(clock.get("shellInteractive")).toEqual({
       status: "reached",
       atMs: 1_100,
-      source: "cache",
+      source: "cached",
     });
   });
 

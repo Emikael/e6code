@@ -12,7 +12,7 @@ describe("startup marks", () => {
     for (const landing of ["app", "welcome", "pair", "requires-auth"] as const) {
       expect(parseStartupMark(startupLandingMark(landing))).toEqual({ kind: "landing", landing });
     }
-    for (const source of ["cache", "live", "none"] as const) {
+    for (const source of ["cached", "synchronizing", "live"] as const) {
       expect(parseStartupMark(startupShellInteractiveMark(source))).toEqual({
         kind: "shell-interactive",
         source,
@@ -24,24 +24,30 @@ describe("startup marks", () => {
     expect(parseStartupMark("first-paint")).toBeNull();
     expect(parseStartupMark("e6:startup:landing")).toBeNull();
     expect(parseStartupMark("e6:startup:landing:settings")).toBeNull();
-    expect(parseStartupMark("e6:startup:shell-interactive:stale")).toBeNull();
+    expect(parseStartupMark("e6:startup:shell-interactive:none")).toBeNull();
     expect(parseStartupMark("e6:startup:unknown:app")).toBeNull();
   });
 
-  it("classifies the shell's data by what each environment was showing", () => {
-    expect(resolveStartupShellSource([])).toBe("none");
-    expect(resolveStartupShellSource([{ hasSnapshot: false, live: false }])).toBe("none");
+  it("reports the least-synced snapshot on screen, once there is one", () => {
+    expect(resolveStartupShellSource([])).toBeNull();
+    expect(resolveStartupShellSource([{ hasSnapshot: false, status: "empty" }])).toBeNull();
     expect(
       resolveStartupShellSource([
-        { hasSnapshot: true, live: true },
-        { hasSnapshot: false, live: false },
+        { hasSnapshot: true, status: "live" },
+        { hasSnapshot: false, status: "synchronizing" },
       ]),
     ).toBe("live");
     expect(
       resolveStartupShellSource([
-        { hasSnapshot: true, live: true },
-        { hasSnapshot: true, live: false },
+        { hasSnapshot: true, status: "live" },
+        { hasSnapshot: true, status: "synchronizing" },
       ]),
-    ).toBe("cache");
+    ).toBe("synchronizing");
+    expect(
+      resolveStartupShellSource([
+        { hasSnapshot: true, status: "synchronizing" },
+        { hasSnapshot: true, status: "cached" },
+      ]),
+    ).toBe("cached");
   });
 });

@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { enabledEnvironmentIds } from "@e6tools/client-runtime/state/connections";
 import {
   resolveStartupShellSource,
@@ -6,17 +7,30 @@ import {
   type StartupLanding,
 } from "@e6tools/shared/startupMarks";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
-import { useEffect } from "react";
+import { Atom } from "effect/unstable/reactivity";
+import { useEffect, useState } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
-import { appAtomRegistry } from "../rpc/atomRegistry";
-import { useAllEnvironmentShellsBootstrapped } from "../state/entities";
-import { environmentShell } from "../state/shell";
+import { allEnvironmentShellsBootstrappedAtom, environmentShell } from "../state/shell";
 
 // Both marks describe this page load, so each is set at most once per document.
 let landingMarked = false;
 let shellInteractiveScheduled = false;
+
+/**
+ * Where the shell's data comes from once every enabled environment is bootstrapped and at
+ * least one has a snapshot to show; `null` until then. Bootstrapped alone is not enough:
+ * it can hold for a moment before any environment's snapshot, cached or live, is readable.
+ */
+const startupShellSourceAtom = Atom.make((get) => {
+  if (!get(allEnvironmentShellsBootstrappedAtom)) return null;
+  return resolveStartupShellSource(
+    Array.from(enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom)), (environmentId) => {
+      const shell = get(environmentShell.stateValueAtom(environmentId));
+      return { hasSnapshot: Option.isSome(shell.snapshot), status: shell.status };
+    }),
+  );
+}).pipe(Atom.withLabel("web-startup-shell-source"));
 
 /** Marks the root surface this page load landed on; the first one rendered wins. */
 export function StartupLandingMark({ landing }: { readonly landing: StartupLanding }) {
@@ -28,26 +42,26 @@ export function StartupLandingMark({ landing }: { readonly landing: StartupLandi
   return null;
 }
 
-/** Marks the first frame after every enabled environment's shell has something to show. */
+/**
+ * Marks the first frame in which the shell has data to show. The watcher follows shell state
+ * only until then, so streaming updates afterwards cost it nothing.
+ */
 export function StartupShellInteractiveMark() {
-  const bootstrapped = useAllEnvironmentShellsBootstrapped();
-  useEffect(() => {
-    if (!bootstrapped || shellInteractiveScheduled) return;
-    shellInteractiveScheduled = true;
-    requestAnimationFrame(() => {
-      setTimeout(() => performance.mark(startupShellInteractiveMark(readShellSource())), 0);
-    });
-  }, [bootstrapped]);
-  return null;
+  const [watching, setWatching] = useState(() => !shellInteractiveScheduled);
+  return watching ? <ShellInteractiveWatcher onScheduled={() => setWatching(false)} /> : null;
 }
 
-function readShellSource() {
-  const catalog = AsyncResult.value(appAtomRegistry.get(environmentCatalog.catalogAtom));
-  if (Option.isNone(catalog)) return resolveStartupShellSource([]);
-  return resolveStartupShellSource(
-    Array.from(enabledEnvironmentIds(catalog.value), (environmentId) => {
-      const shell = appAtomRegistry.get(environmentShell.stateValueAtom(environmentId));
-      return { hasSnapshot: Option.isSome(shell.snapshot), live: shell.status === "live" };
-    }),
-  );
+function ShellInteractiveWatcher({ onScheduled }: { readonly onScheduled: () => void }) {
+  const source = useAtomValue(startupShellSourceAtom);
+  useEffect(() => {
+    if (source === null) return;
+    if (!shellInteractiveScheduled) {
+      shellInteractiveScheduled = true;
+      requestAnimationFrame(() => {
+        setTimeout(() => performance.mark(startupShellInteractiveMark(source)), 0);
+      });
+    }
+    onScheduled();
+  }, [source, onScheduled]);
+  return null;
 }

@@ -12,11 +12,11 @@ export const STARTUP_MARK_PREFIX = "e6:startup:";
 export type StartupLanding = "app" | "welcome" | "pair" | "requires-auth";
 
 /**
- * Where the shell's data came from when it became interactive: `cache` when any environment
- * was still showing its cached snapshot, `live` when every shown snapshot was live, `none`
- * when no environment had a snapshot to show.
+ * How far the shell's data had synced when it became interactive: the least-synced status
+ * among the environments showing a snapshot. `cached` means a snapshot restored from the
+ * client cache was on screen; `synchronizing`, a snapshot not yet confirmed live.
  */
-export type StartupShellSource = "cache" | "live" | "none";
+export type StartupShellSource = "cached" | "synchronizing" | "live";
 
 const LANDINGS: ReadonlySet<string> = new Set<StartupLanding>([
   "app",
@@ -24,7 +24,7 @@ const LANDINGS: ReadonlySet<string> = new Set<StartupLanding>([
   "pair",
   "requires-auth",
 ]);
-const SHELL_SOURCES: ReadonlySet<string> = new Set<StartupShellSource>(["cache", "live", "none"]);
+const SHELL_SOURCES: ReadonlyArray<StartupShellSource> = ["cached", "synchronizing", "live"];
 
 export const startupLandingMark = (landing: StartupLanding): string =>
   `${STARTUP_MARK_PREFIX}landing:${landing}`;
@@ -32,13 +32,22 @@ export const startupLandingMark = (landing: StartupLanding): string =>
 export const startupShellInteractiveMark = (source: StartupShellSource): string =>
   `${STARTUP_MARK_PREFIX}shell-interactive:${source}`;
 
-/** Classifies the shell's data at the moment it became interactive, one entry per environment. */
+/**
+ * Classifies the shell's data, one entry per enabled environment; `null` while no
+ * environment has a snapshot to show, so the shell is not yet interactive.
+ */
 export function resolveStartupShellSource(
-  environments: ReadonlyArray<{ readonly hasSnapshot: boolean; readonly live: boolean }>,
-): StartupShellSource {
-  const shown = environments.filter((environment) => environment.hasSnapshot);
-  if (shown.length === 0) return "none";
-  return shown.every((environment) => environment.live) ? "live" : "cache";
+  environments: ReadonlyArray<{ readonly hasSnapshot: boolean; readonly status: string }>,
+): StartupShellSource | null {
+  let leastSynced: number | null = null;
+  for (const environment of environments) {
+    if (!environment.hasSnapshot) continue;
+    const rank = SHELL_SOURCES.indexOf(environment.status as StartupShellSource);
+    // A snapshot under any other status has not been confirmed by the server yet.
+    const effectiveRank = rank === -1 ? 0 : rank;
+    leastSynced = leastSynced === null ? effectiveRank : Math.min(leastSynced, effectiveRank);
+  }
+  return leastSynced === null ? null : (SHELL_SOURCES[leastSynced] ?? null);
 }
 
 export type ParsedStartupMark =
@@ -55,7 +64,7 @@ export function parseStartupMark(name: string): ParsedStartupMark | null {
   if (kind === "landing" && LANDINGS.has(value)) {
     return { kind, landing: value as StartupLanding };
   }
-  if (kind === "shell-interactive" && SHELL_SOURCES.has(value)) {
+  if (kind === "shell-interactive" && SHELL_SOURCES.includes(value as StartupShellSource)) {
     return { kind, source: value as StartupShellSource };
   }
   return null;
