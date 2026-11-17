@@ -19,6 +19,10 @@
       "types": "./src/brand.ts",
       "import": "./src/brand.ts"
     },
+    "./startupMarks": {
+      "types": "./src/startupMarks.ts",
+      "import": "./src/startupMarks.ts"
+    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"

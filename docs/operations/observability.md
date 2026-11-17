@@ -76,6 +76,8 @@ If OTLP is not configured, metrics still exist in-process, but you will not have
 
 Provider event NDJSON files still exist for provider runtime streams. Those are separate from the main server trace file.
 
+The desktop app writes one startup record per launch, followed by memory samples at 10 s and 60 s, to `<home>/userdata/logs/desktop-startup.ndjson`. Phase times are milliseconds since the OS created the main process. The shape lives in `apps/desktop/src/app/DesktopStartupRecord.ts`, and `node --run test:desktop-smoke` fails when a launch does not write the record.
+
 ## Run The Server In Instrumented Mode
 
 There are two useful modes:

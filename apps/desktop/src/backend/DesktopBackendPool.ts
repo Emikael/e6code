@@ -96,6 +96,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
+import { startupClock } from "../app/DesktopStartupClock.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
@@ -292,7 +293,8 @@ export const layer = Layer.effect(
       // otherwise a post-readiness window-open failure vanishes silently and
       // is near-impossible to diagnose in production.
       onReady: (httpBaseUrl) =>
-        desktopWindow.handleBackendReady(httpBaseUrl).pipe(
+        Effect.sync(() => startupClock.reach("backendReady")).pipe(
+          Effect.andThen(desktopWindow.handleBackendReady(httpBaseUrl)),
           Effect.catch((error) =>
             logBackendPoolWarning("failed to open main window after backend readiness", {
               error: error.message,
