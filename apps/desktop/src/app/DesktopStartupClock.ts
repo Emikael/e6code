@@ -2,8 +2,9 @@
  * The clock and phase store behind the per-launch startup record (`DesktopStartupRecorder`).
  *
  * This module must stay the first import of `main.ts` and must import nothing: the bundle
- * evaluates modules in import order, so its body is the earliest JavaScript in the main
- * process, and that is where `mainEntry` is stamped. Stamps from code that runs before any
+ * evaluates modules in import order, so its body runs before the rest of the main bundle
+ * (only the hoisted `require`s of Node built-ins and `electron` come first), and that is
+ * where `mainEntry` is stamped. Stamps from code that runs before any
  * Effect runtime exists (`electronReady`) and from plain Electron callbacks (`ready-to-show`)
  * land here directly; the recorder reads the store once it settles.
  *

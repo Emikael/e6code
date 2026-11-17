@@ -1,6 +1,8 @@
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
@@ -152,6 +154,7 @@ export const startDesktopStartupRecorder = Effect.fn("desktop.startupRecorder.st
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
   const filePath = environment.path.join(environment.logDir, STARTUP_RECORD_FILE_NAME);
+  // Opened on the first write, so startup never waits on the log directory.
   const writer = yield* DesktopObservability.makeRotatingLogFileWriter({
     filePath,
     maxBytes: STARTUP_RECORD_FILE_MAX_BYTES,
@@ -161,8 +164,10 @@ export const startDesktopStartupRecorder = Effect.fn("desktop.startupRecorder.st
       logWarning("desktop startup record unavailable", { filePath, error: error.message }),
     ),
     Effect.option,
+    Effect.provideService(FileSystem.FileSystem, yield* FileSystem.FileSystem),
+    Effect.provideService(Path.Path, yield* Path.Path),
+    Effect.cached,
   );
-  if (Option.isNone(writer)) return { flush: Effect.void } satisfies StartupRecorder;
 
   const describe = desktopSettings.get.pipe(
     Effect.map((settings) => ({
@@ -223,6 +228,14 @@ export const startDesktopStartupRecorder = Effect.fn("desktop.startupRecorder.st
     pid: process.pid,
     describe,
     sampleMemory,
-    writeLine: (line) => writer.value.writeText(`${line}\n`),
+    writeLine: (line) =>
+      writer.pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.void,
+            onSome: (file) => file.writeText(`${line}\n`),
+          }),
+        ),
+      ),
   });
 });
