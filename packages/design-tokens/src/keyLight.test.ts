@@ -90,22 +90,12 @@ describe("key-light stock values (direction C)", () => {
       "--ease-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
       "--ease-shift": "cubic-bezier(0.65, 0, 0.35, 1)",
       "--ease-exit": "cubic-bezier(0.55, 0.055, 0.675, 0.19)",
-      "--distance-reveal": "6px",
-      "--distance-shake": "4px",
-      "--distance-scale-from": "0.96",
-      "--distance-icon-scale-from": "0.6",
-      "--distance-dialog-scale-from": "0.98",
     });
   });
 
-  it("carries each spring as a linear() curve with its own duration", () => {
-    const stock = declarationsAt([STOCK]);
-    for (const name of ["snappy", "gentle", "drop"]) {
-      expect(stock[`--spring-${name}`]).toMatch(/^linear\(0, .*, 1\)$/);
-      expect(stock[`--spring-${name}-dur`]).toMatch(/^\d+ms$/);
-    }
-    // Never the legacy names, which `installMotionTokens` writes inline on :root.
-    expect(Object.keys(stock).some((name) => name.startsWith("--ease-spring"))).toBe(false);
+  it("leaves the preset-only motion tokens out of every screen's stylesheet", () => {
+    const names = Object.keys(declarationsAt([STOCK]));
+    expect(names.filter((name) => /^--(distance|spring|skeleton)-/.test(name))).toEqual([]);
   });
 
   it("keeps type and radii as rem data at a 16 px root", () => {

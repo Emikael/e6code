@@ -52,6 +52,15 @@ describe("design-token placeholders", () => {
     expect(renderIndexCss(raw)).not.toContain("@design-tokens");
   });
 
+  it("renders the preset-only motion tokens beside the v2 presets, not in index.css", async () => {
+    const raw = await readSource("../src/next/motion/presets/presets.css");
+    expect(count(raw, "/* @design-tokens motion-presets */")).toBe(1);
+    const rendered = renderIndexCss(raw);
+    expect(rendered).not.toContain("@design-tokens");
+    expect(rendered).toContain("--spring-snappy:");
+    expect(renderIndexCss(await readSource("../src/index.css"))).not.toContain("--spring-snappy");
+  });
+
   it("rejects an unknown placeholder instead of leaving it in place", () => {
     expect(() => renderIndexCss("/* @design-tokens stock-unknown */")).toThrow("stock-unknown");
   });

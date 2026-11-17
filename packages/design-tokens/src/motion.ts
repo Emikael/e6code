@@ -137,3 +137,9 @@ export const SPRING_CURVE = /* @__PURE__ */ Object.fromEntries(
 ) as {
   readonly [Name in keyof typeof SPRING]: { readonly linear: string; readonly durationMs: number };
 };
+
+/**
+ * The `skeleton` loading breath: one stepped dip, then still. Provisional values; E02-T11
+ * tunes them against live loading.
+ */
+export const SKELETON = { durationMs: 840, steps: 6, floorOpacity: 0.6 } as const;

@@ -9,6 +9,7 @@
 import { BRAND_BLOCKS } from "./brand.ts";
 import { KEY_LIGHT_BLOCKS } from "./keyLight.ts";
 import { LAYOUT_BLOCKS } from "./layout.ts";
+import { MOTION_PRESET_BLOCKS } from "./motionPresets.ts";
 import { TYPE_BLOCKS } from "./type.ts";
 
 export type CssRule = { readonly rule: string; readonly body: ReadonlyArray<CssNode> };
@@ -311,12 +312,13 @@ export const STOCK_SIDEBAR: CssRule = {
   ],
 };
 
-/** Placeholder name in `index.css` for each block. */
+/** Placeholder name for each block: in `index.css`, and in the v2 `presets.css` for `motion-presets`. */
 export const WEB_STOCK_BLOCKS = {
   "stock-geometry": STOCK_GEOMETRY,
   "stock-palette": STOCK_PALETTE,
   "stock-sidebar": STOCK_SIDEBAR,
   ...KEY_LIGHT_BLOCKS,
+  ...MOTION_PRESET_BLOCKS,
   ...TYPE_BLOCKS,
   ...LAYOUT_BLOCKS,
   ...BRAND_BLOCKS,
