@@ -1,10 +1,10 @@
-import { AnimatePresence } from "motion/react";
 import * as m from "motion/react-m";
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 
 import { useInViewport } from "../choreography/viewport.ts";
 import { useMotionPolicy } from "../policy.ts";
 import { numberSlots } from "./numberSlots.ts";
+import { initialPresenceSlots, presenceSlots, presentSlot } from "./presenceSlots.ts";
 import {
   type LayoutPreset,
   layoutTransition,
@@ -15,6 +15,25 @@ import {
 
 const cx = (...names: ReadonlyArray<string | undefined>) => names.filter(Boolean).join(" ");
 
+/**
+ * The present content and at most one leaving (`presenceSlots`). Switching keys during
+ * render is React's derived-state pattern. A leaving slot shows the content its key arrived
+ * with, which is why callers change the key whenever the content changes.
+ */
+function usePresenceSlots(swapKey: string, children: ReactNode) {
+  const [slots, setSlots] = useState(() => initialPresenceSlots(swapKey, children));
+  let current = slots;
+  if (presentSlot(slots)?.key !== swapKey) {
+    current = presenceSlots(slots, { type: "show", key: swapKey, content: children });
+    setSlots(current);
+  }
+  const left = useCallback(
+    (key: string) => setSlots((previous) => presenceSlots(previous, { type: "left", key })),
+    [],
+  );
+  return [current, left] as const;
+}
+
 function Slot({
   form,
   swapKey,
@@ -24,15 +43,19 @@ function Slot({
   readonly swapKey: string;
   readonly children: ReactNode;
 }) {
-  // `initial={false}`: what is there on mount does not animate. Rapid changes retarget: the
-  // newest key is the one present, and leaving children run only their exit.
-  return (
-    <AnimatePresence initial={false}>
-      <m.span key={swapKey} initial={form.initial} animate={form.animate} exit={form.exit}>
-        {children}
-      </m.span>
-    </AnimatePresence>
-  );
+  const [slots, left] = usePresenceSlots(swapKey, children);
+  // What is there on mount does not animate in. A leaving slot keeps its key, so a value that
+  // comes back mid-exit retargets from where it is; a third value cuts the older leaver.
+  return slots.map((slot) => (
+    <m.span
+      key={slot.key}
+      initial={slot.enters ? form.initial : false}
+      animate={slot.leaving ? form.exit : form.animate}
+      {...(slot.leaving ? { "aria-hidden": true, onAnimationComplete: () => left(slot.key) } : {})}
+    >
+      {slot.leaving ? slot.content : children}
+    </m.span>
+  ));
 }
 
 /**
