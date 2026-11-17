@@ -1043,6 +1043,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
     }),
+    performanceMetrics: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:performance-metrics",
+      tag: WS_METHODS.serverGetPerformanceMetrics,
+    }),
     processDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-diagnostics",
       tag: WS_METHODS.serverGetProcessDiagnostics,

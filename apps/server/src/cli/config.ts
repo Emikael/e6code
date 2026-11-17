@@ -100,6 +100,9 @@ const EnvServerConfig = Config.all({
     Config.withDefault(10 * 1024 * 1024),
   ),
   traceMaxFiles: withLegacyBrandEnv("TRACE_MAX_FILES", Config.Int).pipe(Config.withDefault(10)),
+  performanceMetricsEnabled: withLegacyBrandEnv("PERF_METRICS", Config.Boolean).pipe(
+    Config.withDefault(true),
+  ),
   traceBatchWindowMs: withLegacyBrandEnv("TRACE_BATCH_WINDOW_MS", Config.Int).pipe(
     Config.withDefault(1_000),
   ),
@@ -442,6 +445,7 @@ export const resolveServerConfig = (
       traceBatchWindowMs: env.traceBatchWindowMs,
       traceMaxBytes: env.traceMaxBytes,
       traceMaxFiles: env.traceMaxFiles,
+      performanceMetricsEnabled: env.performanceMetricsEnabled,
       otlpTracesUrl:
         env.otlpTracesUrl ??
         bootstrap?.otlpTracesUrl ??

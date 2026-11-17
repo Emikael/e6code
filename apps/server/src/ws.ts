@@ -108,6 +108,9 @@ import {
   observeRpcStream as instrumentRpcStream,
   observeRpcStreamEffect as instrumentRpcStreamEffect,
 } from "./observability/RpcInstrumentation.ts";
+import * as MeasuredRpcSerialization from "./observability/MeasuredRpcSerialization.ts";
+import type { ShellRefetchSource } from "./observability/PerformanceAggregates.ts";
+import * as PerformanceMetrics from "./observability/PerformanceMetrics.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
@@ -504,6 +507,7 @@ const makeWsRpcLayer = (
       const currentSessionId = currentSession.sessionId;
       const crypto = yield* Crypto.Crypto;
       const sql = yield* SqlClient.SqlClient;
+      const performanceMetrics = yield* PerformanceMetrics.PerformanceMetrics;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       /** A reference's host-level link key; the project's own host where the ref names none. */
       const resolvePullRequestSyncKey = (reference: PullRequestRef) =>
@@ -913,11 +917,16 @@ const makeWsRpcLayer = (
 
       const toShellStreamEvent = (
         event: ShellEvent,
+        onRefetch: () => void,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> => {
         switch (event.type) {
           case "project.created":
           case "project.meta-updated":
-            return projectUpsertOrRemove(ProjectId.make(event.aggregateId), event.sequence);
+            return projectUpsertOrRemove(
+              ProjectId.make(event.aggregateId),
+              event.sequence,
+              onRefetch,
+            );
           case "project.deleted":
             return Effect.succeed(
               Option.some({
@@ -936,12 +945,20 @@ const makeWsRpcLayer = (
               }),
             );
           case "thread.unarchived":
-            return threadUpsertOrRemove(ThreadId.make(event.aggregateId), event.sequence);
+            return threadUpsertOrRemove(
+              ThreadId.make(event.aggregateId),
+              event.sequence,
+              onRefetch,
+            );
           default:
             if (event.aggregateKind !== "thread") {
               return Effect.succeed(Option.none());
             }
-            return threadUpsertOrRemove(ThreadId.make(event.aggregateId), event.sequence);
+            return threadUpsertOrRemove(
+              ThreadId.make(event.aggregateId),
+              event.sequence,
+              onRefetch,
+            );
         }
       };
 
@@ -954,28 +971,44 @@ const makeWsRpcLayer = (
         aggregateKind: "project" | "thread",
         aggregateId: string,
         read: Effect.Effect<A, E>,
+        onRefetch: () => void,
       ): Effect.Effect<Option.Option<A>, never, never> =>
-        read.pipe(
-          Effect.retry({ times: 1 }),
+        Effect.suspend(() => {
+          onRefetch();
+          // Count a retry when the first attempt fails; the final failure is
+          // counted separately below.
+          let attempt = 0;
+          return read.pipe(
+            Effect.tapError(() =>
+              Effect.sync(() => {
+                if (attempt++ === 0) performanceMetrics.recordShellRetry();
+              }),
+            ),
+            Effect.retry({ times: 1 }),
+          );
+        }).pipe(
           Effect.map(Option.some),
-          Effect.tapError((error) =>
-            Effect.logWarning("orchestration shell projection refetch failed", {
+          Effect.tapError((error) => {
+            performanceMetrics.recordShellFailure();
+            return Effect.logWarning("orchestration shell projection refetch failed", {
               aggregateKind,
               aggregateId,
               error,
-            }),
-          ),
+            });
+          }),
           Effect.orElseSucceed(() => Option.none()),
         );
 
       const projectUpsertOrRemove = (
         projectId: ProjectId,
         sequence: number,
+        onRefetch: () => void,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> =>
         retryShellProjectionRead(
           "project",
           projectId,
           projectionSnapshotQuery.getProjectShellById(projectId),
+          onRefetch,
         ).pipe(
           Effect.map(
             Option.flatMap((project) =>
@@ -1010,11 +1043,13 @@ const makeWsRpcLayer = (
       const threadUpsertOrRemove = (
         threadId: ThreadId,
         sequence: number,
+        onRefetch: () => void,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> =>
         retryShellProjectionRead(
           "thread",
           threadId,
           projectionSnapshotQuery.getThreadShellById(threadId),
+          onRefetch,
         ).pipe(
           Effect.map(
             Option.flatMap((thread) =>
@@ -1048,9 +1083,13 @@ const makeWsRpcLayer = (
       // the client — which applies shell items strictly by increasing sequence
       // and drops any `sequence <= snapshotSequence` — never skips a coalesced
       // item. The refetch runs with bounded concurrency (order-preserving).
+      //
+      // Each window records its refetch count. Every subscriber coalesces on its
+      // own, so refetches grow with the number of shell subscribers.
       const SHELL_REFETCH_CONCURRENCY = 8;
       const coalesceShellEvents = (
         events: ReadonlyArray<ShellEvent>,
+        source: ShellRefetchSource,
       ): Effect.Effect<ReadonlyArray<OrchestrationShellStreamEvent>, never, never> =>
         Effect.gen(function* () {
           if (events.length === 0) {
@@ -1063,9 +1102,16 @@ const makeWsRpcLayer = (
           const survivors = Array.from(latestByAggregate.values()).sort(
             (left, right) => left.sequence - right.sequence,
           );
-          const shellEvents = yield* Effect.forEach(survivors, toShellStreamEvent, {
-            concurrency: SHELL_REFETCH_CONCURRENCY,
-          });
+          let refetches = 0;
+          const countRefetch = () => {
+            refetches += 1;
+          };
+          const shellEvents = yield* Effect.forEach(
+            survivors,
+            (event) => toShellStreamEvent(event, countRefetch),
+            { concurrency: SHELL_REFETCH_CONCURRENCY },
+          );
+          performanceMetrics.recordShellWindow(source, events.length, refetches);
           return shellEvents.flatMap((option) => (Option.isSome(option) ? [option.value] : []));
         });
 
@@ -1081,7 +1127,7 @@ const makeWsRpcLayer = (
         stream.pipe(
           Stream.map(toShellEvent),
           Stream.groupedWithin(SHELL_COALESCE_MAX_CHUNK, SHELL_COALESCE_WINDOW),
-          Stream.mapEffect(coalesceShellEvents),
+          Stream.mapEffect((events) => coalesceShellEvents(events, "catch-up")),
           Stream.flatMap((items) => Stream.fromIterable(items)),
         );
 
@@ -1105,12 +1151,12 @@ const makeWsRpcLayer = (
               continue;
             }
 
-            output.push(...(yield* coalesceShellEvents(pendingEvents)));
+            output.push(...(yield* coalesceShellEvents(pendingEvents, "live")));
             pendingEvents = [];
             output.push({ kind: "synchronized" });
           }
 
-          output.push(...(yield* coalesceShellEvents(pendingEvents)));
+          output.push(...(yield* coalesceShellEvents(pendingEvents, "live")));
           return output;
         });
 
@@ -2059,6 +2105,7 @@ const makeWsRpcLayer = (
               // sequence but the live subscription is not attached yet). Every
               // path below emits from this same buffered live tail. Overlapping
               // events are deduped by sequence on the client.
+              yield* performanceMetrics.trackShellSubscriber;
               const liveBudget = yield* makeLiveStreamBudget();
               const liveBuffer = yield* Queue.unbounded<
                 RetainedLiveItem<ShellLiveInput>,
@@ -2654,6 +2701,10 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverGetPerformanceMetrics]: (_input) =>
+          observeRpcEffect(WS_METHODS.serverGetPerformanceMetrics, performanceMetrics.read, {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverGetProcessDiagnostics]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetProcessDiagnostics, processDiagnostics.read, {
             "rpc.aggregate": "server",
@@ -3851,6 +3902,14 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     const pullRequests = yield* PullRequestService.PullRequestService;
     const serverUpdateCheck = yield* ServerUpdateCheck.ServerUpdateCheck;
     const sql = yield* SqlClient.SqlClient;
+    const performanceMetrics = yield* PerformanceMetrics.PerformanceMetrics;
+    // Stateless; the RPC server makes one parser per WebSocket from it.
+    const rpcSerializationLayer = performanceMetrics.enabled
+      ? MeasuredRpcSerialization.layer({
+          methods: new Set(WsRpcGroup.requests.keys()),
+          recordFrame: performanceMetrics.recordFrame,
+        })
+      : RpcSerialization.layerJson;
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3890,8 +3949,11 @@ export const websocketRpcRouteLayer = Layer.unwrap(
               clientAnalyticsProps,
               previewAutomationBroker,
             ).pipe(
-              Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provideMerge(rpcSerializationLayer),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
+              Layer.provide(
+                Layer.succeed(PerformanceMetrics.PerformanceMetrics, performanceMetrics),
+              ),
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),

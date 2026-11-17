@@ -41,7 +41,7 @@ server starts: production and explicitly configured homes use
 `<worktree>/.e6/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
 worktree uses `~/.e6/dev/logs/server.trace.ndjson`. An existing `~/.e6` is still that home when `~/.e6` has not been created.
 
-Important fields common to both record types:
+Important fields common to both span record types:
 
 - `type`: `effect-span` or `otlp-span`
 - `name`: span name
@@ -53,8 +53,11 @@ Important fields common to both record types:
 `effect-span` records also contain `exit` with `Success`, `Failure`, or `Interrupted`. `otlp-span`
 records instead carry OTLP resource, scope, and optional status fields.
 
-The `TraceRecord`, `EffectTraceRecord`, and `OtlpTraceRecord` schemas live in
-`packages/shared/src/observability.ts`.
+The same file also holds `metrics-snapshot` records, described under [Metrics](#metrics). They have
+no `traceId`, `spanId` or `durationMs`, so span filters such as the `jq` recipes below skip them.
+
+The `TraceRecord`, `EffectTraceRecord`, `OtlpTraceRecord` and `MetricsSnapshotTraceRecord` types
+live in `packages/shared/src/observability.ts`.
 
 DPoP proof failures include the safe `environment.dpop.failure_code` span
 attribute. A `time_window` failure means that a signed proof was too old or too
@@ -64,13 +67,41 @@ request.
 
 ### Metrics
 
-Metrics are not written to a local file.
-
-- local persistence: none
-- remote export: OTLP only, when configured
 - current definitions: `apps/server/src/observability/Metrics.ts`
+- remote export: OTLP, when configured
+- local view: Settings > Diagnostics > Server Performance, and `metrics-snapshot` records in the
+  trace file
 
-If OTLP is not configured, metrics still exist in-process, but you will not have a local artifact to inspect.
+The performance metrics in `apps/server/src/observability/PerformanceMetrics.ts` are aggregated in
+memory over 10 s intervals and reset when the server restarts:
+
+- event-loop delay p50, p99 and max from `perf_hooks.monitorEventLoopDelay` at 20 ms resolution.
+  The resolution is subtracted, so an idle server reads about 2 ms of timer jitter rather than
+  20 ms; the trace record also keeps the raw `rawP50Ms`, `rawP99Ms` and `rawMaxMs` values Node
+  reports.
+- encoded WebSocket frame bytes per RPC method before compression, split into stream `Chunk`
+  frames and the final `Exit` frame.
+- SQLite execute time per statement name. A name is `VERB table#hash` from the normalised SQL, so
+  every `IN (...)` length shares one name; schema changes are named by kind, such as
+  `CREATE INDEX`. Only the first 256 names are kept separately.
+- shell refetches per `subscribeShell` coalescing window, live or catch-up, and the number of
+  shell subscribers. Every subscriber coalesces and refetches on its own.
+
+Every minute, and when the server stops, the server appends one `metrics-snapshot` record with the
+top rows of each table to the trace file:
+
+```bash
+jq -c 'select(.type == "metrics-snapshot") | {
+  windowMs,
+  eventLoop: .metrics.eventLoop.worstP99Ms,
+  rpcBytes: .metrics.rpc.totals.bytes,
+  sqliteMs: .metrics.sqlite.totals.totalMs
+}' "$TRACE_FILE"
+```
+
+`E6CODE_PERF_METRICS=false` turns the performance metrics off, for example to measure their own
+overhead. The server then stops advertising the `performanceMetrics` capability and the Settings
+section says the server does not report them.
 
 ### Related Artifacts
 
@@ -336,6 +367,9 @@ Good metric families to watch:
 - `e6_orchestration_command_ack_duration`
 - `e6_provider_turn_duration`
 - `e6_git_command_duration`
+- `e6_event_loop_delay_p99_ms` (a gauge for the last 10 s interval)
+- `e6_rpc_encoded_bytes_total` by `method` and `frame`
+- `e6_sqlite_statement_time_ms_total` (per-statement detail stays in the trace file)
 
 Counters tell you volume and failure rate:
 

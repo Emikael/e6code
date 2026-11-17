@@ -40,6 +40,18 @@ function record(input: {
   });
 }
 
+function metricsSnapshotLine() {
+  return JSON.stringify({
+    type: "metrics-snapshot",
+    schemaVersion: 1,
+    name: "server.performance",
+    windowStartUnixNano: ns(0),
+    windowEndUnixNano: ns(60_000),
+    windowMs: 60_000,
+    metrics: {},
+  });
+}
+
 describe("TraceDiagnostics", () => {
   it.effect("aggregates failures, slow spans, log levels, and parse errors", () =>
     Effect.sync(() => {
@@ -135,6 +147,37 @@ describe("TraceDiagnostics", () => {
       assert.equal(diagnostics.slowestSpans[0]?.traceId, "trace-b");
       assert.equal(diagnostics.latestWarningAndErrorLogs[0]?.message, "status delayed");
       assert.equal(diagnostics.topSpansByCount[0]?.name, "orchestration.dispatch");
+    }),
+  );
+
+  it.effect("skips metrics snapshot records without counting them as spans or parse errors", () =>
+    Effect.sync(() => {
+      const diagnostics = TraceDiagnostics.aggregateTraceDiagnostics({
+        traceFilePath: "/tmp/server.trace.ndjson",
+        readAt: DateTime.makeUnsafe("2026-05-05T10:00:00.000Z"),
+        files: [
+          {
+            path: "/tmp/server.trace.ndjson",
+            text: [
+              record({
+                name: "server.getConfig",
+                traceId: "t",
+                spanId: "s",
+                startMs: 1,
+                durationMs: 2,
+              }),
+              metricsSnapshotLine(),
+            ].join("\n"),
+          },
+        ],
+      });
+
+      assert.equal(diagnostics.recordCount, 1);
+      assert.equal(diagnostics.parseErrorCount, 0);
+      assert.deepEqual(
+        diagnostics.topSpansByCount.map((span) => span.name),
+        ["server.getConfig"],
+      );
     }),
   );
 

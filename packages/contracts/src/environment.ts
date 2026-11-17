@@ -178,6 +178,10 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       desktop servers whose app predates the remote trigger, where clients
       must keep telling the user to update the app on that machine. */
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
+  /** Server answers server.getPerformanceMetrics. Absent on older servers and
+      when the server runs with E6CODE_PERF_METRICS=false, so clients show an
+      empty state instead of calling it. */
+  performanceMetrics: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

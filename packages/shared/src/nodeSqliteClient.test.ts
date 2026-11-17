@@ -54,3 +54,46 @@ it.effect("returns a typed failure when the database cannot be opened", () =>
     assert.equal(error.reason.operation, "open");
   }),
 );
+
+it.effect("reports each prepared statement once and each execute with its outcome", () => {
+  const registered: Array<string> = [];
+  const recorded: Array<{
+    readonly sql: string;
+    readonly ok: boolean;
+    readonly durationMs: number;
+  }> = [];
+  const observer: SqliteClient.SqliteStatementObserver<string> = {
+    register: (sql) => {
+      registered.push(sql);
+      return sql;
+    },
+    record: (sql, durationMs, ok) => {
+      recorded.push({ sql, ok, durationMs });
+    },
+  };
+
+  return Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)`;
+    yield* sql`INSERT INTO entries(name) VALUES (${"alpha"})`;
+    for (let index = 0; index < 3; index++) {
+      yield* sql`SELECT id FROM entries WHERE name = ${"alpha"}`;
+    }
+    yield* sql`SELECT id, name FROM entries`.values;
+    const failure = yield* Effect.flip(sql`INSERT INTO entries(name) VALUES (${"alpha"})`);
+    assert.equal(failure._tag, "SqlError");
+
+    const select = "SELECT id FROM entries WHERE name = ?";
+    assert.equal(registered.filter((text) => text === select).length, 1);
+    assert.equal(recorded.filter((entry) => entry.sql === select).length, 3);
+    assert.isTrue(recorded.some((entry) => entry.sql === "SELECT id, name FROM entries"));
+    const inserts = recorded.filter((entry) => entry.sql.startsWith("INSERT INTO entries"));
+    assert.deepEqual(
+      inserts.map((entry) => entry.ok),
+      [true, false],
+    );
+    assert.isTrue(recorded.every((entry) => entry.durationMs >= 0));
+  }).pipe(
+    Effect.provide(SqliteClient.layer({ filename: ":memory:", statementObserver: observer })),
+  );
+});
