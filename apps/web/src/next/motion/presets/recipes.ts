@@ -7,7 +7,8 @@
  * element mounts with `data-enter`. Set it on content that just arrived (a new row, a toast, a
  * streamed flush, an approval for `sweep`, a loading state for `skeleton`, a fresh check for
  * `checkDraw`); leave it off when content only mounts, such as a virtualised row scrolled into
- * view or a list rendered on navigation.
+ * view or a list rendered on navigation. Remove it once the entrance has played, or a level
+ * change from Reduced or Off back to Full replays `sweep` and `skeleton` once.
  *
  * Attributes the recipes read:
  * - every `motion-enter` recipe: `data-offscreen` while `useInViewport` reports it off

@@ -56,8 +56,11 @@ const presenceAt = (presetClass: string, level: Level, prefix?: string) => {
     if (!selectors.includes(rule.selector)) continue;
     for (const [property, value] of rule.declarations) values[property] = value;
   }
+  const from = values["--motion-from"];
   return {
-    from: values["--motion-from"],
+    from,
+    // Where an exit goes: `var(--motion-to, var(--motion-from))`.
+    to: values["--motion-to"] ?? from,
     in: values["--motion-in-dur"],
     out: values["--motion-out-dur"],
   };
@@ -72,7 +75,8 @@ const dur = (name: string) => `var(--dur-${name})`;
  */
 const PRESENCE_TABLE: ReadonlyArray<{
   readonly recipe: keyof typeof MOTION_RECIPES;
-  readonly full: { from: string; in: string; out: string };
+  /** `to` only where an exit leaves somewhere other than where the entrance came from. */
+  readonly full: { from: string; to?: string; in: string; out: string };
   readonly reduced: { in: string; out: string };
 }> = [
   {
@@ -82,12 +86,22 @@ const PRESENCE_TABLE: ReadonlyArray<{
   },
   {
     recipe: "reveal",
-    full: { from: "translateY(var(--distance-reveal))", in: dur("state"), out: dur("quick") },
+    full: {
+      from: "translateY(var(--distance-reveal))",
+      to: "none",
+      in: dur("state"),
+      out: dur("quick"),
+    },
     reduced: { in: dur("quick"), out: dur("quick") },
   },
   {
     recipe: "toast",
-    full: { from: "translateY(var(--distance-reveal-max))", in: dur("state"), out: dur("quick") },
+    full: {
+      from: "translateY(var(--distance-reveal-max))",
+      to: "none",
+      in: dur("state"),
+      out: dur("quick"),
+    },
     reduced: { in: dur("quick"), out: dur("quick") },
   },
   {
@@ -122,7 +136,12 @@ const PRESENCE_TABLE: ReadonlyArray<{
   },
   {
     recipe: "sideBySide",
-    full: { from: "translateX(var(--distance-reveal-max))", in: dur("brisk"), out: dur("micro") },
+    full: {
+      from: "translateX(var(--distance-reveal-max))",
+      to: "translateX(calc(-1 * var(--distance-reveal-max)))",
+      in: dur("brisk"),
+      out: dur("micro"),
+    },
     reduced: { in: dur("quick"), out: dur("quick") },
   },
   {
@@ -140,7 +159,13 @@ const presetClassOf = (recipe: keyof typeof MOTION_RECIPES) =>
  * 0 and 1 are rest values (opacity, scale, grid cells, one iteration); -1 flips a travel.
  */
 const ALLOWED_LITERALS = new Set(["0", "1", "-1", "0.3", "0.8", "1px", "1lh"]);
-const ALLOWED_KEYFRAME_STOPS = new Set(["0%", "32%", "50%", "100%"]);
+const ALLOWED_KEYFRAME_STOPS = new Set(["from", "to", "50%"]);
+
+/** The opacity at a `from` / `to` stop of a named `@keyframes` block. */
+const keyframeOpacity = (name: string, stop: "from" | "to") => {
+  const block = css.match(new RegExp(String.raw`@keyframes ${name}\s*\{([\s\S]*?\})\s*\}`))![1]!;
+  return block.match(new RegExp(String.raw`${stop}\s*\{\s*opacity:\s*([\d.]+)`))![1];
+};
 
 describe("CSS presets", () => {
   it("transition only transform and opacity, except checkDraw's stroke", () => {
@@ -158,16 +183,31 @@ describe("CSS presets", () => {
     }
   });
 
-  it("keyframes animate only opacity", () => {
+  it("keyframes animate only opacity, and never set their own easing", () => {
     const frames = rules.filter((rule) => KEYFRAME_SELECTOR.test(rule.selector));
     expect(frames.length).toBeGreaterThan(0);
+    // Chromium ignores `var()` in a keyframe's `animation-timing-function` and runs `ease`, so
+    // a token curve there silently does nothing. Curves go on the element.
     for (const { declarations } of frames) {
-      for (const [property] of declarations) {
-        // A keyframe may set the easing of the segment it starts; it animates nothing.
-        if (property === "animation-timing-function") continue;
-        expect(property).toBe("opacity");
-      }
+      for (const [property] of declarations) expect(property).toBe("opacity");
     }
+  });
+
+  it("chains the sweep into one continuous, token-timed rise and settle", () => {
+    const sweep = declarationsOf(".motion-sweep[data-enter]::after");
+    const list = (property: string) => sweep[property]!.split(",").map((part) => part.trim());
+    const [rise, settle] = list("animation-name");
+    expect(list("animation-timing-function")).toEqual(["var(--ease-enter)", "var(--ease-shift)"]);
+    // The settle starts the moment the rise ends, from the value the rise ends on.
+    expect(list("animation-duration")).toEqual([dur("state"), dur("scene")]);
+    expect(list("animation-delay")).toEqual([dur("instant"), dur("state")]);
+    expect([keyframeOpacity(rise!, "from"), keyframeOpacity(rise!, "to")]).toEqual(["0", "0.8"]);
+    expect([keyframeOpacity(settle!, "from"), keyframeOpacity(settle!, "to")]).toEqual([
+      "0.8",
+      "0.3",
+    ]);
+    // It ends where the ring rests, so nothing jumps when the animation lets go.
+    expect(declarationsOf(".motion-sweep::after").opacity).toBe("0.3");
   });
 
   it("change presence state by transitions, so a toggle retargets instead of queueing", () => {
@@ -180,7 +220,8 @@ describe("CSS presets", () => {
   it("never loops", () => {
     for (const { declarations } of rules) {
       for (const [property, value] of declarations) {
-        if (property === "animation-iteration-count") expect(value).toBe("1");
+        if (property !== "animation-iteration-count") continue;
+        for (const count of value.split(",")) expect(count.trim()).toBe("1");
       }
     }
     const animated = rules.filter((rule) =>
@@ -216,15 +257,19 @@ describe("CSS presets", () => {
   it("follows the Full / Reduced / Off table for every presence preset", () => {
     for (const { recipe, full, reduced } of PRESENCE_TABLE) {
       const presetClass = presetClassOf(recipe);
-      expect(presenceAt(presetClass, "full"), recipe).toEqual(full);
+      const fullTo = full.to ?? full.from;
+      expect(presenceAt(presetClass, "full"), recipe).toEqual({ ...full, to: fullTo });
+      // Reduced has no travel either way: neither the entrance nor the exit moves.
       for (const prefix of LEVEL_PREFIX.reduced) {
         expect(presenceAt(presetClass, "reduced", prefix), `${recipe} ${prefix}`).toEqual({
           from: "none",
+          to: "none",
           ...reduced,
         });
       }
       expect(presenceAt(presetClass, "off"), recipe).toEqual({
         from: full.from,
+        to: fullTo,
         in: dur("instant"),
         out: dur("instant"),
       });

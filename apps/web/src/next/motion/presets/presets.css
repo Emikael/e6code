@@ -18,6 +18,12 @@
  * `data-enter`. A screen sets `data-enter` on content that just arrived (a new row, a toast,
  * a streamed flush) and leaves it off for content that only mounts, such as a virtualised row
  * scrolled into view or a list rendered on navigation.
+ *
+ * Known limit: Reduced and Off turn sweep and skeleton off with `animation-name: none`, so a
+ * level change back to Full restarts them once on any element still carrying `data-enter`
+ * (they end; nothing loops). A screen avoids it by removing `data-enter` once the entrance has
+ * played (`animationend` / `transitionend`). Keeping the animation and zeroing its duration
+ * instead would create Animation objects at Off.
  */
 
 /* @design-tokens motion-presets */
@@ -234,9 +240,13 @@
 
 /*
  * sweep: an approval card's ring brightens to 0.8 on ease.enter over dur.state, then settles
- * at 0.3 on ease.shift over dur.scene, once. The 32% stop is state / (state + scene). It plays
- * under streaming priority too: an approval is never decoration. Without `data-enter` the ring
- * rests at 0.3.
+ * at 0.3 on ease.shift over dur.scene, once. It plays under streaming priority too: an
+ * approval is never decoration. Without `data-enter` the ring rests at 0.3.
+ *
+ * Two chained animations, not one with per-keyframe easings: Chromium ignores `var()` in a
+ * keyframe's `animation-timing-function` and falls back to `ease`, while element-level timing
+ * functions resolve tokens. The settle starts as the rise ends; neither fills, so nothing
+ * holds a value at rest.
  */
 .motion-sweep {
   position: relative;
@@ -253,23 +263,29 @@
 }
 
 .motion-sweep[data-enter]::after {
-  animation-name: motion-sweep;
-  animation-duration: calc(var(--dur-state) + var(--dur-scene));
-  animation-iteration-count: 1;
+  animation-name: motion-sweep-rise, motion-sweep-settle;
+  animation-duration: var(--dur-state), var(--dur-scene);
+  animation-delay: var(--dur-instant), var(--dur-state);
+  animation-timing-function: var(--ease-enter), var(--ease-shift);
+  animation-iteration-count: 1, 1;
 }
 
-@keyframes motion-sweep {
-  0% {
+@keyframes motion-sweep-rise {
+  from {
     opacity: 0;
-    animation-timing-function: var(--ease-enter);
   }
 
-  32% {
+  to {
     opacity: 0.8;
-    animation-timing-function: var(--ease-shift);
+  }
+}
+
+@keyframes motion-sweep-settle {
+  from {
+    opacity: 0.8;
   }
 
-  100% {
+  to {
     opacity: 0.3;
   }
 }
