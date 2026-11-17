@@ -11,7 +11,7 @@ const loadDomAnimation = () =>
 const loadDomMax = () => import("./features/domMax.ts").then((module) => module.default);
 
 /**
- * The root of every v2 surface (mounted by the v2 shell, E04-T14). It loads the CSS presets,
+ * The root of every v2 surface (mounted by the v2 shell, E04-T02). It loads the CSS presets,
  * writes the policy level to `data-motion` on `<html>`, loads `motion`'s animation features
  * after first paint, and sets `MotionConfig` from the policy, never from the library's own
  * reduced-motion default. Until the features arrive `m` components do not animate; a child
