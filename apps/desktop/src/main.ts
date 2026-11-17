@@ -1,3 +1,5 @@
+// Must stay the first import: its body stamps the earliest moment JavaScript runs.
+import { startupClock } from "./app/DesktopStartupClock.ts";
 import * as MacPermissions from "./permissions/MacPermissions.ts";
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (err: NodeJS.ErrnoException) => {
@@ -67,6 +69,8 @@ import * as DesktopWindow from "./window/DesktopWindow.ts";
 import * as DesktopWslBackend from "./wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "./wsl/DesktopWslEnvironment.ts";
 import * as DesktopWslServerTree from "./wsl/DesktopWslServerTree.ts";
+
+void Electron.app.whenReady().then(() => startupClock.reach("electronReady"));
 
 const desktopEnvironmentLayer = Layer.unwrap(
   Effect.gen(function* () {

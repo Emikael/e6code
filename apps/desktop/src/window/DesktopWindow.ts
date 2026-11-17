@@ -19,6 +19,7 @@ import {
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
+import { startupClock } from "../app/DesktopStartupClock.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
@@ -383,6 +384,7 @@ export const make = Effect.gen(function* () {
     Electron.BrowserWindow,
     DesktopWindowError
   > {
+    const createStartMs = startupClock.nowMs();
     yield* previewManager.getBrowserSession();
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
@@ -436,6 +438,8 @@ export const make = Effect.gen(function* () {
         webviewTag: true,
       },
     });
+    startupClock.reach("mainWindowCreated", { startMs: createStartMs });
+    window.once("ready-to-show", () => startupClock.reach("mainWindowReadyToShow"));
 
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);

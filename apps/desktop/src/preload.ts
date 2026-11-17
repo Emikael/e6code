@@ -38,6 +38,32 @@ function isMotionPowerState(value: unknown): value is DesktopMotionPowerState {
 
 exposeClerkBridge({ passkeys: true });
 
+// Forwards the boot shell's paint timings and the web client's startup marks to the main
+// process for its per-launch startup record. Buffered observation catches entries from
+// before this ran; the main process keeps the first value it sees per mark, so a reload
+// re-sending them changes nothing.
+function forwardStartupMarks() {
+  if (typeof PerformanceObserver !== "function") return;
+  const forward = (entry: PerformanceEntry) => {
+    void ipcRenderer
+      .invoke(IpcChannels.STARTUP_MARK_CHANNEL, {
+        name: entry.name,
+        epochMs: performance.timeOrigin + entry.startTime,
+      })
+      .catch(() => undefined);
+  };
+  new PerformanceObserver((list) => list.getEntries().forEach(forward)).observe({
+    type: "paint",
+    buffered: true,
+  });
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      if (entry.name.startsWith(IpcChannels.STARTUP_MARK_PREFIX)) forward(entry);
+    }
+  }).observe({ type: "mark", buffered: true });
+}
+forwardStartupMarks();
+
 // oxlint-disable-next-line e6code/no-global-process-runtime -- Electron exposes the client platform in its sandboxed preload process.
 const clientPlatform = process.platform;
 
