@@ -16,6 +16,7 @@ import * as ServerConfig from "../../config.ts";
 import * as ResourceAttribution from "../../resourceTelemetry/ResourceAttribution.ts";
 import { ServerLoggerLive } from "../../serverLogger.ts";
 import * as BrowserTraceCollector from "../BrowserTraceCollector.ts";
+import * as PerformanceMetrics from "../PerformanceMetrics.ts";
 
 export const ObservabilityLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -60,6 +61,11 @@ export const ObservabilityLive = Layer.unwrap(
                 resource,
               });
 
+        // Built after the sink so its shutdown snapshot is pushed before the sink's final flush.
+        const performanceMetrics = yield* PerformanceMetrics.makeLive((record) =>
+          sink.push(record),
+        );
+
         const tracer = yield* makeLocalFileTracer({
           filePath: config.serverTracePath,
           maxBytes: config.traceMaxBytes,
@@ -72,6 +78,7 @@ export const ObservabilityLive = Layer.unwrap(
         return Layer.mergeAll(
           Layer.succeed(Tracer.Tracer, tracer),
           BrowserTraceCollector.layer(sink),
+          Layer.succeed(PerformanceMetrics.PerformanceMetrics, performanceMetrics),
         );
       }),
     ).pipe(Layer.provide(OtlpExporter.layerFlusher), Layer.provideMerge(serializationLayer));

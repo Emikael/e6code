@@ -1,12 +1,19 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "@e6tools/shared/nodeSqliteClient";
 
 import { runMigrations } from "../Migrations.ts";
 import { ServerConfig } from "../../config.ts";
+import { PerformanceMetrics } from "../../observability/PerformanceMetrics.ts";
+
+// The server provides PerformanceMetrics; the CLI and scripts do not, and run unobserved.
+const statementObserver = Effect.serviceOption(PerformanceMetrics).pipe(
+  Effect.map((metrics) => Option.getOrUndefined(metrics)?.sqliteObserver),
+);
 
 const setup = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -34,13 +41,18 @@ export const makeSqlitePersistenceLive = Effect.fn("makeSqlitePersistenceLive")(
         "db.name": path.basename(dbPath),
         "service.name": "e6-server",
       },
+      statementObserver: yield* statementObserver,
     }),
   );
 }, Layer.unwrap);
 
-export const SqlitePersistenceMemory = Layer.provideMerge(
-  setup,
-  NodeSqliteClient.layer({ filename: ":memory:" }),
+export const SqlitePersistenceMemory = Layer.unwrap(
+  Effect.map(statementObserver, (observer) =>
+    Layer.provideMerge(
+      setup,
+      NodeSqliteClient.layer({ filename: ":memory:", statementObserver: observer }),
+    ),
+  ),
 );
 
 export const layerConfig = Layer.unwrap(

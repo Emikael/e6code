@@ -18,6 +18,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 interface TraceRecordLike {
+  readonly type?: unknown;
   readonly name?: unknown;
   readonly traceId?: unknown;
   readonly spanId?: unknown;
@@ -241,6 +242,9 @@ export function aggregateTraceDiagnostics(
         parseErrorCount += 1;
         continue;
       }
+
+      // Periodic performance aggregates share the file but are not spans.
+      if (parsed.type === "metrics-snapshot") continue;
 
       const name = toStringValue(parsed.name);
       const traceId = toStringValue(parsed.traceId);

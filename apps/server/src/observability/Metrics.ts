@@ -74,6 +74,46 @@ export const terminalRestartsTotal = Metric.counter("e6_terminal_restarts_total"
   description: "Total terminal restart requests handled.",
 });
 
+// Performance metrics, mirrored once per interval from `PerformanceMetrics.ts`,
+// which keeps the per-frame and per-statement aggregates off `Metric.update`.
+// Per-statement detail stays in the trace file and Settings > Diagnostics.
+
+export const eventLoopDelayP50 = Metric.gauge("e6_event_loop_delay_p50_ms", {
+  description: "Event-loop delay p50 over the last interval, monitor resolution subtracted.",
+});
+
+export const eventLoopDelayP99 = Metric.gauge("e6_event_loop_delay_p99_ms", {
+  description: "Event-loop delay p99 over the last interval, monitor resolution subtracted.",
+});
+
+export const eventLoopDelayMax = Metric.gauge("e6_event_loop_delay_max_ms", {
+  description: "Event-loop delay max over the last interval, monitor resolution subtracted.",
+});
+
+export const rpcEncodedBytesTotal = Metric.counter("e6_rpc_encoded_bytes_total", {
+  description: "Encoded WebSocket RPC frame bytes before compression, by method and frame kind.",
+});
+
+export const rpcFramesTotal = Metric.counter("e6_rpc_frames_total", {
+  description: "Encoded WebSocket RPC frames, by method and frame kind.",
+});
+
+export const sqliteStatementsTotal = Metric.counter("e6_sqlite_statements_total", {
+  description: "SQLite statements executed by the server.",
+});
+
+export const sqliteStatementTimeMsTotal = Metric.counter("e6_sqlite_statement_time_ms_total", {
+  description: "Milliseconds the event loop spent inside SQLite statement execution.",
+});
+
+export const shellRefetchesTotal = Metric.counter("e6_shell_refetches_total", {
+  description: "Shell projection refetches made by subscribeShell coalescing windows, by source.",
+});
+
+export const shellRefetchWindowsTotal = Metric.counter("e6_shell_refetch_windows_total", {
+  description: "Non-empty subscribeShell coalescing windows.",
+});
+
 export const metricAttributes = (
   attributes: Readonly<Record<string, unknown>>,
 ): ReadonlyArray<[string, string]> => Object.entries(compactMetricAttributes(attributes));

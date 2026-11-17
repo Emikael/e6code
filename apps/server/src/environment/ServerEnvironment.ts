@@ -251,6 +251,7 @@ export const make = Effect.gen(function* () {
           }
         : {}),
       ...(desktopAppUpdate ? { desktopAppUpdate: true } : {}),
+      ...(serverConfig.performanceMetricsEnabled === false ? {} : { performanceMetrics: true }),
     },
   };
 

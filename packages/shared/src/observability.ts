@@ -100,7 +100,21 @@ export interface OtlpTraceRecord extends BaseTraceRecord {
     | undefined;
 }
 
-export type TraceRecord = EffectTraceRecord | OtlpTraceRecord;
+/**
+ * A periodic aggregate written next to the spans. It deliberately has no
+ * `traceId`, `spanId` or `durationMs`, so span tooling and span filters skip it.
+ */
+export interface MetricsSnapshotTraceRecord {
+  readonly type: "metrics-snapshot";
+  readonly schemaVersion: 1;
+  readonly name: string;
+  readonly windowStartUnixNano: string;
+  readonly windowEndUnixNano: string;
+  readonly windowMs: number;
+  readonly metrics: Readonly<Record<string, unknown>>;
+}
+
+export type TraceRecord = EffectTraceRecord | OtlpTraceRecord | MetricsSnapshotTraceRecord;
 
 function isStructuralTag(value: unknown): value is string {
   return (

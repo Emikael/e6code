@@ -156,6 +156,7 @@ import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
+import * as PerformanceMetrics from "./observability/PerformanceMetrics.ts";
 import * as NativeAppIconResolver from "./assets/NativeAppIconResolver.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as E6ProjectFileLoader from "./project/E6ProjectFileLoader.ts";
@@ -549,6 +550,8 @@ const buildAppUnderTest = (options?: {
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]>;
     checkpointDiffQuery?: Partial<CheckpointDiffQuery.CheckpointDiffQuery["Service"]>;
     browserTraceCollector?: Partial<BrowserTraceCollector.BrowserTraceCollector["Service"]>;
+    /** A real aggregator the test keeps, to read `totals()`; a fresh one otherwise. */
+    performanceMetrics?: PerformanceMetrics.PerformanceMetrics["Service"];
     serverLifecycleEvents?: Partial<ServerLifecycleEvents.ServerLifecycleEvents["Service"]>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartup.ServerRuntimeStartup["Service"]>;
     serverEnvironment?: Partial<ServerEnvironment.ServerEnvironment["Service"]>;
@@ -1224,7 +1227,17 @@ const buildAppUnderTest = (options?: {
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provide(GitHubCli.layer.pipe(Layer.provideMerge(VcsProcess.layer))),
-      Layer.provide(layerConfig),
+      Layer.provide(
+        Layer.mergeAll(
+          layerConfig,
+          options?.layers?.performanceMetrics
+            ? Layer.succeed(
+                PerformanceMetrics.PerformanceMetrics,
+                options.layers.performanceMetrics,
+              )
+            : PerformanceMetrics.layerTest,
+        ),
+      ),
     );
 
     yield* Layer.build(appLayer);
@@ -10154,6 +10167,106 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(shellFetches.filter((id) => id === busyThreadId).length, 1);
       assert.equal(replayLimit, 50);
     }).pipe(Effect.provide(serverHttpLayer)),
+  );
+
+  it.effect(
+    "server.getPerformanceMetrics reports shell refetches per subscriber, RPC bytes and SQLite statements",
+    () =>
+      Effect.gen(function* () {
+        const busyThreadId = ThreadId.make("thread-metrics-busy");
+        const newThreadId = ThreadId.make("thread-metrics-new");
+        const now = "2026-01-01T00:00:00.000Z";
+        const shellFetches: Array<string> = [];
+        const threadEvent = (
+          sequence: number,
+          threadId: ThreadId,
+          type: "thread.message-sent" | "thread.created",
+        ): OrchestrationEvent =>
+          ({
+            sequence,
+            eventId: EventId.make(`event-metrics-${sequence}`),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: now,
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type,
+            payload: {} as never,
+          }) satisfies OrchestrationEvent;
+
+        const performanceMetrics = yield* PerformanceMetrics.make({
+          eventLoop: undefined,
+          pushTrace: undefined,
+        });
+        yield* buildAppUnderTest({
+          layers: {
+            performanceMetrics,
+            orchestrationEngine: {
+              latestSequence: Effect.succeed(21),
+              readEvents: () =>
+                Stream.fromIterable([
+                  ...Array.from({ length: 20 }, (_unused, index) =>
+                    threadEvent(index + 1, busyThreadId, "thread.message-sent"),
+                  ),
+                  threadEvent(21, newThreadId, "thread.created"),
+                ]),
+            },
+            projectionSnapshotQuery: {
+              getThreadShellById: (threadId) =>
+                Effect.sync(() => {
+                  shellFetches.push(threadId);
+                  return Option.some(makeDefaultOrchestrationThreadShell({ id: threadId }));
+                }),
+            },
+          },
+        });
+
+        const shellBefore = performanceMetrics.totals().shell.catchUpRefetches;
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const subscribeOnce = (client: Parameters<Parameters<typeof withWsRpcClient>[1]>[0]) =>
+          client[ORCHESTRATION_WS_METHODS.subscribeShell]({
+            afterSequence: 0,
+            requestCompletionMarker: true,
+          }).pipe(Stream.take(3), Stream.runCollect);
+
+        const [first, second] = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            Effect.gen(function* () {
+              yield* subscribeOnce(client);
+              const afterOne = performanceMetrics.totals().shell.catchUpRefetches;
+              yield* subscribeOnce(client);
+              const afterTwo = performanceMetrics.totals().shell.catchUpRefetches;
+              yield* client[WS_METHODS.serverGetPerformanceMetrics]({});
+              const read = yield* client[WS_METHODS.serverGetPerformanceMetrics]({});
+              return [{ afterOne, afterTwo }, read] as const;
+            }),
+          ),
+        );
+
+        // One subscriber's 21-event catch-up coalesces to one refetch per
+        // thread; a second subscriber pays for the same refetches again.
+        assert.equal(first.afterOne - shellBefore, 2);
+        assert.equal(first.afterTwo - shellBefore, 4);
+        assert.equal(shellFetches.length, 4);
+        assert.equal(second.shell.inputEvents, 42);
+        assert.equal(second.shell.catchUpRefetches, 4);
+
+        const shellRow = second.rpc.find(
+          (row) => row.method === ORCHESTRATION_WS_METHODS.subscribeShell,
+        );
+        assert.isAtLeast(shellRow?.chunkFrames ?? 0, 2);
+        assert.isAbove(shellRow?.chunkBytes ?? 0, 0);
+        const unaryRow = second.rpc.find(
+          (row) => row.method === WS_METHODS.serverGetPerformanceMetrics,
+        );
+        assert.equal(unaryRow?.exitFrames, 1);
+        assert.isAbove(unaryRow?.exitBytes ?? 0, 0);
+        // The in-memory database runs its migrations through the observed client.
+        assert.isAbove(second.sqliteTotals.count, 0);
+        assert.isAbove(second.sqlite.length, 0);
+      }).pipe(Effect.provide(serverHttpLayer)),
   );
 
   it.effect("subscribeShell coalesces live bursts after the synchronization marker", () =>

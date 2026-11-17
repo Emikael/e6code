@@ -369,6 +369,106 @@ export const ServerTraceDiagnosticsResult = Schema.Struct({
 });
 export type ServerTraceDiagnosticsResult = typeof ServerTraceDiagnosticsResult.Type;
 
+/**
+ * One fixed interval of event-loop delay. Delays have the monitor resolution
+ * subtracted, so an idle loop reads close to 0 ms.
+ */
+export const ServerPerformanceEventLoopInterval = Schema.Struct({
+  endedAt: Schema.DateTimeUtc,
+  p50Ms: Schema.Number,
+  p99Ms: Schema.Number,
+  maxMs: Schema.Number,
+  utilization: Schema.Number,
+});
+export type ServerPerformanceEventLoopInterval = typeof ServerPerformanceEventLoopInterval.Type;
+
+export const ServerPerformanceEventLoop = Schema.Struct({
+  resolutionMs: Schema.Number,
+  latest: ServerPerformanceEventLoopInterval,
+  worstP99Ms: Schema.Number,
+  maxMs: Schema.Number,
+  intervals: Schema.Array(ServerPerformanceEventLoopInterval),
+});
+export type ServerPerformanceEventLoop = typeof ServerPerformanceEventLoop.Type;
+
+/** Encoded WebSocket frames for one RPC method: stream `Chunk` frames and the final `Exit`. */
+export const ServerPerformanceRpcMethod = Schema.Struct({
+  method: TrimmedNonEmptyString,
+  chunkFrames: NonNegativeInt,
+  chunkValues: NonNegativeInt,
+  chunkBytes: NonNegativeInt,
+  exitFrames: NonNegativeInt,
+  exitBytes: NonNegativeInt,
+  maxFrameBytes: NonNegativeInt,
+  p95FrameBytesAtMost: NonNegativeInt,
+  framesOver4KiB: NonNegativeInt,
+  framesOver256KiB: NonNegativeInt,
+});
+export type ServerPerformanceRpcMethod = typeof ServerPerformanceRpcMethod.Type;
+
+export const ServerPerformanceRpcTotals = Schema.Struct({
+  frames: NonNegativeInt,
+  bytes: NonNegativeInt,
+  maxFrameBytes: NonNegativeInt,
+  p95FrameBytesAtMost: NonNegativeInt,
+  framesOver4KiB: NonNegativeInt,
+  framesOver256KiB: NonNegativeInt,
+});
+export type ServerPerformanceRpcTotals = typeof ServerPerformanceRpcTotals.Type;
+
+export const ServerPerformanceSqliteStatement = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  sample: Schema.String,
+  count: NonNegativeInt,
+  failures: NonNegativeInt,
+  totalMs: Schema.Number,
+  maxMs: Schema.Number,
+  p95MsAtMost: Schema.Number,
+});
+export type ServerPerformanceSqliteStatement = typeof ServerPerformanceSqliteStatement.Type;
+
+export const ServerPerformanceSqliteTotals = Schema.Struct({
+  count: NonNegativeInt,
+  failures: NonNegativeInt,
+  totalMs: Schema.Number,
+  maxMs: Schema.Number,
+  statements: NonNegativeInt,
+  overflowedNames: NonNegativeInt,
+});
+export type ServerPerformanceSqliteTotals = typeof ServerPerformanceSqliteTotals.Type;
+
+/** Shell projection refetches, counted per coalescing window of each `subscribeShell` subscriber. */
+export const ServerPerformanceShell = Schema.Struct({
+  subscribers: NonNegativeInt,
+  maxSubscribers: NonNegativeInt,
+  windows: NonNegativeInt,
+  inputEvents: NonNegativeInt,
+  liveRefetches: NonNegativeInt,
+  catchUpRefetches: NonNegativeInt,
+  failures: NonNegativeInt,
+  maxRefetchesPerWindow: NonNegativeInt,
+  p95RefetchesPerWindowAtMost: NonNegativeInt,
+});
+export type ServerPerformanceShell = typeof ServerPerformanceShell.Type;
+
+/**
+ * In-memory server performance metrics over the last few minutes. Nothing here
+ * is persisted; it resets when the server restarts.
+ */
+export const ServerPerformanceMetricsResult = Schema.Struct({
+  readAt: Schema.DateTimeUtc,
+  startedAt: Schema.DateTimeUtc,
+  intervalMs: NonNegativeInt,
+  coveredMs: NonNegativeInt,
+  eventLoop: Schema.Option(ServerPerformanceEventLoop),
+  rpcTotals: ServerPerformanceRpcTotals,
+  rpc: Schema.Array(ServerPerformanceRpcMethod),
+  sqliteTotals: ServerPerformanceSqliteTotals,
+  sqlite: Schema.Array(ServerPerformanceSqliteStatement),
+  shell: ServerPerformanceShell,
+});
+export type ServerPerformanceMetricsResult = typeof ServerPerformanceMetricsResult.Type;
+
 export const ServerProcessSignal = Schema.Literals(["SIGINT", "SIGKILL"]);
 export type ServerProcessSignal = typeof ServerProcessSignal.Type;
 

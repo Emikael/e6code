@@ -70,6 +70,12 @@ export class ServerConfig extends Context.Service<
     readonly traceBatchWindowMs: number;
     readonly traceMaxBytes: number;
     readonly traceMaxFiles: number;
+    /**
+     * In-memory performance metrics (event-loop delay, encoded RPC bytes, SQLite
+     * statement time, shell refetches). On unless `E6CODE_PERF_METRICS=false`,
+     * which exists to measure the instrumentation's own overhead.
+     */
+    readonly performanceMetricsEnabled?: boolean | undefined;
     readonly otlpTracesUrl: string | undefined;
     readonly otlpMetricsUrl: string | undefined;
     readonly otlpLogsUrl: string | undefined;

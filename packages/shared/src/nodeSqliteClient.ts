@@ -25,6 +25,16 @@ import * as Statement from "effect/unstable/sql/Statement";
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
 
+/**
+ * Times the synchronous SQLite work of each statement. `register` runs when SQL
+ * is prepared and returns the key that `record` later receives, so naming work
+ * happens once per prepared statement rather than per execute.
+ */
+export interface SqliteStatementObserver<Key = unknown> {
+  readonly register: (sql: string) => Key;
+  readonly record: (key: Key, durationMs: number, ok: boolean) => void;
+}
+
 export interface SqliteClientConfig {
   readonly filename: string;
   readonly readonly?: boolean | undefined;
@@ -34,6 +44,7 @@ export interface SqliteClientConfig {
   readonly spanAttributes?: Record<string, unknown> | undefined;
   readonly transformResultNames?: ((str: string) => string) | undefined;
   readonly transformQueryNames?: ((str: string) => string) | undefined;
+  readonly statementObserver?: SqliteStatementObserver<any> | undefined;
 }
 
 export class UnsupportedNodeSqliteVersionError extends Schema.TaggedError<UnsupportedNodeSqliteVersionError>()(
@@ -132,9 +143,16 @@ const make = Effect.fn("makeWithDatabase")(function* (
       return value;
     };
 
+    const observer = options.statementObserver;
+    const statementKeys = new WeakMap<NodeSqlite.StatementSync, unknown>();
+
     const prepare = (sql: string) =>
       Effect.try({
-        try: () => db.prepare(sql),
+        try: () => {
+          const statement = db.prepare(sql);
+          if (observer !== undefined) statementKeys.set(statement, observer.register(sql));
+          return statement;
+        },
         catch: (cause) =>
           new SqlError({
             reason: classifySqliteError(cause, {
@@ -150,6 +168,28 @@ const make = Effect.fn("makeWithDatabase")(function* (
       lookup: prepare,
     });
 
+    // Only the blocking `all`/`run` call is timed: that is the time the event
+    // loop spends inside SQLite, without the connection semaphore wait.
+    const execute = (
+      statement: NodeSqlite.StatementSync,
+      params: ReadonlyArray<unknown>,
+      rows: boolean,
+    ): unknown => {
+      const key = observer === undefined ? undefined : statementKeys.get(statement);
+      if (key === undefined) {
+        return rows ? statement.all(...(params as any)) : statement.run(...(params as any));
+      }
+      const startedAt = performance.now();
+      let ok = false;
+      try {
+        const result = rows ? statement.all(...(params as any)) : statement.run(...(params as any));
+        ok = true;
+        return result;
+      } finally {
+        observer!.record(key, performance.now() - startedAt, ok);
+      }
+    };
+
     const runStatement = (
       statement: NodeSqlite.StatementSync,
       params: ReadonlyArray<unknown>,
@@ -159,10 +199,10 @@ const make = Effect.fn("makeWithDatabase")(function* (
         try {
           statement.setReadBigInts(Boolean(Context.get(fiber.context, Client.SafeIntegers)));
           if (hasRows(statement)) {
-            return Effect.succeed(statement.all(...(params as any)));
+            return Effect.succeed(execute(statement, params, true) as ReadonlyArray<any>);
           }
-          const result = statement.run(...(params as any));
-          return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
+          const result = execute(statement, params, false);
+          return Effect.succeed(raw ? (result as ReadonlyArray<any>) : []);
         } catch (cause) {
           return Effect.fail(
             new SqlError({
@@ -190,11 +230,9 @@ const make = Effect.fn("makeWithDatabase")(function* (
               if (hasRows(statement)) {
                 statement.setReturnArrays(true);
                 // Safe to cast to array after we've setReturnArrays(true)
-                return statement.all(...(params as any)) as unknown as ReadonlyArray<
-                  ReadonlyArray<unknown>
-                >;
+                return execute(statement, params, true) as ReadonlyArray<ReadonlyArray<unknown>>;
               }
-              statement.run(...(params as any));
+              execute(statement, params, false);
               return [];
             },
             catch: (cause) =>

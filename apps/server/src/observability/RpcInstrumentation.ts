@@ -17,6 +17,7 @@ const DEFAULT_RPC_SPAN_ATTRIBUTES = {
 } as const;
 const RPC_METHODS_WITH_TRACING_DISABLED: ReadonlySet<string> = new Set([
   WS_METHODS.serverGetTraceDiagnostics,
+  WS_METHODS.serverGetPerformanceMetrics,
   WS_METHODS.serverGetProcessDiagnostics,
   WS_METHODS.serverGetProcessResourceHistory,
   WS_METHODS.serverSignalProcess,
