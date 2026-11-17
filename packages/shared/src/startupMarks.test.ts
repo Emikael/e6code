@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   parseStartupMark,
-  resolveStartupShellSource,
+  resolveStartupShellSyncStatus,
   startupLandingMark,
   startupShellInteractiveMark,
 } from "./startupMarks.ts";
@@ -12,10 +12,10 @@ describe("startup marks", () => {
     for (const landing of ["app", "welcome", "pair", "requires-auth"] as const) {
       expect(parseStartupMark(startupLandingMark(landing))).toEqual({ kind: "landing", landing });
     }
-    for (const source of ["cached", "synchronizing", "live"] as const) {
-      expect(parseStartupMark(startupShellInteractiveMark(source))).toEqual({
+    for (const syncStatus of ["cached", "synchronizing", "live"] as const) {
+      expect(parseStartupMark(startupShellInteractiveMark(syncStatus))).toEqual({
         kind: "shell-interactive",
-        source,
+        syncStatus,
       });
     }
   });
@@ -29,22 +29,22 @@ describe("startup marks", () => {
   });
 
   it("reports the least-synced snapshot on screen, once there is one", () => {
-    expect(resolveStartupShellSource([])).toBeNull();
-    expect(resolveStartupShellSource([{ hasSnapshot: false, status: "empty" }])).toBeNull();
+    expect(resolveStartupShellSyncStatus([])).toBeNull();
+    expect(resolveStartupShellSyncStatus([{ hasSnapshot: false, status: "empty" }])).toBeNull();
     expect(
-      resolveStartupShellSource([
+      resolveStartupShellSyncStatus([
         { hasSnapshot: true, status: "live" },
         { hasSnapshot: false, status: "synchronizing" },
       ]),
     ).toBe("live");
     expect(
-      resolveStartupShellSource([
+      resolveStartupShellSyncStatus([
         { hasSnapshot: true, status: "live" },
         { hasSnapshot: true, status: "synchronizing" },
       ]),
     ).toBe("synchronizing");
     expect(
-      resolveStartupShellSource([
+      resolveStartupShellSyncStatus([
         { hasSnapshot: true, status: "synchronizing" },
         { hasSnapshot: true, status: "cached" },
       ]),

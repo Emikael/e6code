@@ -40,8 +40,8 @@ export type StartupPhaseState =
       readonly atMs: number;
       /** Set for phases that are spans of work, such as the shell environment import. */
       readonly startMs?: number;
-      /** `shellInteractive`: how far the shell's data had synced (`cached`, `synchronizing`, `live`). */
-      readonly source?: string;
+      /** `shellInteractive`: the least-synced shell status on screen (`cached`, `synchronizing`, `live`). */
+      readonly syncStatus?: string;
       /** `rendererLanding`: which root surface the first route rendered. */
       readonly landing?: string;
     }
@@ -92,7 +92,11 @@ export class StartupClock {
   /** Stamps a phase as reached now. Only the first stamp of a phase counts. */
   reach(
     phase: StartupPhase,
-    detail: { readonly startMs?: number; readonly source?: string; readonly landing?: string } = {},
+    detail: {
+      readonly startMs?: number;
+      readonly syncStatus?: string;
+      readonly landing?: string;
+    } = {},
     atMs: number = this.nowMs(),
   ): void {
     this.#set(phase, { status: "reached", atMs, ...detail });

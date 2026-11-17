@@ -97,7 +97,7 @@ export function applyRendererStartupMark(
       clock.notApplicable("shellInteractive", `landing:${parsed.landing}`);
     }
   } else if (parsed?.kind === "shell-interactive") {
-    clock.reach("shellInteractive", { source: parsed.source }, atMs);
+    clock.reach("shellInteractive", { syncStatus: parsed.syncStatus }, atMs);
   }
 }
 

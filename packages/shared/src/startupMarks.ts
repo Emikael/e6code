@@ -12,11 +12,12 @@ export const STARTUP_MARK_PREFIX = "e6:startup:";
 export type StartupLanding = "app" | "welcome" | "pair" | "requires-auth";
 
 /**
- * How far the shell's data had synced when it became interactive: the least-synced status
- * among the environments showing a snapshot. `cached` means a snapshot restored from the
- * client cache was on screen; `synchronizing`, a snapshot not yet confirmed live.
+ * The least-synced shell status among the environments showing a snapshot when the shell
+ * became interactive, in the shell state's own terms. It describes connection progress,
+ * not where the snapshot came from: a snapshot restored from the client cache reads
+ * `synchronizing` as soon as its environment starts connecting.
  */
-export type StartupShellSource = "cached" | "synchronizing" | "live";
+export type StartupShellSyncStatus = "cached" | "synchronizing" | "live";
 
 const LANDINGS: ReadonlySet<string> = new Set<StartupLanding>([
   "app",
@@ -24,35 +25,44 @@ const LANDINGS: ReadonlySet<string> = new Set<StartupLanding>([
   "pair",
   "requires-auth",
 ]);
-const SHELL_SOURCES: ReadonlyArray<StartupShellSource> = ["cached", "synchronizing", "live"];
+const SHELL_SYNC_STATUSES: ReadonlyArray<StartupShellSyncStatus> = [
+  "cached",
+  "synchronizing",
+  "live",
+];
 
 export const startupLandingMark = (landing: StartupLanding): string =>
   `${STARTUP_MARK_PREFIX}landing:${landing}`;
 
-export const startupShellInteractiveMark = (source: StartupShellSource): string =>
-  `${STARTUP_MARK_PREFIX}shell-interactive:${source}`;
+export const startupShellInteractiveMark = (syncStatus: StartupShellSyncStatus): string =>
+  `${STARTUP_MARK_PREFIX}shell-interactive:${syncStatus}`;
 
 /**
  * Classifies the shell's data, one entry per enabled environment; `null` while no
  * environment has a snapshot to show, so the shell is not yet interactive.
  */
-export function resolveStartupShellSource(
-  environments: ReadonlyArray<{ readonly hasSnapshot: boolean; readonly status: string }>,
-): StartupShellSource | null {
+export function resolveStartupShellSyncStatus(
+  environments: ReadonlyArray<{
+    readonly hasSnapshot: boolean;
+    readonly status: StartupShellSyncStatus | "empty";
+  }>,
+): StartupShellSyncStatus | null {
   let leastSynced: number | null = null;
   for (const environment of environments) {
     if (!environment.hasSnapshot) continue;
-    const rank = SHELL_SOURCES.indexOf(environment.status as StartupShellSource);
-    // A snapshot under any other status has not been confirmed by the server yet.
-    const effectiveRank = rank === -1 ? 0 : rank;
+    // `empty` never holds a snapshot; rank it with `cached` if it ever does.
+    const effectiveRank = Math.max(
+      0,
+      SHELL_SYNC_STATUSES.indexOf(environment.status as StartupShellSyncStatus),
+    );
     leastSynced = leastSynced === null ? effectiveRank : Math.min(leastSynced, effectiveRank);
   }
-  return leastSynced === null ? null : (SHELL_SOURCES[leastSynced] ?? null);
+  return leastSynced === null ? null : (SHELL_SYNC_STATUSES[leastSynced] ?? null);
 }
 
 export type ParsedStartupMark =
   | { readonly kind: "landing"; readonly landing: StartupLanding }
-  | { readonly kind: "shell-interactive"; readonly source: StartupShellSource };
+  | { readonly kind: "shell-interactive"; readonly syncStatus: StartupShellSyncStatus };
 
 /** Reads a mark set with one of the builders above; anything else is `null`. */
 export function parseStartupMark(name: string): ParsedStartupMark | null {
@@ -64,8 +74,11 @@ export function parseStartupMark(name: string): ParsedStartupMark | null {
   if (kind === "landing" && LANDINGS.has(value)) {
     return { kind, landing: value as StartupLanding };
   }
-  if (kind === "shell-interactive" && SHELL_SOURCES.includes(value as StartupShellSource)) {
-    return { kind, source: value as StartupShellSource };
+  if (
+    kind === "shell-interactive" &&
+    SHELL_SYNC_STATUSES.includes(value as StartupShellSyncStatus)
+  ) {
+    return { kind, syncStatus: value as StartupShellSyncStatus };
   }
   return null;
 }

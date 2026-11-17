@@ -131,7 +131,7 @@ describe("renderer startup marks", () => {
     });
   });
 
-  it("records where the shell's data came from when it lands in the app", () => {
+  it("records the shell sync status when it lands in the app", () => {
     const { clock } = makeClock();
     applyRendererStartupMark(clock, {
       name: "e6:startup:landing:app",
@@ -148,7 +148,7 @@ describe("renderer startup marks", () => {
     expect(clock.get("shellInteractive")).toEqual({
       status: "reached",
       atMs: 1_100,
-      source: "cached",
+      syncStatus: "cached",
     });
   });
 

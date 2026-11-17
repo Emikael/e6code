@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { enabledEnvironmentIds } from "@e6tools/client-runtime/state/connections";
 import {
-  resolveStartupShellSource,
+  resolveStartupShellSyncStatus,
   startupLandingMark,
   startupShellInteractiveMark,
   type StartupLanding,
@@ -18,19 +18,19 @@ let landingMarked = false;
 let shellInteractiveScheduled = false;
 
 /**
- * Where the shell's data comes from once every enabled environment is bootstrapped and at
- * least one has a snapshot to show; `null` until then. Bootstrapped alone is not enough:
- * it can hold for a moment before any environment's snapshot, cached or live, is readable.
+ * The shell's sync status once every enabled environment is bootstrapped and at least one
+ * has a snapshot to show; `null` until then. Bootstrapped alone is not enough: it can hold
+ * for a moment before any environment's snapshot, cached or live, is readable.
  */
-const startupShellSourceAtom = Atom.make((get) => {
+const startupShellSyncStatusAtom = Atom.make((get) => {
   if (!get(allEnvironmentShellsBootstrappedAtom)) return null;
-  return resolveStartupShellSource(
+  return resolveStartupShellSyncStatus(
     Array.from(enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom)), (environmentId) => {
       const shell = get(environmentShell.stateValueAtom(environmentId));
       return { hasSnapshot: Option.isSome(shell.snapshot), status: shell.status };
     }),
   );
-}).pipe(Atom.withLabel("web-startup-shell-source"));
+}).pipe(Atom.withLabel("web-startup-shell-sync-status"));
 
 /** Marks the root surface this page load landed on; the first one rendered wins. */
 export function StartupLandingMark({ landing }: { readonly landing: StartupLanding }) {
@@ -52,16 +52,16 @@ export function StartupShellInteractiveMark() {
 }
 
 function ShellInteractiveWatcher({ onScheduled }: { readonly onScheduled: () => void }) {
-  const source = useAtomValue(startupShellSourceAtom);
+  const syncStatus = useAtomValue(startupShellSyncStatusAtom);
   useEffect(() => {
-    if (source === null) return;
+    if (syncStatus === null) return;
     if (!shellInteractiveScheduled) {
       shellInteractiveScheduled = true;
       requestAnimationFrame(() => {
-        setTimeout(() => performance.mark(startupShellInteractiveMark(source)), 0);
+        setTimeout(() => performance.mark(startupShellInteractiveMark(syncStatus)), 0);
       });
     }
     onScheduled();
-  }, [source, onScheduled]);
+  }, [syncStatus, onScheduled]);
   return null;
 }
