@@ -75,6 +75,27 @@ describe("desktop app activation", () => {
     expect(response).toMatchObject({ ok: true, projectId: createdProjectId });
   });
 
+  it("opens the thread again when a concurrent navigation wins the first open", async () => {
+    const openThread = vi
+      .fn<DesktopAppActivationDependencies["openThread"]>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ threadId });
+
+    const response = await handleDesktopAppActivationRequest(request, dependencies({ openThread }));
+
+    expect(openThread).toHaveBeenCalledTimes(2);
+    expect(response).toMatchObject({ ok: true, projectId: existingProjectId, threadId });
+  });
+
+  it("reports a thread error when the open loses twice", async () => {
+    const openThread = vi.fn<DesktopAppActivationDependencies["openThread"]>(async () => null);
+
+    const response = await handleDesktopAppActivationRequest(request, dependencies({ openThread }));
+
+    expect(openThread).toHaveBeenCalledTimes(2);
+    expect(response).toMatchObject({ ok: false, code: "thread-open-failed" });
+  });
+
   it("rejects a Windows path when the primary environment is WSL", async () => {
     const response = await handleDesktopAppActivationRequest(
       { ...request, platform: "win32" },
