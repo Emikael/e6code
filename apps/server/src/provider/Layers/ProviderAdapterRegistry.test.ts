@@ -20,6 +20,7 @@ import type { ProviderInstance } from "../ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import type * as TextGeneration from "../../textGeneration/TextGeneration.ts";
 import * as ProviderAdapterRegistryLayer from "./ProviderAdapterRegistry.ts";
+import { ProviderReplayRecorder } from "../replay/ProviderReplayRecorder.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
@@ -191,5 +192,39 @@ it.layer(layer)("ProviderAdapterRegistryLive", (it) => {
         defaultInstanceIdForDriver(OPENCODE_DRIVER),
         defaultInstanceIdForDriver(CURSOR_DRIVER),
       ]);
+    }));
+});
+
+const recordingWrappers = new Map<ProviderInstance["adapter"], ProviderInstance["adapter"]>();
+const recordingLayer = Layer.mergeAll(
+  Layer.provide(
+    ProviderAdapterRegistryLayer.ProviderAdapterRegistryLive,
+    Layer.merge(
+      fakeInstanceRegistryLayer,
+      Layer.succeed(ProviderReplayRecorder, {
+        wrap: (adapter) => {
+          const wrapped = recordingWrappers.get(adapter) ?? { ...adapter };
+          recordingWrappers.set(adapter, wrapped);
+          return wrapped;
+        },
+        flush: Effect.void,
+        directory: "/tmp/e6-replay",
+      }),
+    ),
+  ),
+  NodeServices.layer,
+);
+
+it.layer(recordingLayer)("ProviderAdapterRegistryLive while recording", (it) => {
+  it("hands out the recorder's wrapper instead of the instance adapter", () =>
+    Effect.gen(function* () {
+      const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
+      const claudeInstanceId = defaultInstanceIdForDriver(CLAUDE_AGENT_DRIVER);
+
+      const adapter = yield* registry.getByInstance(claudeInstanceId);
+
+      assert.notStrictEqual(adapter, fakeClaudeAdapter);
+      assert.strictEqual(adapter, recordingWrappers.get(fakeClaudeAdapter));
+      assert.strictEqual(yield* registry.getByInstance(claudeInstanceId), adapter);
     }));
 });

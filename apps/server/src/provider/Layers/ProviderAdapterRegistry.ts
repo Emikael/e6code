@@ -18,8 +18,10 @@
 import { ProviderInstanceId } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import { ProviderUnsupportedError } from "../Errors.ts";
+import { ProviderReplayRecorder } from "../replay/ProviderReplayRecorder.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import {
   ProviderAdapterRegistry,
@@ -28,6 +30,8 @@ import {
 
 const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(function* () {
   const registry = yield* ProviderInstanceRegistry;
+  // Present only while recording provider events for replay fixtures.
+  const recorder = yield* Effect.serviceOption(ProviderReplayRecorder);
 
   const getByInstance: ProviderAdapterRegistryShape["getByInstance"] = (instanceId) =>
     registry.getInstance(instanceId).pipe(
@@ -38,7 +42,9 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
                 provider: instanceId,
               }),
             )
-          : Effect.succeed(instance.adapter),
+          : Effect.succeed(
+              Option.isSome(recorder) ? recorder.value.wrap(instance.adapter) : instance.adapter,
+            ),
       ),
     );
 
