@@ -1,7 +1,8 @@
 /*
  * CSS motion presets for v2 (ENG-119). Class names are exported by `recipes.ts`; feature code
- * takes them from there. Values come only from the `--dur-*`, `--ease-*`, `--distance-*` and
- * `--spring-*` tokens. Only transform and opacity move, except `checkDraw`, which draws
+ * takes them from there. Values come only from the `--dur-*` and `--ease-*` tokens (every
+ * screen's stylesheet) and the `--distance-*`, `--spring-*` and `--skeleton-*` tokens rendered
+ * just below. Only transform and opacity move, except `checkDraw`, which draws
  * `stroke-dashoffset` on a small check (the one paint exception, decided on ENG-119).
  *
  * Levels: MotionRoot writes `data-motion` (full, reduced, off) on <html>. Without it, the OS
@@ -9,9 +10,17 @@
  * a new state retargets from the current value and nothing queues.
  *
  * Entrances and exits key on Base UI's `data-starting-style` and `data-ending-style`; Base UI
- * waits for these transitions before it unmounts. A plain element enters through
- * `@starting-style`. Credits for the ideas: docs/internals/design-sourcing.md.
+ * waits for these transitions before it unmounts. Credits for the ideas:
+ * docs/internals/design-sourcing.md.
+ *
+ * Mount entrances are opt-in (maintainer decision, ENG-119): an element that is not a Base UI
+ * popup plays its entrance, checkDraw's draw, sweep or skeleton only when it mounts carrying
+ * `data-enter`. A screen sets `data-enter` on content that just arrived (a new row, a toast,
+ * a streamed flush) and leaves it off for content that only mounts, such as a virtualised row
+ * scrolled into view or a list rendered on navigation.
  */
+
+/* @design-tokens motion-presets */
 
 /* Presence presets (`motion-enter` plus one preset class). */
 .motion-enter {
@@ -27,7 +36,7 @@
 }
 
 @starting-style {
-  .motion-enter {
+  .motion-enter[data-enter] {
     opacity: 0;
     transform: var(--motion-from);
   }
@@ -206,7 +215,7 @@
 }
 
 @starting-style {
-  .motion-check-draw path {
+  .motion-check-draw[data-enter] path {
     stroke-dashoffset: 1;
   }
 }
@@ -224,9 +233,10 @@
 }
 
 /*
- * sweep: an approval card's ring brightens to 0.8 and settles at 0.3, once. The stops follow
- * dur.state (to 0.8) and dur.scene (to 0.3). It plays under streaming priority too: an
- * approval is never decoration.
+ * sweep: an approval card's ring brightens to 0.8 on ease.enter over dur.state, then settles
+ * at 0.3 on ease.shift over dur.scene, once. The 32% stop is state / (state + scene). It plays
+ * under streaming priority too: an approval is never decoration. Without `data-enter` the ring
+ * rests at 0.3.
  */
 .motion-sweep {
   position: relative;
@@ -240,19 +250,23 @@
   border: 1px solid var(--primary-edge);
   pointer-events: none;
   opacity: 0.3;
+}
+
+.motion-sweep[data-enter]::after {
   animation-name: motion-sweep;
   animation-duration: calc(var(--dur-state) + var(--dur-scene));
   animation-iteration-count: 1;
-  animation-timing-function: var(--ease-shift);
 }
 
 @keyframes motion-sweep {
   0% {
     opacity: 0;
+    animation-timing-function: var(--ease-enter);
   }
 
   32% {
     opacity: 0.8;
+    animation-timing-function: var(--ease-shift);
   }
 
   100% {
@@ -260,20 +274,17 @@
   }
 }
 
-/*
- * skeleton: one stepped breath, then still. Nothing loops; E02-T11 tunes it against live
- * loading.
- */
-.motion-skeleton {
+/* skeleton: one stepped breath on mount with `data-enter`, then still. Nothing loops. */
+.motion-skeleton[data-enter] {
   animation-name: motion-skeleton;
-  animation-duration: calc(2 * var(--dur-scene));
+  animation-duration: var(--skeleton-dur);
   animation-iteration-count: 1;
-  animation-timing-function: steps(6, jump-none);
+  animation-timing-function: steps(var(--skeleton-steps), jump-none);
 }
 
 @keyframes motion-skeleton {
   50% {
-    opacity: 0.6;
+    opacity: var(--skeleton-floor);
   }
 }
 
@@ -283,15 +294,25 @@
 }
 
 /*
- * Reduced: opacity only, at dur.quick, no travel, scale, stagger or spring. Presence keeps
- * its fade; press and the tab indicator cut; checkDraw cuts; sweep shows its ring at 0.3;
- * skeleton is static.
+ * Reduced: opacity only, no travel, scale, stagger or spring. Presence fades at dur.quick;
+ * tooltips and context menus keep their dur.micro fade; the stream tail has no fade; press and
+ * the tab indicator cut; checkDraw cuts; sweep shows its ring at 0.3; skeleton is static.
  */
 :root[data-motion="reduced"] .motion-enter {
   --motion-from: none;
   --motion-to: none;
   --motion-in-dur: var(--dur-quick);
   --motion-out-dur: var(--dur-quick);
+}
+
+:root[data-motion="reduced"] .motion-tooltip {
+  --motion-in-dur: var(--dur-micro);
+  --motion-out-dur: var(--dur-micro);
+}
+
+:root[data-motion="reduced"] .motion-stream-flush {
+  --motion-in-dur: var(--dur-instant);
+  --motion-out-dur: var(--dur-instant);
 }
 
 :root[data-motion="reduced"] :is(.motion-press, .motion-tab-indicator),
@@ -317,6 +338,16 @@
     --motion-out-dur: var(--dur-quick);
   }
 
+  :root:not([data-motion]) .motion-tooltip {
+    --motion-in-dur: var(--dur-micro);
+    --motion-out-dur: var(--dur-micro);
+  }
+
+  :root:not([data-motion]) .motion-stream-flush {
+    --motion-in-dur: var(--dur-instant);
+    --motion-out-dur: var(--dur-instant);
+  }
+
   :root:not([data-motion]) :is(.motion-press, .motion-tab-indicator),
   :root:not([data-motion]) .motion-check-draw path {
     transition-duration: var(--dur-instant);
@@ -334,14 +365,14 @@
 }
 
 /* Off: every change is a cut. Base UI sees no transition and unmounts at once. */
-:root[data-motion="off"] :is(.motion-press, .motion-tab-indicator),
-:root[data-motion="off"] .motion-check-draw path {
-  transition-duration: var(--dur-instant);
-}
-
 :root[data-motion="off"] .motion-enter {
   --motion-in-dur: var(--dur-instant);
   --motion-out-dur: var(--dur-instant);
+}
+
+:root[data-motion="off"] :is(.motion-press, .motion-tab-indicator),
+:root[data-motion="off"] .motion-check-draw path {
+  transition-duration: var(--dur-instant);
 }
 
 :root[data-motion="off"] .motion-press:active,
@@ -355,8 +386,8 @@
 }
 
 /*
- * Off screen (`useInViewport` false), a presence preset changes at once at every level. Last
- * and as specific as the level rules, so it wins over them.
+ * Off screen (`useInViewport` false), a presence preset changes at once at every level, Base
+ * UI popups and exits included. Last and as specific as the level rules, so it wins over them.
  */
 :root .motion-enter[data-offscreen] {
   --motion-in-dur: var(--dur-instant);

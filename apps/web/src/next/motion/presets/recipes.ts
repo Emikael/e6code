@@ -3,6 +3,12 @@
  * put `motion-enter` beside the preset class; Base UI wrappers (E01-T14) add them to the
  * popup, and Base UI's `data-starting-style` / `data-ending-style` drive the transition.
  *
+ * Entrances are opt-in (ENG-119): outside Base UI, a recipe animates its mount only when the
+ * element mounts with `data-enter`. Set it on content that just arrived (a new row, a toast, a
+ * streamed flush, an approval for `sweep`, a loading state for `skeleton`, a fresh check for
+ * `checkDraw`); leave it off when content only mounts, such as a virtualised row scrolled into
+ * view or a list rendered on navigation.
+ *
  * Attributes the recipes read:
  * - every `motion-enter` recipe: `data-offscreen` while `useInViewport` reports it off
  *   screen, so it changes at once (viewport-only motion).
