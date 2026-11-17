@@ -64,10 +64,13 @@ export interface SettingsSearchItem {
    */
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
+  /** Its row renders only while a redesigned screen is enabled. */
+  readonly redesignedScreensOnly?: boolean;
 }
 
 export interface SettingsSearchAvailability {
   readonly localEnvironmentDisabled?: boolean;
+  readonly hasRedesignedScreen?: boolean;
   readonly hasCloudPublicConfig: boolean;
   readonly hasEnvironment: boolean;
   readonly hasProviderSettingsEnvironment: boolean;
@@ -229,6 +232,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Chat width",
     to: "/settings/appearance",
     searchTerms: ["wide full width column layout messages composer monitor"],
+  },
+  {
+    // Prefixed because the Motion section already owns the `motion` id.
+    id: "setting-motion",
+    title: "Motion",
+    to: "/settings/appearance",
+    searchTerms: ["animation animations reduced reduce motion accessibility battery"],
+    redesignedScreensOnly: true,
   },
   {
     id: "panel-animations",
@@ -975,7 +986,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.localBackendManagementOnly || availability.canManageLocalBackend) &&
       (!item.localEnvironmentOnly || !availability.localEnvironmentDisabled) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
-      (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement),
+      (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
+      (!item.redesignedScreensOnly || availability.hasRedesignedScreen === true),
   );
 }
 

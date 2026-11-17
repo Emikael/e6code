@@ -8,6 +8,7 @@ import { desktopWslStateAtom } from "~/state/desktopWslState";
 import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { usePrimarySessionState } from "~/environments/primary";
+import { useAnyRedesignedScreenEnabled } from "~/next/redesignedScreens";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
 import {
@@ -19,6 +20,7 @@ export function useAvailableSettingsSearchItems() {
   const { environments } = useEnvironments();
   const primarySessionState = usePrimarySessionState();
   const localEnvironmentDisabled = isLocalEnvironmentDisabled();
+  const hasRedesignedScreen = useAnyRedesignedScreenEnabled();
   const desktopWsl = useEnvironmentQuery(
     isElectron && !localEnvironmentDisabled ? desktopWslStateAtom : null,
   );
@@ -33,6 +35,7 @@ export function useAvailableSettingsSearchItems() {
     () =>
       filterAvailableSettingsSearchItems({
         localEnvironmentDisabled,
+        hasRedesignedScreen,
         hasCloudPublicConfig: hasCloudPublicConfig(),
         hasEnvironment: environments.some((environment) => environment.serverConfig !== null),
         hasProviderSettingsEnvironment: environments.some((environment) =>
@@ -54,6 +57,7 @@ export function useAvailableSettingsSearchItems() {
       desktopWsl.data,
       desktopWsl.error,
       environments,
+      hasRedesignedScreen,
       localEnvironmentDisabled,
     ],
   );

@@ -659,6 +659,32 @@ describe("ClientSettings appearance contrast", () => {
   });
 });
 
+describe("ClientSettings motion", () => {
+  it("follows the system for settings saved before the Motion setting existed", () => {
+    const settings = decodeClientSettings({ panelAnimationDurationMs: 200, chatWidth: "wide" });
+    expect(settings.motion).toBe("system");
+    expect(settings.panelAnimationDurationMs).toBe(200);
+    expect(settings.chatWidth).toBe("wide");
+  });
+
+  it.each(["system", "full", "reduced", "off"])("round-trips the %s level", (motion) => {
+    const settings = decodeClientSettings({ motion });
+    expect(encodeClientSettings(settings).motion).toBe(motion);
+    expect(decodeClientSettingsPatch({ motion }).motion).toBe(motion);
+  });
+
+  it("falls back to Follow system for a level this client does not know", () => {
+    const settings = decodeClientSettings({ motion: "cinematic", chatWidth: "full" });
+    expect(settings.motion).toBe("system");
+    expect(settings.chatWidth).toBe("full");
+    expect(decodeClientSettings({ motion: 3 }).motion).toBe("system");
+  });
+
+  it("rejects an unknown level in a patch", () => {
+    expect(() => decodeClientSettingsPatch({ motion: "cinematic" })).toThrow();
+  });
+});
+
 describe("ClientSettings panel animations", () => {
   it("defaults to instant changes", () => {
     expect(decodeClientSettings({}).panelAnimationDurationMs).toBe(0);

@@ -46,6 +46,7 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  ActivityIcon,
   ArchiveIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
@@ -91,6 +92,8 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { useMotionPolicyState } from "../next/motion/policy";
+import { useAnyRedesignedScreenEnabled } from "../next/redesignedScreens";
 import { useTheme } from "../hooks/useTheme";
 import { useCustomThemes } from "../hooks/useCustomThemes";
 import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
@@ -167,6 +170,7 @@ import {
   buildRootGroups,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildMotionPaletteEntries,
   buildThreadStopActionItems,
   enumerateCommandPaletteItems,
   type CommandPaletteActionItem,
@@ -779,6 +783,9 @@ function OpenCommandPaletteDialog(props: {
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const clientSettings = useClientSettings();
   const updateClientSettings = useUpdateClientSettings();
+  const redesignedScreenEnabled = useAnyRedesignedScreenEnabled();
+  // Subscribed only while the entry can show, so classic users start no device listeners.
+  const motionState = useMotionPolicyState(redesignedScreenEnabled);
   const createProject = useAtomCommand(projectEnvironment.create, {
     reportFailure: false,
   });
@@ -2147,6 +2154,47 @@ function OpenCommandPaletteDialog(props: {
     ],
   };
   actionItems.push(changeAppearanceItem);
+
+  if (redesignedScreenEnabled) {
+    const motion = buildMotionPaletteEntries(motionState);
+    actionItems.push({
+      kind: "submenu",
+      value: "action:change-motion",
+      searchTerms: [
+        "change motion",
+        "motion",
+        "animation",
+        "animations",
+        "reduced motion",
+        "accessibility",
+        "reduce",
+      ],
+      title: "Change motion",
+      description: motion.sublabel,
+      icon: <ActivityIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <ActivityIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "motion",
+          label: "Change motion",
+          items: motion.options.map((option) => ({
+            kind: "action",
+            value: `motion:${option.value}`,
+            title: option.label,
+            description: option.description,
+            searchTerms: [option.label, "motion", "animation"],
+            icon: <ActivityIcon className={ITEM_ICON_CLASS} />,
+            titleTrailingContent: option.current ? (
+              <span className="text-xs text-muted-foreground/70">Current</span>
+            ) : undefined,
+            run: async () => {
+              await updateClientSettings({ motion: option.value });
+            },
+          })),
+        },
+      ],
+    });
+  }
 
   useLayoutEffect(() => {
     if (openIntent?.kind !== "change-theme") return;

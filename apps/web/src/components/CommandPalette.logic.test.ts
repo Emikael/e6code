@@ -8,6 +8,7 @@ import {
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildMotionPaletteEntries,
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
@@ -15,6 +16,35 @@ import {
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
+
+describe("buildMotionPaletteEntries", () => {
+  it("offers the four levels in order and marks the current one", () => {
+    const { options } = buildMotionPaletteEntries({ preference: "reduced", level: "reduced" });
+    expect(options.map((option) => [option.label, option.current])).toEqual([
+      ["Follow system", false],
+      ["Full", false],
+      ["Reduced", true],
+      ["Off", false],
+    ]);
+  });
+
+  it("names the level a constrained Follow system resolved to", () => {
+    expect(buildMotionPaletteEntries({ preference: "system", level: "reduced" }).sublabel).toBe(
+      "Current: Follow system (Reduced)",
+    );
+    expect(buildMotionPaletteEntries({ preference: "system", level: "full" }).sublabel).toBe(
+      "Current: Follow system (Full)",
+    );
+  });
+
+  it("shows an explicit Off as Off, with Off marked current", () => {
+    const entries = buildMotionPaletteEntries({ preference: "off", level: "off" });
+    expect(entries.sublabel).toBe("Current: Off");
+    expect(
+      entries.options.filter((option) => option.current).map((option) => option.label),
+    ).toEqual(["Off"]);
+  });
+});
 
 describe("linked pull request thread navigation", () => {
   it("keeps archived relations searchable and routes them through the PR environment", async () => {
