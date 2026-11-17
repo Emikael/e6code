@@ -26,6 +26,20 @@ const edge = (percent: number) =>
 const tint = (role: string, percent: number) =>
   `color-mix(in oklab, var(${role}) ${percent}%, transparent)`;
 
+/**
+ * Radii in `rem`, emitted as the `rounded-*` utilities (E01-T10). New names because `--radius-sm|md|lg|xl` and
+ * `--radius-panel` (14 px) already size legacy UI; `stage` is direction C's 16 px panel.
+ * Nested radii: outer = inner + padding, within 2 px.
+ */
+export const RADII = {
+  kbd: "0.25rem",
+  chip: "0.375rem",
+  control: "0.5rem",
+  card: "0.75rem",
+  stage: "1rem",
+  overlay: "1rem",
+} as const;
+
 /** The `key-light` block, in cascade order. Rendered after the contrast recompute block. */
 export const KEY_LIGHT: ReadonlyArray<CssRule> = [
   {
@@ -142,6 +156,8 @@ export const KEY_LIGHT: ReadonlyArray<CssRule> = [
       ["--shadow-elev-1", "var(--elev-1)"],
       ["--shadow-elev-2", "var(--elev-2)"],
       ["--shadow-elev-3", "var(--elev-3)"],
+      // Shape: theme values only, read through the `rounded-*` utilities.
+      ...Object.entries(RADII).map(([name, size]) => [`--radius-${name}`, size] as const),
     ],
   },
 ];
@@ -205,17 +221,3 @@ export const TYPE_SCALE = {
     tracking: "-0.03em",
   },
 } as const satisfies Record<string, TypeStep>;
-
-/**
- * Radii in `rem`, emitted by E01-T10. New names because `--radius-sm|md|lg|xl` and
- * `--radius-panel` (14 px) already size legacy UI; `stage` is direction C's 16 px panel.
- * Nested radii: outer = inner + padding, within 2 px.
- */
-export const RADII = {
-  kbd: "0.25rem",
-  chip: "0.375rem",
-  control: "0.5rem",
-  card: "0.75rem",
-  stage: "1rem",
-  overlay: "1rem",
-} as const;

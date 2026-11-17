@@ -117,6 +117,11 @@ describe("key-light stock values (direction C)", () => {
       tracking: "-0.02em",
     });
     expect(TYPE_SCALE.display).toMatchObject({ size: "2.25rem", lineHeight: "2.5rem" });
+    expect(declarationsAt(["@theme inline"])).toMatchObject({
+      "--radius-kbd": "0.25rem",
+      "--radius-card": "0.75rem",
+      "--radius-overlay": "1rem",
+    });
     expect(RADII).toEqual({
       kbd: "0.25rem",
       chip: "0.375rem",
