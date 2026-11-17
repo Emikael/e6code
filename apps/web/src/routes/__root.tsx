@@ -32,6 +32,7 @@ import { ThreadNotificationCoordinator } from "../components/ThreadNotificationC
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
+import { StartupLandingMark, StartupShellInteractiveMark } from "../components/StartupMarks";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useDefaultThemeAdoption } from "../hooks/useDefaultTheme";
@@ -159,6 +160,7 @@ function RootRouteView() {
   if (pathname === "/pair" || pathname === "/connect") {
     return (
       <>
+        <StartupLandingMark landing="pair" />
         <DocumentTitleSync />
         <Outlet />
       </>
@@ -171,6 +173,7 @@ function RootRouteView() {
     return (
       <ToastProvider>
         <AnchoredToastProvider>
+          <StartupLandingMark landing="welcome" />
           <DocumentTitleSync />
           <ContrastAppearanceSync />
           <EnvironmentThemeSync />
@@ -190,6 +193,7 @@ function RootRouteView() {
   if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
     return (
       <>
+        <StartupLandingMark landing="requires-auth" />
         <DocumentTitleSync />
         <Outlet />
       </>
@@ -220,6 +224,8 @@ function RootRouteView() {
           enabled={primaryEnvironmentAuthenticated}
           hostedStatic={authGateState.status === "hosted-static"}
         >
+          <StartupLandingMark landing="app" />
+          <StartupShellInteractiveMark />
           {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
           {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
           <RelayClientInstallDialog />

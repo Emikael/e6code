@@ -26,6 +26,9 @@ export const GET_APP_BRANDING_CHANNEL = "desktop:get-app-branding";
 export const GET_SYSTEM_LOCALE_CHANNEL = "desktop:get-system-locale";
 export const GET_MOTION_POWER_STATE_CHANNEL = "desktop:get-motion-power-state";
 export const MOTION_POWER_STATE_CHANNEL = "desktop:motion-power-state";
+export const STARTUP_MARK_CHANNEL = "desktop:startup-mark";
+/** Must equal `STARTUP_MARK_PREFIX` in `@e6tools/shared/startupMarks`; the preload bundles no packages. */
+export const STARTUP_MARK_PREFIX = "e6:startup:";
 export const GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL = "desktop:get-local-environment-bootstraps";
 export const GET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL = "desktop:get-local-environment-enabled";
 export const SET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL = "desktop:set-local-environment-enabled";

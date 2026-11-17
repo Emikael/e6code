@@ -24,6 +24,8 @@ import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 import * as DesktopObservability from "./DesktopObservability.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
+import { startupClock } from "./DesktopStartupClock.ts";
+import { startDesktopStartupRecorder } from "./DesktopStartupRecorder.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopShellEnvironment from "../shell/DesktopShellEnvironment.ts";
@@ -178,12 +180,14 @@ const bootstrap = Effect.gen(function* () {
       : { assetDirectory: environment.clientAssetsDir }),
     clerkFrontendApiHostname: DesktopClerk.desktopClerkFrontendApiHostname,
   });
+  startupClock.reach("protocolRegistered");
   yield* installDesktopIpcHandlers();
   yield* logBootstrapInfo("bootstrap ipc handlers registered");
 
   yield* snapShot.initialize;
 
   if (!settings.localEnvironmentEnabled) {
+    startupClock.notApplicable("backendReady", "local-environment-disabled");
     yield* logBootstrapInfo("bootstrap skipping local environment (disabled in settings)");
     if (!(yield* Ref.get(state.quitting))) {
       yield* desktopWindow.createMainIfBackendReady;
@@ -286,7 +290,9 @@ const startup = Effect.gen(function* () {
   const updates = yield* DesktopUpdates.DesktopUpdates;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
 
+  const shellEnvironmentImportStartMs = startupClock.nowMs();
   yield* shellEnvironment.installIntoProcess;
+  startupClock.reach("shellEnvironmentImport", { startMs: shellEnvironmentImportStartMs });
   const hasCommandLinePasswordStore =
     preReadyElectronOptions.linuxPasswordStoreCommandLine !== null;
   const linuxElectronOptions =
@@ -310,7 +316,9 @@ const startup = Effect.gen(function* () {
   const userDataPath = yield* appIdentity.resolveUserDataPath;
   yield* electronApp.setPath("userData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
+  const settingsLoadStartMs = startupClock.nowMs();
   yield* desktopSettings.load;
+  startupClock.reach("settingsLoad", { startMs: settingsLoadStartMs });
 
   if (linuxElectronOptions !== null) {
     yield* logStartupInfo("linux password store configured", {
@@ -360,6 +368,11 @@ const scopedProgram = Effect.scoped(
       // receiving SIGTERM + grace.
       stopAllPoolInstances().pipe(Effect.ensuring(shutdown.markComplete)),
     );
+
+    const startupRecorder = yield* startDesktopStartupRecorder(runId);
+    // Added after the pool finalizer so it runs first: a launch that quits before its record
+    // settles still writes one.
+    yield* Effect.addFinalizer(() => startupRecorder.flush);
 
     yield* startup;
     yield* shutdown.awaitRequest;
