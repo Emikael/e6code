@@ -1,0 +1,194 @@
+/*
+ * Key Light surfaces for v2 (ENG-152): planes, the floating material, the scrim and the light
+ * wash. Colours come from the Key Light roles only (`packages/design-tokens/src/keyLight.ts`),
+ * so every built-in, custom and imported theme follows. Radius is the caller's, through the
+ * `rounded-*` utilities.
+ *
+ * This sheet is unlayered, so what it declares outranks Tailwind's utilities, which sit in a
+ * layer: a `fixed`, `absolute` or `sticky` class on a plane, a scrim or a decision surface
+ * does nothing. Place a plane or a decision surface through a positioned wrapper; a scrim
+ * takes `data-viewport`.
+ *
+ * Nothing here moves: the only transitions are opacity fades, on the layer that carries a
+ * plane's shadow and on the light wash. `box-shadow` and the blur radius never animate.
+ * Levels come from `data-motion` on <html> (MotionRoot); without it the OS reduced-motion
+ * setting selects Reduced, as in the motion presets.
+ */
+
+/* Plane: one per `PLANE_RECIPES` entry, plus `overlay` (a floating plane over a Scrim). */
+.plane {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--plane-bg);
+  border: 1px solid var(--plane-edge, transparent);
+}
+
+/*
+ * The shadow and rim sit on their own layer, above the plane's fill and under its content, so
+ * a shadow can appear or leave by opacity (`data-shadow="hidden"`).
+ */
+.plane::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: var(--plane-elev);
+  pointer-events: none;
+  transition-property: opacity;
+  transition-duration: var(--dur-state);
+  transition-timing-function: var(--ease-enter);
+}
+
+.plane[data-shadow="hidden"]::before {
+  opacity: 0;
+}
+
+.plane[data-plane="ground"] {
+  --plane-bg: var(--plane-ground);
+  --plane-elev: var(--elev-0);
+}
+
+.plane[data-plane="stage"] {
+  --plane-bg: var(--plane-stage);
+  --plane-edge: var(--edge-subtle);
+  --plane-elev: var(--elev-1);
+}
+
+.plane[data-plane="well"] {
+  --plane-bg: var(--plane-well);
+  --plane-edge: var(--edge-subtle);
+  --plane-elev: var(--elev-0);
+}
+
+.plane[data-plane="raised"] {
+  --plane-bg: var(--plane-raised);
+  --plane-edge: var(--edge-subtle);
+  --plane-elev: var(--elev-2);
+}
+
+.plane[data-plane="float"] {
+  --plane-bg: var(--plane-float);
+  --plane-edge: var(--edge-strong);
+  --plane-elev: var(--elev-3);
+}
+
+.plane[data-plane="overlay"] {
+  --plane-bg: var(--plane-float);
+  --plane-edge: var(--edge-strong);
+  --plane-elev: var(--elev-4);
+}
+
+/*
+ * Floating material: a static blur over a 72% plane, for floating planes smaller than a
+ * quarter of the viewport (menus, popovers, the palette panel, toasts, the desktop title-bar
+ * strip). Opaque without `backdrop-filter`, under Reduced (battery, low memory) and on
+ * touch-first web. The fallbacks come last and are at least as specific, so they win.
+ */
+@supports (backdrop-filter: blur(1px)) {
+  .plane[data-material="float"] {
+    --plane-bg: color-mix(in oklab, var(--plane-float) 72%, transparent);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+}
+
+:root[data-motion="reduced"] .plane[data-material="float"] {
+  --plane-bg: var(--plane-float);
+  backdrop-filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion]) .plane[data-material="float"] {
+    --plane-bg: var(--plane-float);
+    backdrop-filter: none;
+  }
+}
+
+@media (pointer: coarse) and (hover: none) {
+  :root .plane[data-material="float"] {
+    --plane-bg: var(--plane-float);
+    backdrop-filter: none;
+  }
+}
+
+/*
+ * Scrim: the focus pull behind an overlay. It dims; the app behind is never blurred or scaled.
+ * It fills its positioned parent, or the viewport with `data-viewport`.
+ */
+.scrim {
+  position: absolute;
+  inset: 0;
+  background-color: var(--scrim);
+}
+
+.scrim[data-viewport] {
+  position: fixed;
+}
+
+/*
+ * Light wash: a static gradient filling its positioned parent, shown by opacity. The parent
+ * is sized to what it lights, never to the viewport. Mounting with `data-enter` fades it in.
+ */
+.light-wash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background-image: radial-gradient(closest-side, var(--wash), transparent);
+  transition-property: opacity;
+  transition-duration: var(--dur-move);
+  transition-timing-function: var(--ease-enter);
+}
+
+.light-wash[data-kind="key"] {
+  --wash: var(--light-key);
+}
+
+.light-wash[data-kind="attention"] {
+  --wash: var(--light-attention);
+}
+
+.light-wash[data-on] {
+  opacity: 1;
+}
+
+@starting-style {
+  .light-wash[data-on][data-enter] {
+    opacity: 0;
+  }
+}
+
+/*
+ * Decision surface: the wash reaches past the card so it reads as light under it, and the
+ * motion layer's `sweep` ring is drawn over the card's edge in the warning role.
+ */
+.decision-surface {
+  position: relative;
+}
+
+.decision-surface > .light-wash {
+  inset: -1.5rem;
+}
+
+.decision-surface > .motion-sweep::after {
+  inset: -1px;
+  border-color: var(--warning);
+}
+
+/* Reduced: the fades stay, shortened. Off: every change is a cut. */
+:root[data-motion="reduced"] .plane::before,
+:root[data-motion="reduced"] .light-wash {
+  transition-duration: var(--dur-quick);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion]) .plane::before,
+  :root:not([data-motion]) .light-wash {
+    transition-duration: var(--dur-quick);
+  }
+}
+
+:root[data-motion="off"] .plane::before,
+:root[data-motion="off"] .light-wash {
+  transition-duration: var(--dur-instant);
+}
