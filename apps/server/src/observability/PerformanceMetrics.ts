@@ -147,8 +147,8 @@ export interface PerformanceMetricsShape {
     inputEvents: number,
     refetches: number,
   ) => void;
-  /** A refetch read failed; it is retried once before counting as a failure. */
-  readonly recordShellFailedRead: () => void;
+  /** A refetch's first read failed and is being retried. */
+  readonly recordShellRetry: () => void;
   readonly recordShellFailure: () => void;
   /** Counts a live `subscribeShell` subscriber for the life of the scope. */
   readonly trackShellSubscriber: Effect.Effect<void, never, Scope.Scope>;
@@ -392,7 +392,7 @@ export const make = Effect.fnUntraced(function* (options: {
     sqliteObserver,
     recordShellWindow: (source, inputEvents, refetches) =>
       open.recordShellWindow(source, inputEvents, refetches),
-    recordShellFailedRead: () => open.recordShellFailedRead(),
+    recordShellRetry: () => open.recordShellRetry(),
     recordShellFailure: () => open.recordShellFailure(),
     trackShellSubscriber: Effect.acquireRelease(
       Effect.sync(() => {
@@ -432,7 +432,7 @@ export const disabled: PerformanceMetricsShape = PerformanceMetrics.of({
   recordFrame: () => {},
   sqliteObserver: undefined,
   recordShellWindow: () => {},
-  recordShellFailedRead: () => {},
+  recordShellRetry: () => {},
   recordShellFailure: () => {},
   trackShellSubscriber: Effect.void,
   read: Effect.gen(function* () {

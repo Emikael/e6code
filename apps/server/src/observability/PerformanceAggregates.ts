@@ -102,8 +102,8 @@ export interface ShellRow {
   inputEvents: number;
   liveRefetches: number;
   catchUpRefetches: number;
-  /** Refetch attempts that failed, including ones a retry then recovered. */
-  failedReads: number;
+  /** Refetches whose first read failed and were retried. */
+  retries: number;
   /** Refetches dropped after their retry also failed. */
   failures: number;
   readonly refetchesPerWindow: FixedHistogram;
@@ -142,7 +142,7 @@ const makeShellRow = (): ShellRow => ({
   inputEvents: 0,
   liveRefetches: 0,
   catchUpRefetches: 0,
-  failedReads: 0,
+  retries: 0,
   failures: 0,
   refetchesPerWindow: new FixedHistogram(REFETCHES_PER_WINDOW_BOUNDARIES),
 });
@@ -199,8 +199,8 @@ export class PerformanceInterval {
     shell.refetchesPerWindow.record(refetches);
   }
 
-  recordShellFailedRead(): void {
-    this.shell.failedReads += 1;
+  recordShellRetry(): void {
+    this.shell.retries += 1;
   }
 
   recordShellFailure(): void {
@@ -236,7 +236,7 @@ export class PerformanceInterval {
     shell.inputEvents += other.shell.inputEvents;
     shell.liveRefetches += other.shell.liveRefetches;
     shell.catchUpRefetches += other.shell.catchUpRefetches;
-    shell.failedReads += other.shell.failedReads;
+    shell.retries += other.shell.retries;
     shell.failures += other.shell.failures;
     shell.refetchesPerWindow.mergeFrom(other.shell.refetchesPerWindow);
     if (includeEventLoop) this.eventLoop.push(...other.eventLoop);
@@ -449,8 +449,7 @@ export function shellSummary(interval: PerformanceInterval) {
     inputEvents: shell.inputEvents,
     liveRefetches: shell.liveRefetches,
     catchUpRefetches: shell.catchUpRefetches,
-    // Each refetch is retried once, so every failed read except a final failure was retried.
-    retries: shell.failedReads - shell.failures,
+    retries: shell.retries,
     failures: shell.failures,
     maxRefetchesPerWindow: shell.refetchesPerWindow.max,
     p95RefetchesPerWindowAtMost: shell.refetchesPerWindow.quantileAtMost(0.95),

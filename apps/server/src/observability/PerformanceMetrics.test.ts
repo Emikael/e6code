@@ -119,8 +119,7 @@ describe("PerformanceMetrics", () => {
       yield* metrics.trackShellSubscriber.pipe(Scope.provide(subscriberScope));
       metrics.recordShellWindow("live", 40, 3);
       metrics.recordShellWindow("catch-up", 21, 9);
-      metrics.recordShellFailedRead();
-      metrics.recordShellFailedRead();
+      metrics.recordShellRetry();
       metrics.recordShellFailure();
       yield* Scope.close(subscriberScope, Exit.void);
 

@@ -973,13 +973,20 @@ const makeWsRpcLayer = (
         read: Effect.Effect<A, E>,
         onRefetch: () => void,
       ): Effect.Effect<Option.Option<A>, never, never> =>
-        Effect.sync(onRefetch).pipe(
-          Effect.andThen(
-            read.pipe(
-              Effect.tapError(() => Effect.sync(performanceMetrics.recordShellFailedRead)),
-              Effect.retry({ times: 1 }),
+        Effect.suspend(() => {
+          onRefetch();
+          // Count a retry when the first attempt fails; the final failure is
+          // counted separately below.
+          let attempt = 0;
+          return read.pipe(
+            Effect.tapError(() =>
+              Effect.sync(() => {
+                if (attempt++ === 0) performanceMetrics.recordShellRetry();
+              }),
             ),
-          ),
+            Effect.retry({ times: 1 }),
+          );
+        }).pipe(
           Effect.map(Option.some),
           Effect.tapError((error) => {
             performanceMetrics.recordShellFailure();

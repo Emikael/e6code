@@ -10434,6 +10434,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const threadId = ThreadId.make("thread-transient-refetch");
       const now = "2026-01-01T00:00:00.000Z";
       let attempts = 0;
+      const performanceMetrics = yield* PerformanceMetrics.make({
+        eventLoop: undefined,
+        pushTrace: undefined,
+      });
 
       const event: OrchestrationEvent = {
         sequence: 1,
@@ -10451,6 +10455,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
+          performanceMetrics,
           orchestrationEngine: {
             latestSequence: Effect.succeed(1),
             readEvents: () => Stream.make(event),
@@ -10488,6 +10493,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(first?.kind, "thread-upserted");
       assert.equal(first?.kind === "thread-upserted" ? first.thread.id : null, threadId);
       assert.equal(attempts, 2);
+      const shell = performanceMetrics.totals().shell;
+      assert.equal(shell.catchUpRefetches, 1);
+      assert.equal(shell.retries, 1);
+      assert.equal(shell.failures, 0);
     }).pipe(Effect.provide(serverHttpLayer)),
   );
 
