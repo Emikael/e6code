@@ -89,11 +89,18 @@ describe("key-light stock values (direction C)", () => {
       "--dur-state": "200ms",
       "--dur-move": "280ms",
       "--dur-scene": "420ms",
+      "--dur-brisk": "160ms",
+      "--dur-brisk-exit": "110ms",
       "--ease-enter": "cubic-bezier(0.22, 1, 0.36, 1)",
       "--ease-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
       "--ease-shift": "cubic-bezier(0.65, 0, 0.35, 1)",
       "--ease-exit": "cubic-bezier(0.55, 0.055, 0.675, 0.19)",
     });
+  });
+
+  it("leaves the preset-only motion tokens out of every screen's stylesheet", () => {
+    const names = Object.keys(declarationsAt([STOCK]));
+    expect(names.filter((name) => /^--(distance|spring|skeleton)-/.test(name))).toEqual([]);
   });
 
   it("keeps type and radii as rem data at a 16 px root", () => {

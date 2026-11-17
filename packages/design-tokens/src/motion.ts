@@ -37,6 +37,10 @@ export const DUR = {
   state: 200,
   move: 280,
   scene: 420,
+  /** The step shared by `pop`, `swap`, `iconSwap` and `sideBySide` entrances (ENG-119). */
+  brisk: 160,
+  /** Exit of a `brisk` entrance, about two thirds of it. */
+  briskExit: 110,
 } as const;
 
 /** A set piece is a sequence of tweens; its whole length, in ms. */
@@ -71,5 +75,77 @@ export const EASE = {
 /** Sibling delay in ms, capped at `max` items. */
 export const STAGGER = { step: 24, launchStep: 40, max: 8 } as const;
 
-/** Travel in px and starting scale for entrances. */
-export const DISTANCE = { revealMin: 4, revealMax: 8, dolly: 24, scaleFrom: 0.96 } as const;
+/**
+ * Travel in px and starting scale for entrances. Names containing `scale` are unitless
+ * factors; the rest are px. Scale stays within `scaleFrom`..1, with two exceptions decided on
+ * ENG-119: `iconScaleFrom` for icons of 20 px or less (`iconSwap`), and the launch tile.
+ */
+export const DISTANCE = {
+  revealMin: 4,
+  /** The default `reveal` rise for rows; toasts rise `revealMax`. */
+  reveal: 6,
+  revealMax: 8,
+  dolly: 24,
+  /** Amplitude of the rejected-input `shake`. */
+  shake: 4,
+  scaleFrom: 0.96,
+  /** Icons of 20 px or less only. Not a mistake to "fix" back into 0.96..1. */
+  iconScaleFrom: 0.6,
+  dialogScaleFrom: 0.98,
+} as const;
+
+type SpringToken = (typeof SPRING)[keyof typeof SPRING];
+
+/**
+ * Position at `t` seconds of a unit spring released from 0 toward 1. `duration` is read as
+ * `motion`'s `visualDuration` (stiffness from a period of 1.2 × duration, damping ratio
+ * 1 − bounce), so `bounce` 0 is critically damped and never overshoots.
+ */
+export const springPosition = ({ bounce, duration }: SpringToken, t: number): number => {
+  const omega = (2 * Math.PI) / ((duration / 1000) * 1.2);
+  const zeta = Math.min(Math.max(1 - bounce, 0.05), 1);
+  if (zeta >= 1) return 1 - Math.exp(-omega * t) * (1 + omega * t);
+  const damped = omega * Math.sqrt(1 - zeta * zeta);
+  const envelope = Math.exp(-zeta * omega * t);
+  return 1 - envelope * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
+};
+
+const SETTLE_TOLERANCE = 0.001;
+const CURVE_SAMPLES = 40;
+
+/** Time in ms after which the spring stays within `SETTLE_TOLERANCE` of its target. */
+const settleMs = (spring: SpringToken): number => {
+  let last = 0;
+  for (let ms = 1; ms <= 10_000; ms++) {
+    if (Math.abs(1 - springPosition(spring, ms / 1000)) > SETTLE_TOLERANCE) last = ms;
+  }
+  return last + 1;
+};
+
+const round = (value: number) => Number(value.toFixed(4));
+
+/**
+ * Springs as CSS `linear()` easings, computed here so no client needs an engine to draw one.
+ * The curve lasts `durationMs` (the settling time), emitted as `--spring-<name>` and
+ * `--spring-<name>-dur`; a transition must use both together.
+ */
+// Pure, so a bundle that never reads the curves never computes them.
+export const SPRING_CURVE = /* @__PURE__ */ Object.fromEntries(
+  Object.entries(SPRING).map(([name, spring]) => {
+    const durationMs = settleMs(spring);
+    const points = Array.from({ length: CURVE_SAMPLES + 1 }, (_, index) =>
+      index === CURVE_SAMPLES
+        ? 1
+        : round(springPosition(spring, ((index / CURVE_SAMPLES) * durationMs) / 1000)),
+    );
+    return [name, { linear: `linear(${points.join(", ")})`, durationMs }];
+  }),
+) as {
+  readonly [Name in keyof typeof SPRING]: { readonly linear: string; readonly durationMs: number };
+};
+
+/**
+ * The `skeleton` loading breath: one stepped dip, then still. Provisional values; E02-T11
+ * tunes them against live loading.
+ */
+export const SKELETON = { durationMs: 840, steps: 6, floorOpacity: 0.6 } as const;

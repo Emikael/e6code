@@ -11,7 +11,11 @@
 import { DUR, EASE } from "./motion.ts";
 import type { CssRule } from "./webStock.ts";
 
-const durations = Object.entries(DUR).map(([name, ms]) => [`--dur-${name}`, `${ms}ms`] as const);
+const kebab = (name: string) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+
+const durations = Object.entries(DUR).map(
+  ([name, ms]) => [`--dur-${kebab(name)}`, `${ms}ms`] as const,
+);
 const easings = (["enter", "expo", "shift", "exit"] as const).map(
   (name) => [`--ease-${name}`, EASE[name]] as const,
 );

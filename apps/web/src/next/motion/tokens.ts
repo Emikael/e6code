@@ -1,6 +1,7 @@
 /**
  * Motion values from `@e6tools/design-tokens/motion`, the only source. CSS reads the same scale
- * as `--dur-*` and `--ease-*`; `motion` takes seconds, so the engine forms live here.
+ * as `--dur-*`, `--ease-*`, `--distance-*` and `--spring-*`; `motion` takes seconds, so the
+ * engine forms live here.
  */
 import { DUR } from "@e6tools/design-tokens/motion";
 
@@ -10,6 +11,7 @@ export {
   EASE,
   EASE_BEZIER,
   SET_PIECE_MS,
+  SPRING,
   STAGGER,
 } from "@e6tools/design-tokens/motion";
 

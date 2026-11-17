@@ -175,22 +175,22 @@ epic expected to land the work, not a finished change.
 ### transitions.dev recipes (design direction 7.1)
 
 All of these are under the Transitions.dev License. Each is written from the idea, with no
-recipe code, and credited here. Planned in E02-T03 (`next/motion` presets). The notice path for
+recipe code, and credited here. Landed in E02-T03 (`next/motion` presets). The notice path for
 all of them is credit only. Every row also uses our colour roles instead of hard-coded colours.
 
 | Recipe                          | Becomes               | What we change              |
 | ------------------------------- | --------------------- | --------------------------- |
-| Modal open/close                | dialogs               | our scrim and durations     |
-| Menu dropdown, Tooltip          | `pop`                 | origin from Base UI         |
-| Panel reveal, Page side-by-side | `dolly`, `sideBySide` | no blur                     |
-| Toast open/close                | toasts                | no blur                     |
-| Tabs sliding                    | tab indicator         | transform pill, not width   |
+| Modal open/close                | `dialog`              | our scrim and durations     |
+| Menu dropdown, Tooltip          | `pop`, `tooltip`      | origin from Base UI         |
+| Panel reveal, Page side-by-side | `dolly`, `sideBySide` | no blur; dolly exit 140 ms  |
+| Toast open/close                | `toast`               | no blur                     |
+| Tabs sliding                    | `tabIndicator`        | transform pill, not width   |
 | Icon swap                       | `iconSwap`            | no blur                     |
 | Success check, Checkbox check   | `checkDraw`           | none beyond tokens          |
-| Number subtle change            | `numberChange`        | tabular figures             |
-| Streaming text                  | stream tail fade      | one span per flush, no blur |
-| Reasoning stream                | reasoning edge fade   | static mask only            |
-| Skeleton loader and reveal      | loading states        | stepped, single breath      |
+| Number subtle change            | `numberChange`        | tabular, changed digits     |
+| Streaming text                  | `streamTail`          | one span per flush, no blur |
+| Reasoning stream                | `reasoningEdge`       | static mask only            |
+| Skeleton loader and reveal      | `skeleton`            | stepped, single breath      |
 | Error state shake               | `shake`               | rejected input only         |
 
 ### React Bits references (design direction 7.2)
@@ -210,7 +210,7 @@ These are reference only and credit only, with no code from React Bits (D3).
 | Item                                                          | Licence                                  | Where                                           | Notice path                                                                      |
 | ------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------- |
 | Ambient light shader (5.7)                                    | ours                                     | E02-T10, `shared/src/ambientLight`              | none; first-party; dither is interleaved gradient noise (Jimenez, SIGGRAPH 2014) |
-| `motion` (5.1)                                                | MIT                                      | planned E02                                     | auto manifest once it is a production dependency                                 |
+| `motion` (5.1)                                                | MIT                                      | `apps/web/src/next/motion`                      | auto manifest                                                                    |
 | `gsap` (D1)                                                   | Webflow Standard no-charge (proprietary) | `next/motion/cinematic` (app), `apps/marketing` | see trap below                                                                   |
 | Phosphor via `@phosphor-icons/core` (6.1)                     | MIT                                      | planned E03, generated into `next/icons`        | see trap below                                                                   |
 | Geist, Geist Mono (4.3)                                       | OFL-1.1                                  | web, mobile, marketing                          | auto manifest (web, mobile); marketing ships `public/fonts/*-OFL.txt`            |
