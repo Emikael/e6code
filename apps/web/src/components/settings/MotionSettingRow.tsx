@@ -10,7 +10,7 @@ import { useId, useRef } from "react";
 
 import { useMotionPolicyState } from "~/next/motion/policy";
 
-import { motionPreferenceForKey, motionResolutionLine } from "./MotionSettingRow.logic";
+import { handleMotionHomeEnd, motionResolutionLine } from "./MotionSettingRow.logic";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
@@ -61,11 +61,11 @@ export function MotionSettingRow({ onChange }: { onChange: (motion: MotionPrefer
             if (option) onChange(option.value);
           }}
           onKeyDown={(event) => {
-            const target = motionPreferenceForKey(event.key);
-            if (target === null) return;
-            event.preventDefault();
-            radios.current.get(target)?.focus();
-            if (target !== state.preference) onChange(target);
+            const handled = handleMotionHomeEnd(event.key, state.preference, {
+              focus: (target) => radios.current.get(target)?.focus(),
+              select: onChange,
+            });
+            if (handled) event.preventDefault();
           }}
           className="flex w-full gap-0.5 rounded-[9px] bg-surface-well p-[3px] @min-[32rem]/settings-row:w-auto"
         >

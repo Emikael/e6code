@@ -419,6 +419,7 @@ describe("createMotionPolicyStore state", () => {
       preference: "full",
       level: "full",
       reasons: ["reduced-motion", "memory"],
+      settingResolved: true,
     });
   });
 

@@ -1,6 +1,46 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { motionPreferenceForKey, motionResolutionLine } from "./MotionSettingRow.logic";
+import type { MotionPreference } from "@e6tools/client-runtime/motion-level";
+
+import {
+  handleMotionHomeEnd,
+  motionPreferenceForKey,
+  motionResolutionLine,
+} from "./MotionSettingRow.logic";
+
+const recordActions = () => {
+  const calls: Array<[string, MotionPreference]> = [];
+  return {
+    calls,
+    actions: {
+      focus: (preference: MotionPreference) => void calls.push(["focus", preference]),
+      select: (preference: MotionPreference) => void calls.push(["select", preference]),
+    },
+  };
+};
+
+describe("handleMotionHomeEnd", () => {
+  it("focuses and selects the last level on End", () => {
+    const { calls, actions } = recordActions();
+    expect(handleMotionHomeEnd("End", "full", actions)).toBe(true);
+    expect(calls).toEqual([
+      ["focus", "off"],
+      ["select", "off"],
+    ]);
+  });
+
+  it("only moves focus when Home lands on the level already chosen", () => {
+    const { calls, actions } = recordActions();
+    expect(handleMotionHomeEnd("Home", "system", actions)).toBe(true);
+    expect(calls).toEqual([["focus", "system"]]);
+  });
+
+  it("leaves other keys alone so the browser and the radio group handle them", () => {
+    const { calls, actions } = recordActions();
+    expect(handleMotionHomeEnd("ArrowLeft", "full", actions)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+});
 
 describe("motionResolutionLine", () => {
   it("names Reduced and its reason when the device constrains Follow system", () => {

@@ -31,6 +31,8 @@ interface WebBattery extends ChangeSource<"chargingchange"> {
  */
 export interface MotionPreferenceSource {
   readonly get: () => MotionPreference;
+  /** `true` once the saved setting has loaded or failed to load. Absent means always resolved. */
+  readonly isResolved?: () => boolean;
   readonly subscribe: (listener: () => void) => () => void;
 }
 
@@ -54,6 +56,12 @@ export interface MotionPolicyState {
   readonly level: MotionLevel;
   /** The device constraints that hold now, even when an explicit level ignores them. */
   readonly reasons: ReadonlyArray<MotionConstraintReason>;
+  /**
+   * Whether the saved Motion setting has loaded (or failed to load). Until then the level
+   * follows the system, so a v2 screen holds its entrance until this is true: someone who
+   * chose Off or Reduced must never see Full motion at boot.
+   */
+  readonly settingResolved: boolean;
 }
 
 export interface MotionPolicyStore {
@@ -72,6 +80,7 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const sameState = (a: MotionPolicyState, b: MotionPolicyState) =>
   a.preference === b.preference &&
   a.level === b.level &&
+  a.settingResolved === b.settingResolved &&
   a.reasons.length === b.reasons.length &&
   a.reasons.every((reason, index) => reason === b.reasons[index]);
 
@@ -103,7 +112,8 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
   let preference: MotionPreference = "system";
   let desktopPower: DesktopMotionPowerState | null = null;
   let webOnBattery: boolean | null = null;
-  let state: MotionPolicyState = { preference, level: "full", reasons: [] };
+  let settingResolved = preferenceSource?.isResolved === undefined;
+  let state: MotionPolicyState = { preference, level: "full", reasons: [], settingResolved };
   let teardown: Array<() => void> = [];
   let generation = 0;
 
@@ -116,7 +126,9 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
   };
 
   const readPreference = () => {
-    if (preferenceSource !== undefined) preference = preferenceSource.get();
+    if (preferenceSource === undefined) return;
+    preference = preferenceSource.get();
+    settingResolved = preferenceSource.isResolved?.() ?? true;
   };
 
   const constraints = (): MotionConstraints => ({
@@ -134,6 +146,7 @@ export const createMotionPolicyStore = (environment: MotionEnvironment): MotionP
       preference,
       level: resolveMotionLevel(preference, current),
       reasons: activeMotionConstraints(current),
+      settingResolved,
     };
     return sameState(next, state) ? state : next;
   };
@@ -259,7 +272,9 @@ const browserEnvironment = (): MotionEnvironment => {
 
 /**
  * The page's MotionPolicy, for code outside React such as timeline runners. It reads the
- * Motion setting from client settings, and follows the system until they load.
+ * Motion setting from client settings and follows the system until they load. The first v2
+ * screen (E04-T14 shell, E04-T16 launch) holds its entrance until `getState().settingResolved`
+ * is true, so someone who chose Off or Reduced never sees Full motion at boot.
  */
 export const motionPolicy = createMotionPolicyStore({
   ...browserEnvironment(),
@@ -271,7 +286,12 @@ export const useMotionPolicy = (): MotionLevel =>
   useSyncExternalStore(motionPolicy.subscribe, motionPolicy.getLevel);
 
 const subscribeNothing = () => () => undefined;
-const IDLE_STATE: MotionPolicyState = { preference: "system", level: "full", reasons: [] };
+const IDLE_STATE: MotionPolicyState = {
+  preference: "system",
+  level: "full",
+  reasons: [],
+  settingResolved: true,
+};
 const getIdleState = () => IDLE_STATE;
 
 /**

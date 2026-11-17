@@ -106,7 +106,13 @@ function getClientSettingsHydrationStatusSnapshot(): ClientSettingsHydrationStat
   return clientSettingsHydrationStatus;
 }
 
-function subscribeClientSettingsHydration(listener: () => void): () => void {
+/** Non-hook accessor for the hydration status. */
+export function getClientSettingsHydrationStatus(): ClientSettingsHydrationStatus {
+  return clientSettingsHydrationStatus;
+}
+
+/** Non-React subscription to hydration status changes; starts hydration like the hooks do. */
+export function subscribeClientSettingsHydration(listener: () => void): () => void {
   clientSettingsHydrationListeners.add(listener);
   void hydrateClientSettings().catch(() => undefined);
   return () => {
