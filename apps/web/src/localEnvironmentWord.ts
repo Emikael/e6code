@@ -189,11 +189,17 @@ export interface LocalEnvironmentPanelCopy {
 
 /**
  * The starting panel's words: `window` replaces the first-run wait, `stage` stands in for the
- * main area while there is nothing local to show. A planned restart reads as a start.
+ * main area while there is nothing local to show. `waitingProject` is set when the stage stands
+ * in front of a cached local project whose draft opens once the environment is ready, so the
+ * sidebar already lists projects and threads. A planned restart reads as a start.
  */
 export function localEnvironmentPanelCopy(
   word: LocalEnvironmentWord | null,
-  input: { readonly placement: LocalEnvironmentPanelPlacement; readonly label: string | null },
+  input: {
+    readonly placement: LocalEnvironmentPanelPlacement;
+    readonly label: string | null;
+    readonly waitingProject?: boolean;
+  },
 ): LocalEnvironmentPanelCopy {
   const window = input.placement === "window";
   const failure =
@@ -218,7 +224,11 @@ export function localEnvironmentPanelCopy(
   const wsl = input.label?.startsWith("WSL") === true;
   const lines = window
     ? [wsl ? "Connecting to WSL…" : "Getting the local environment ready."]
-    : ["Your projects and threads appear here once it's ready."];
+    : [
+        input.waitingProject === true
+          ? "Your most recent project opens here once it's ready."
+          : "Your projects and threads appear here once it's ready.",
+      ];
   return {
     title: window ? "Starting E6 Code" : "Starting the local environment",
     lines:

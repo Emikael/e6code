@@ -119,8 +119,9 @@ export class DesktopWindow extends Context.Service<
     readonly revealOrCreateMain: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     // Startup's window step: from here on activation and renderer events may
     // create the main window, and it is created now. Activation that arrives
-    // earlier (macOS can emit `activate` at launch) waits for this, so no window
-    // exists before the protocol, IPC, duplicate check and local status.
+    // earlier (macOS can emit `activate` at launch) is ignored, since this step
+    // opens the window anyway, so none exists before the protocol, IPC,
+    // duplicate check and local status.
     readonly openMainAtStartup: Effect.Effect<Electron.BrowserWindow, DesktopWindowError>;
     // Reveals the main window, or creates it. Only a WSL-only launch still
     // waits for the backend: it re-reveals the connecting splash instead.

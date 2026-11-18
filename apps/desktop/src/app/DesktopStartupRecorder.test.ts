@@ -73,8 +73,10 @@ const setup = Effect.gen(function* () {
   return { clock, recorder, records, memoryLabels };
 });
 
+// With the shell interactive and the backend ready, the record also waits for the live shell.
 const settleAll = (clock: StartupClock) => {
   for (const phase of REQUIRED_STARTUP_PHASES) clock.reach(phase);
+  clock.reach("shellLive");
 };
 
 describe("makeStartupRecorder", () => {

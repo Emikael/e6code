@@ -20,12 +20,15 @@ import { SidebarInset } from "./ui/sidebar";
  */
 export function LocalEnvironmentStartingPanel({
   placement,
+  waitingProject = false,
 }: {
   readonly placement: LocalEnvironmentPanelPlacement;
+  /** The stage stands in front of a cached local project's draft. */
+  readonly waitingProject?: boolean;
 }) {
   const label = useAtomValue(localEnvironmentStatusAtom)?.label ?? null;
   const word = useAtomValue(localEnvironmentWordAtom);
-  const copy = localEnvironmentPanelCopy(word, { placement, label });
+  const copy = localEnvironmentPanelCopy(word, { placement, label, waitingProject });
 
   if (placement === "stage") {
     return (

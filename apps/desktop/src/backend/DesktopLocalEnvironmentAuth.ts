@@ -8,9 +8,11 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
+import * as DesktopLocalBackendStatus from "./DesktopLocalBackendStatus.ts";
 
 export class DesktopLocalEnvironmentAuthBackendNotConfiguredError extends Schema.TaggedError<DesktopLocalEnvironmentAuthBackendNotConfiguredError>()(
   "DesktopLocalEnvironmentAuthBackendNotConfiguredError",
@@ -30,6 +32,17 @@ export class DesktopLocalEnvironmentAuthSessionBootstrapError extends Schema.Tag
   }
 }
 
+export class DesktopLocalEnvironmentAuthBackendUnavailableError extends Schema.TaggedError<DesktopLocalEnvironmentAuthBackendUnavailableError>()(
+  "DesktopLocalEnvironmentAuthBackendUnavailableError",
+  { state: Schema.Literals(["failed", "stopped"]) },
+) {
+  override get message(): string {
+    return this.state === "failed"
+      ? "The local environment could not start."
+      : "The local environment is stopped.";
+  }
+}
+
 /**
  * The exchange runs under a mutex every bearer request waits on, so a backend that accepts the
  * connection and never answers must not hold every caller forever.
@@ -38,6 +51,7 @@ export const BEARER_EXCHANGE_TIMEOUT = Duration.seconds(5);
 
 export const DesktopLocalEnvironmentAuthError = Schema.Union([
   DesktopLocalEnvironmentAuthBackendNotConfiguredError,
+  DesktopLocalEnvironmentAuthBackendUnavailableError,
   DesktopLocalEnvironmentAuthSessionBootstrapError,
 ]);
 export type DesktopLocalEnvironmentAuthError = typeof DesktopLocalEnvironmentAuthError.Type;
@@ -52,9 +66,29 @@ export class DesktopLocalEnvironmentAuth extends Context.Service<
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
+  const localStatus = yield* DesktopLocalBackendStatus.DesktopLocalBackendStatus;
   const httpClient = yield* HttpClient.HttpClient;
   const tokenRef = yield* Ref.make(Option.none<string>());
   const mutex = yield* Semaphore.make(1);
+
+  // While the backend boots, its port accepts connections before it answers HTTP, so an
+  // exchange then stalls until the timeout and fails everyone who joined it, including the
+  // renderer's auth gate re-running the moment the backend reports ready. Exchanges therefore
+  // wait for `ready`. No status (before startup describes the backend) waits for nothing.
+  const awaitAnsweringBackend = localStatus.changes.pipe(
+    Stream.filter(
+      (status) => status === null || (status.state !== "starting" && status.state !== "restarting"),
+    ),
+    Stream.runHead,
+    Effect.flatMap((settled) => {
+      const status = Option.getOrNull(settled);
+      return status !== null && (status.state === "failed" || status.state === "stopped")
+        ? Effect.fail(
+            new DesktopLocalEnvironmentAuthBackendUnavailableError({ state: status.state }),
+          )
+        : Effect.void;
+    }),
+  );
 
   const getBearerToken = mutex
     .withPermits(1)(
@@ -64,6 +98,8 @@ export const make = Effect.gen(function* () {
           return cached.value;
         }
 
+        // Read the config after the wait: `start` resolves the one the running backend has.
+        yield* awaitAnsweringBackend;
         const instances = yield* pool.list;
         const primary = instances.find((instance) => instance.id === PRIMARY_LOCAL_ENVIRONMENT_ID);
         const configOption = primary === undefined ? Option.none() : yield* primary.currentConfig;

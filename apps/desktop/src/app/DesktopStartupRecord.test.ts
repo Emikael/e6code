@@ -85,6 +85,24 @@ describe("startup record", () => {
     expect(isStartupSettled(clock)).toBe(true);
   });
 
+  it("waits for the live shell once the cached shell and the backend are both up", () => {
+    const { clock } = makeClock();
+    for (const phase of REQUIRED_STARTUP_PHASES) clock.reach(phase);
+    expect(isStartupSettled(clock)).toBe(false);
+
+    clock.reach("shellLive");
+    expect(isStartupSettled(clock)).toBe(true);
+  });
+
+  it("does not wait for a live shell that cannot come", () => {
+    const welcome = makeClock().clock;
+    for (const phase of REQUIRED_STARTUP_PHASES.filter((phase) => phase !== "shellInteractive")) {
+      welcome.reach(phase);
+    }
+    welcome.notApplicable("shellInteractive", "landing:welcome");
+    expect(isStartupSettled(welcome)).toBe(true);
+  });
+
   it("lists every phase, marking unresolved ones with why the record was written", () => {
     const { clock, advanceTo } = makeClock();
     clock.reach("mainEntry");

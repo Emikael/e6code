@@ -205,6 +205,16 @@ describe("localEnvironmentPanelCopy", () => {
     }
   });
 
+  it("says a cached local project opens once ready, since its rows are already listed", () => {
+    expect(
+      localEnvironmentPanelCopy(wordFor({ state: "starting" }), {
+        placement: "stage",
+        label: "Local environment",
+        waitingProject: true,
+      }).lines,
+    ).toEqual(["Your most recent project opens here once it's ready."]);
+  });
+
   it("names a failure in the stage without retry wording", () => {
     expect(
       localEnvironmentPanelCopy(wordFor({ state: "failed" }), {

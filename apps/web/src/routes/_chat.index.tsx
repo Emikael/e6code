@@ -85,7 +85,12 @@ function IndexDraftLanding() {
       draftStartFailed: startState.failed,
     })
   ) {
-    return <LocalEnvironmentStartingPanel placement="stage" />;
+    return (
+      <LocalEnvironmentStartingPanel
+        placement="stage"
+        waitingProject={mostRecentProject !== null}
+      />
+    );
   }
   if (!bootstrapped) {
     return null;

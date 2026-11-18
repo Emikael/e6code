@@ -12,6 +12,33 @@ export function readLocalEnvironmentStatus(
   return bridge?.getLocalEnvironmentStatus?.();
 }
 
+const followedStatuses = new WeakMap<
+  object,
+  { current: DesktopLocalEnvironmentStatus | null | undefined }
+>();
+
+/**
+ * The latest status for callers on a timer, without a synchronous IPC per call: read once per
+ * bridge, then kept current by its pushes (main pushes every change, so the last one delivered
+ * is the current state). `undefined` where there is no status to follow.
+ */
+export function followLocalEnvironmentStatus(
+  bridge: Pick<DesktopBridge, "getLocalEnvironmentStatus" | "onLocalEnvironmentStatus"> | undefined,
+): DesktopLocalEnvironmentStatus | null | undefined {
+  if (bridge?.getLocalEnvironmentStatus === undefined) return undefined;
+  const followed = followedStatuses.get(bridge);
+  if (followed !== undefined) return followed.current;
+  const entry: { current: DesktopLocalEnvironmentStatus | null | undefined } = {
+    current: undefined,
+  };
+  bridge.onLocalEnvironmentStatus?.((status) => {
+    entry.current = status;
+  });
+  entry.current = bridge.getLocalEnvironmentStatus();
+  followedStatuses.set(bridge, entry);
+  return entry.current;
+}
+
 /** Follows status pushes from the desktop; `undefined` where there is no status to follow. */
 export const localEnvironmentStatusAtom = Atom.make(
   (get): DesktopLocalEnvironmentStatus | null | undefined => {

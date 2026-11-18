@@ -53,7 +53,7 @@ import {
 import { clearComposerDraftsEnvironment } from "../composerDraftStore";
 import { isHostedStaticApp } from "../hostedPairing";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
-import { readLocalEnvironmentStatus } from "../localEnvironmentStatus";
+import { followLocalEnvironmentStatus } from "../localEnvironmentStatus";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { acknowledgeRpcRequest, trackRpcRequestSent } from "../rpc/requestLatencyState";
 import {
@@ -581,7 +581,7 @@ const platformConnectionSourceLayer = Layer.effect(
           target: primaryTarget,
           signature,
           cached,
-          localStatus: readLocalEnvironmentStatus(window.desktopBridge),
+          localStatus: followLocalEnvironmentStatus(window.desktopBridge),
           nowEpochMs,
         });
         if (plan._tag === "Reuse" || plan._tag === "Provisional") {

@@ -1,8 +1,13 @@
-import { EnvironmentId, type DesktopLocalEnvironmentStatus } from "@e6tools/contracts";
+import {
+  EnvironmentId,
+  type DesktopBridge,
+  type DesktopLocalEnvironmentStatus,
+} from "@e6tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   canEnterApp,
+  followLocalEnvironmentStatus,
   readLocalEnvironmentStatus,
   resolveRootGateMode,
 } from "./localEnvironmentStatus";
@@ -82,6 +87,34 @@ describe("resolveRootGateMode", () => {
         authenticatedThisSession: true,
       }),
     ).toBe("server");
+  });
+});
+
+describe("followLocalEnvironmentStatus", () => {
+  it("reads the desktop once, then follows its pushes", () => {
+    let reads = 0;
+    let push: ((next: DesktopLocalEnvironmentStatus) => void) | undefined;
+    const bridge: Pick<DesktopBridge, "getLocalEnvironmentStatus" | "onLocalEnvironmentStatus"> = {
+      getLocalEnvironmentStatus: () => {
+        reads += 1;
+        return status("starting");
+      },
+      onLocalEnvironmentStatus: (listener) => {
+        push = listener;
+        return () => undefined;
+      },
+    };
+
+    expect(followLocalEnvironmentStatus(bridge)?.state).toBe("starting");
+    push?.(status("ready"));
+    expect(followLocalEnvironmentStatus(bridge)?.state).toBe("ready");
+    expect(followLocalEnvironmentStatus(bridge)?.state).toBe("ready");
+    expect(reads).toBe(1);
+  });
+
+  it("has nothing to follow without a status member", () => {
+    expect(followLocalEnvironmentStatus(undefined)).toBeUndefined();
+    expect(followLocalEnvironmentStatus({})).toBeUndefined();
   });
 });
 

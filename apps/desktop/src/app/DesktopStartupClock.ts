@@ -28,7 +28,10 @@ export const REQUIRED_STARTUP_PHASES = [
   "backendReady",
 ] as const;
 
-/** Recorded when they happen; they never hold the record back. */
+/**
+ * Recorded when they happen. Only `shellLive` can hold the record back, once the shell is
+ * interactive and the backend ready (see `isStartupSettled`).
+ */
 export const OPTIONAL_STARTUP_PHASES = [
   "rendererFirstContentfulPaint",
   "rendererLanding",

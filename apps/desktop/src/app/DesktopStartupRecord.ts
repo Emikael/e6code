@@ -55,8 +55,16 @@ export interface StartupRecord extends StartupRecordContext {
   readonly phases: Readonly<Record<StartupPhase, StartupPhaseRecord>>;
 }
 
+/**
+ * Every required phase is resolved, and once the shell is interactive and the backend is ready
+ * the primary's shell has also gone live: the step from ready to live is what the record shows
+ * for that launch. A launch that never goes live is written at the deadline.
+ */
 export const isStartupSettled = (clock: StartupClock): boolean =>
-  REQUIRED_STARTUP_PHASES.every((phase) => clock.get(phase) !== undefined);
+  REQUIRED_STARTUP_PHASES.every((phase) => clock.get(phase) !== undefined) &&
+  (clock.get("shellLive") !== undefined ||
+    clock.get("backendReady")?.status !== "reached" ||
+    clock.get("shellInteractive")?.status !== "reached");
 
 export function buildStartupRecord(input: {
   readonly context: StartupRecordContext;
