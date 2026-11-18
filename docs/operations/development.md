@@ -114,6 +114,44 @@ Use `vp run lint:mobile` for native mobile changes. CI owns the full suite; see
 The [manual Windows lane](../../.github/workflows/windows-tests.yml) is available for focused
 Windows investigation while that suite is not a required gate.
 
+### Provider replay recordings
+
+Replay recordings are canonical provider event streams with timing. `ReplayProviderAdapter`
+plays them back in place of a provider, so tests need no provider CLI or credits. They live in
+`packages/shared/src/testing/providerReplay/`:
+
+- `fixtures/` holds small hand-made recordings.
+- `recordings/` is where scrubbed recordings of real sessions go.
+
+The corpus test checks every file in both folders. It requires each file to be in canonical
+encoding, so write recordings with the scrub command rather than by hand.
+
+To record a new one:
+
+1. Run the session on a throwaway sample project with a neutral git identity, never on real
+   work.
+2. Start the dev server against the worktree's own `.e6` home with
+   `E6CODE_RECORD_PROVIDER_EVENTS=1`.
+3. Drive the session. Each thread's raw recording is written to
+   `.e6/userdata/logs/provider-recordings/`. Raw files hold real paths and text, so never
+   commit one.
+4. Scrub it:
+
+   ```sh
+   node apps/server/scripts/provider-replay.ts scrub --in <raw> --out <recordings/name.ndjson> \
+     --workspace <sample project path> --id <provider.scenario> --scenario <scenario>
+   ```
+
+   Pass `--identity` for any other name to remove, such as an organisation. The command always
+   removes this machine's login and hostname and the global git name and email. It also drops
+   what reveals your own setup rather than the session: the contents of files an agent read
+   outside the project (global skills, config), hook output, and Claude's list of installed
+   tools, servers and plugins. It refuses to write while the leak check still finds anything.
+
+5. Review the scrubbed file as a diff before committing it.
+
+`provider-replay.ts stats --in <file>` prints a recording's duration, event rate and sizes.
+
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo, then

@@ -311,6 +311,22 @@
       "types": "./src/testing/symlinks.ts",
       "import": "./src/testing/symlinks.ts"
     },
+    "./testing/providerReplay/format": {
+      "types": "./src/testing/providerReplay/format.ts",
+      "import": "./src/testing/providerReplay/format.ts"
+    },
+    "./testing/providerReplay/recording": {
+      "types": "./src/testing/providerReplay/recording.ts",
+      "import": "./src/testing/providerReplay/recording.ts"
+    },
+    "./testing/providerReplay/scrub": {
+      "types": "./src/testing/providerReplay/scrub.ts",
+      "import": "./src/testing/providerReplay/scrub.ts"
+    },
+    "./testing/providerReplay/corpus": {
+      "types": "./src/testing/providerReplay/corpus.ts",
+      "import": "./src/testing/providerReplay/corpus.ts"
+    },
     "./httpReadiness": {
       "types": "./src/httpReadiness.ts",
       "import": "./src/httpReadiness.ts"
