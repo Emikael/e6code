@@ -143,8 +143,10 @@ To record a new one:
    ```
 
    Pass `--identity` for any other name to remove, such as an organisation. The command always
-   removes this machine's login and hostname and the global git name and email. It refuses to
-   write while the leak check still finds anything.
+   removes this machine's login and hostname and the global git name and email. It also drops
+   what reveals your own setup rather than the session: the contents of files an agent read
+   outside the project (global skills, config), hook output, and Claude's list of installed
+   tools, servers and plugins. It refuses to write while the leak check still finds anything.
 
 5. Review the scrubbed file as a diff before committing it.
 

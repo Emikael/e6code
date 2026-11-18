@@ -1,4 +1,4 @@
-{"kind":"header","format":"e6.provider-replay","version":1,"id":"claude.approval-flow.hand-made","provider":"claudeAgent","scenarios":["approval-flow","user-input","plan-mode"],"source":"hand-made","scrubVersion":1}
+{"kind":"header","format":"e6.provider-replay","version":1,"id":"claude.approval-flow.hand-made","provider":"claudeAgent","scenarios":["approval-flow","user-input","plan-mode"],"source":"hand-made","scrubVersion":5}
 {"kind":"step","dt":0,"on":"startSession"}
 {"kind":"event","dt":120,"event":{"eventId":"e1","provider":"claudeAgent","threadId":"thread-1","createdAt":"2026-01-01T00:00:00.000Z","type":"session.started","payload":{"message":"Claude session ready"}}}
 {"kind":"event","dt":5,"event":{"eventId":"e2","provider":"claudeAgent","threadId":"thread-1","createdAt":"2026-01-01T00:00:00.005Z","type":"thread.started","payload":{"providerThreadId":"claude-thread-1"}}}

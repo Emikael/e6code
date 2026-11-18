@@ -28,6 +28,26 @@ describe("provider replay corpus", () => {
     expect(files.filter((file) => file.kind === "fixture").length).toBeGreaterThan(0);
   });
 
+  it.effect("records every scenario the harness needs from real sessions", () =>
+    Effect.gen(function* () {
+      const recorded = yield* Effect.forEach(
+        files.filter((file) => file.kind === "recording"),
+        (file) => decodeRecording(readCorpusFile(file)),
+      );
+      const scenarios = new Set(recorded.flatMap((recording) => recording.header.scenarios));
+
+      expect(recorded.length).toBeGreaterThanOrEqual(4);
+      for (const scenario of [
+        "tool-heavy",
+        "streaming-prose",
+        "subagent-fleet",
+        "approval-flow",
+      ] as const) {
+        expect(scenarios).toContain(scenario);
+      }
+    }),
+  );
+
   for (const file of files) {
     describe(`${file.kind}s/${file.name}`, () => {
       it.effect("decodes against the runtime event contract in canonical encoding", () =>

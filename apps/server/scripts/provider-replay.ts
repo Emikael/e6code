@@ -101,16 +101,29 @@ const scrubCommand = Command.make(
       Flag.atLeast(0),
       Flag.withDescription("Extra word to replace with `user` (a name, an org)."),
     ),
+    endAtLastTurn: Flag.Boolean("end-at-last-turn").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Drop what was recorded after the last turn ended, such as errors from stopping the server.",
+      ),
+    ),
   },
-  ({ input, output, workspaces, id, scenarios, identities }) =>
+  ({ input, output, workspaces, id, scenarios, identities, endAtLastTurn }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const raw = yield* decodeRecording(yield* fileSystem.readFileString(input));
       const scenarioList = yield* decodeScenarios(scenarios);
       const identityList = machineIdentities(identities);
       const home = NodeOS.homedir();
+      const lastTurnEnd = raw.lines.findLastIndex(
+        (line) =>
+          line.kind === "event" &&
+          (line.event.type === "turn.completed" || line.event.type === "turn.aborted"),
+      );
+      const lines =
+        endAtLastTurn && lastTurnEnd >= 0 ? raw.lines.slice(0, lastTurnEnd + 1) : raw.lines;
       const scrubbed = scrubRecording(
-        { header: { ...raw.header, id, scenarios: scenarioList }, lines: raw.lines },
+        { header: { ...raw.header, id, scenarios: scenarioList }, lines },
         {
           workspaceRoots: workspaces.flatMap((path) => [path, realpathOrSelf(path)]),
           homeDirectories: [home, realpathOrSelf(home)],

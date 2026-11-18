@@ -32,8 +32,20 @@ function comparableLine(line: RecordingLine) {
   }
   const event = line.event;
   const payload = { ...(event.payload as Record<string, unknown>) };
-  for (const field of ["taskId", "agentId", "parentAgentId", "toolUseId", "parentToolUseId"]) {
+  for (const field of [
+    "taskId",
+    "agentId",
+    "parentAgentId",
+    "toolUseId",
+    "parentToolUseId",
+    "hookId",
+  ]) {
     if (typeof payload[field] === "string") payload[field] = recordedId(payload[field] as string);
+  }
+  if (Array.isArray(payload.precedingToolUseIds)) {
+    payload.precedingToolUseIds = payload.precedingToolUseIds.map((id) =>
+      typeof id === "string" ? recordedId(id) : id,
+    );
   }
   return {
     kind: line.kind,

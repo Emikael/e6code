@@ -1,4 +1,4 @@
-{"kind":"header","format":"e6.provider-replay","version":1,"id":"codex.subagent-fleet.hand-made","provider":"codex","scenarios":["subagent-fleet"],"source":"hand-made","scrubVersion":1}
+{"kind":"header","format":"e6.provider-replay","version":1,"id":"codex.subagent-fleet.hand-made","provider":"codex","scenarios":["subagent-fleet"],"source":"hand-made","scrubVersion":5}
 {"kind":"step","dt":0,"on":"startSession"}
 {"kind":"event","dt":300,"event":{"eventId":"e1","provider":"codex","threadId":"thread-1","createdAt":"2026-01-01T00:00:00.000Z","type":"session.started","payload":{}}}
 {"kind":"event","dt":10,"event":{"eventId":"e2","provider":"codex","threadId":"thread-1","createdAt":"2026-01-01T00:00:00.010Z","type":"thread.started","payload":{"providerThreadId":"codex-thread-1"}}}

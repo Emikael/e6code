@@ -79,8 +79,20 @@ const namespaceOf = (id: string) => id.slice(0, id.indexOf(":"));
 /** What must match between a recording and its replay: order, type, ids and payload. */
 function comparable(event: ProviderRuntimeEvent) {
   const payload = { ...(event.payload as Record<string, unknown>) };
-  for (const field of ["taskId", "agentId", "parentAgentId", "toolUseId", "parentToolUseId"]) {
+  for (const field of [
+    "taskId",
+    "agentId",
+    "parentAgentId",
+    "toolUseId",
+    "parentToolUseId",
+    "hookId",
+  ]) {
     if (typeof payload[field] === "string") payload[field] = recordedId(payload[field] as string);
+  }
+  if (Array.isArray(payload.precedingToolUseIds)) {
+    payload.precedingToolUseIds = payload.precedingToolUseIds.map((id) =>
+      typeof id === "string" ? recordedId(id) : id,
+    );
   }
   return {
     type: event.type,

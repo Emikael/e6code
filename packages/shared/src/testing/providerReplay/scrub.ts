@@ -21,7 +21,7 @@ import type {
 } from "./recording.ts";
 
 /** Bump when a rule changes so committed recordings are re-scrubbed. */
-export const SCRUB_VERSION = 1;
+export const SCRUB_VERSION = 5;
 
 const WORKSPACE_PLACEHOLDER = "/workspace/repo";
 const HOME_PLACEHOLDER = "/home/user";
@@ -55,7 +55,9 @@ export interface RecordingLeak {
     | "hostname"
     | "ip-address"
     | "identity"
-    | "scrub-version";
+    | "scrub-version"
+    | "outside-workspace"
+    | "local-environment";
   /** Dotted path to the offending value, never the value itself. */
   readonly path: string;
 }
@@ -282,6 +284,197 @@ function withoutForbiddenFields(event: RecordingEvent["event"]): RecordingEvent[
   return copy as RecordingEvent["event"];
 }
 
+type ReplayEvent = RecordingEvent["event"];
+
+const OUTSIDE_WORKSPACE_DATA = { omitted: "outside-workspace" } as const;
+const OMITTED = "[omitted]";
+const ITEM_EVENT_TYPES = new Set(["item.started", "item.updated", "item.completed"]);
+const OUTPUT_STREAM_KINDS = new Set(["command_output", "file_change_output"]);
+const MAX_HOME_DETAIL_CHARACTERS = 200;
+// After path scrubbing the home folder reads `/home/user/`; commands also say `~/` or `$HOME`.
+const HOME_REFERENCE = /\/home\/user\/|(?<![\w/.~])~\/|\$HOME\b/;
+const HOME_PATH = /\/home\/user\/[^\s"'`<>]*/;
+
+const payloadOf = (event: ReplayEvent) => event.payload as Record<string, unknown>;
+
+/**
+ * Streamed text arrives in chunks as small as one character, so a name or a
+ * path can be split across events. Chunks are scrubbed and checked as the
+ * stream they belong to: one per turn, item and stream kind.
+ */
+function streamKey(event: ReplayEvent): string | undefined {
+  if (event.type === "content.delta") {
+    return `${event.turnId ?? ""}|${event.itemId ?? ""}|${event.payload.streamKind}`;
+  }
+  if (event.type === "turn.proposed.delta") return `${event.turnId ?? ""}|proposed`;
+  return undefined;
+}
+
+/** Line indexes of each text stream's chunks, in recording order. */
+function textStreams(lines: ReadonlyArray<RecordingLine>): ReadonlyMap<string, Array<number>> {
+  const streams = new Map<string, Array<number>>();
+  lines.forEach((line, index) => {
+    if (line.kind !== "event") return;
+    const key = streamKey(line.event);
+    if (key === undefined) return;
+    const indexes = streams.get(key) ?? [];
+    indexes.push(index);
+    streams.set(key, indexes);
+  });
+  return streams;
+}
+
+const deltaAt = (lines: ReadonlyArray<RecordingLine>, index: number): string => {
+  const line = lines[index];
+  return line?.kind === "event" ? String(payloadOf(line.event).delta ?? "") : "";
+};
+
+function withDelta(line: RecordingLine, delta: string): RecordingLine {
+  if (line.kind !== "event") return line;
+  return {
+    ...line,
+    event: { ...line.event, payload: { ...payloadOf(line.event), delta } } as ReplayEvent,
+  };
+}
+
+/**
+ * Splits scrubbed text back into as many chunks as the original stream had,
+ * at proportional offsets, so event counts and the joined text both hold.
+ * Unchanged text keeps its original chunks.
+ */
+function resplit(chunks: ReadonlyArray<string>, text: string): ReadonlyArray<string> {
+  const joined = chunks.join("");
+  if (text === joined) return chunks;
+  const result: Array<string> = [];
+  let consumed = 0;
+  let previousCut = 0;
+  chunks.forEach((chunk, index) => {
+    consumed += chunk.length;
+    const cut =
+      index === chunks.length - 1
+        ? text.length
+        : Math.round((consumed / Math.max(joined.length, 1)) * text.length);
+    result.push(text.slice(previousCut, cut));
+    previousCut = cut;
+  });
+  return result;
+}
+
+/**
+ * Items that touched the home folder, such as an agent reading the
+ * recorder's global skills or config, carry that file's text. They keep
+ * their title, status and a short path; their data and output are dropped.
+ */
+function homeItemIds(lines: ReadonlyArray<RecordingLine>): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const line of lines) {
+    if (line.kind !== "event" || !ITEM_EVENT_TYPES.has(line.event.type)) continue;
+    if (line.event.itemId === undefined) continue;
+    if (HOME_REFERENCE.test(JSON.stringify(line.event.payload))) ids.add(line.event.itemId);
+  }
+  return ids;
+}
+
+const isHomeOutputStream = (event: ReplayEvent, homeItems: ReadonlySet<string>) =>
+  event.type === "content.delta" &&
+  event.itemId !== undefined &&
+  homeItems.has(event.itemId) &&
+  OUTPUT_STREAM_KINDS.has(event.payload.streamKind);
+
+/** Whether an item event belongs to an item that touched the home folder. */
+function isHomeItemEvent(event: ReplayEvent, homeItems: ReadonlySet<string>): boolean {
+  if (!ITEM_EVENT_TYPES.has(event.type)) return false;
+  return event.itemId === undefined
+    ? HOME_REFERENCE.test(JSON.stringify(event.payload))
+    : homeItems.has(event.itemId);
+}
+
+/** A home item's detail becomes the home path it names; a write's content goes with it. */
+function shortHomeDetail(detail: string): string {
+  const path = HOME_PATH.exec(detail)?.[0];
+  if (path !== undefined) return path;
+  return detail.length <= MAX_HOME_DETAIL_CHARACTERS ? detail : OMITTED;
+}
+
+function withoutHomeItemContent(event: ReplayEvent, homeItems: ReadonlySet<string>): ReplayEvent {
+  if (!isHomeItemEvent(event, homeItems)) return event;
+  const payload = { ...payloadOf(event) };
+  if (payload.data !== undefined) payload.data = OUTSIDE_WORKSPACE_DATA;
+  if (typeof payload.detail === "string") payload.detail = shortHomeDetail(payload.detail);
+  return { ...event, payload } as ReplayEvent;
+}
+
+/** What a home item still holds that a scrubbed recording would not. */
+function homeItemLeaks(event: ReplayEvent, homeItems: ReadonlySet<string>): ReadonlyArray<string> {
+  if (!isHomeItemEvent(event, homeItems)) return [];
+  const payload = payloadOf(event);
+  const fields: Array<string> = [];
+  if (
+    payload.data !== undefined &&
+    JSON.stringify(payload.data) !== JSON.stringify(OUTSIDE_WORKSPACE_DATA)
+  ) {
+    fields.push("data");
+  }
+  if (typeof payload.detail === "string" && shortHomeDetail(payload.detail) !== payload.detail) {
+    fields.push("detail");
+  }
+  return fields;
+}
+
+/**
+ * Claude's init message lists every tool, MCP server, plugin, skill and agent
+ * the recorder has installed, plus local paths; hooks print whatever the
+ * recorder's own hooks print. Nothing downstream reads either, so recordings
+ * keep only what describes the session itself.
+ */
+const SESSION_CONFIG_KEYS = new Set([
+  "type",
+  "subtype",
+  "model",
+  "cwd",
+  "effort",
+  "permissionMode",
+  "claude_code_version",
+  "output_style",
+]);
+const HOOK_EVENT_TYPES = new Set(["hook.progress", "hook.completed"]);
+const HOOK_OUTPUT_FIELDS = ["output", "stdout", "stderr"] as const;
+const OMITTED_OUTPUT = OMITTED;
+
+function localEnvironmentFields(event: RecordingEvent["event"]): ReadonlyArray<string> {
+  const payload = event.payload as Record<string, unknown>;
+  if (event.type === "session.configured") {
+    const config = payload.config;
+    if (typeof config !== "object" || config === null) return [];
+    return Object.keys(config)
+      .filter((key) => !SESSION_CONFIG_KEYS.has(key))
+      .map((key) => `config.${key}`);
+  }
+  if (HOOK_EVENT_TYPES.has(event.type)) {
+    return HOOK_OUTPUT_FIELDS.filter(
+      (field) => typeof payload[field] === "string" && payload[field] !== OMITTED_OUTPUT,
+    );
+  }
+  return [];
+}
+
+function withoutLocalEnvironment(event: RecordingEvent["event"]): RecordingEvent["event"] {
+  if (localEnvironmentFields(event).length === 0) return event;
+  const payload = { ...(event.payload as Record<string, unknown>) };
+  if (event.type === "session.configured") {
+    payload.config = Object.fromEntries(
+      Object.entries(payload.config as Record<string, unknown>).filter(([key]) =>
+        SESSION_CONFIG_KEYS.has(key),
+      ),
+    );
+  } else {
+    for (const field of HOOK_OUTPUT_FIELDS) {
+      if (typeof payload[field] === "string") payload[field] = OMITTED_OUTPUT;
+    }
+  }
+  return { ...event, payload } as RecordingEvent["event"];
+}
+
 function rebaseCreatedAt(createdAt: string, firstEventAtMs: number | undefined): string {
   const at = Date.parse(createdAt);
   const offset =
@@ -315,14 +508,37 @@ export function scrubRecording(
   const lines = recording.lines.map((line): RecordingLine => {
     if (line.kind !== "event") return scrubValue(line, scrubString) as RecordingLine;
     const event = withoutForbiddenFields(line.event);
-    const scrubbed = scrubValue(event, scrubString) as RecordingEvent["event"];
+    const scrubbed = withoutLocalEnvironment(scrubValue(event, scrubString) as ReplayEvent);
     return {
       kind: "event",
       dt: line.dt,
       event: { ...scrubbed, createdAt: rebaseCreatedAt(line.event.createdAt, firstEventAtMs) },
     };
   });
-  return { header, lines };
+  // Streamed text is scrubbed joined, so nothing split across chunks survives.
+  for (const indexes of textStreams(recording.lines).values()) {
+    const chunks = indexes.map((index) => deltaAt(recording.lines, index));
+    const scrubbedChunks = resplit(chunks, scrubString(chunks.join("")));
+    indexes.forEach((index, position) => {
+      lines[index] = withDelta(lines[index]!, scrubbedChunks[position] ?? "");
+    });
+  }
+  const homeItems = homeItemIds(lines);
+  for (const indexes of textStreams(lines).values()) {
+    const first = lines[indexes[0]!];
+    if (first?.kind !== "event" || !isHomeOutputStream(first.event, homeItems)) continue;
+    indexes.forEach((index, position) => {
+      lines[index] = withDelta(lines[index]!, position === 0 ? OMITTED : "");
+    });
+  }
+  return {
+    header,
+    lines: lines.map((line) =>
+      line.kind === "event"
+        ? { ...line, event: withoutHomeItemContent(line.event, homeItems) }
+        : line,
+    ),
+  };
 }
 
 function collectStringLeaks(
@@ -413,6 +629,7 @@ export function findLeaks(
     leaks.push({ line: 1, kind: "scrub-version", path: "scrubVersion" });
   }
   collectLeaks(recording.header, "", 1, identities, leaks);
+  const homeItems = homeItemIds(recording.lines);
   recording.lines.forEach((line, index) => {
     const lineNumber = index + 2;
     if (line.kind === "event") {
@@ -421,8 +638,32 @@ export function findLeaks(
           leaks.push({ line: lineNumber, kind: "forbidden-field", path: `event.${field}` });
         }
       }
+      for (const field of homeItemLeaks(line.event, homeItems)) {
+        leaks.push({ line: lineNumber, kind: "outside-workspace", path: `event.payload.${field}` });
+      }
+      for (const field of localEnvironmentFields(line.event)) {
+        leaks.push({ line: lineNumber, kind: "local-environment", path: `event.payload.${field}` });
+      }
     }
     collectLeaks(line, "", lineNumber, identities, leaks);
   });
+  for (const indexes of textStreams(recording.lines).values()) {
+    const first = recording.lines[indexes[0]!];
+    if (first?.kind !== "event") continue;
+    const lineNumber = indexes[0]! + 2;
+    const text = indexes.map((index) => deltaAt(recording.lines, index)).join("");
+    const path = `stream:${String(payloadOf(first.event).streamKind ?? "proposed")}`;
+    // Report what only the joined text shows; a leak inside one chunk is already listed.
+    const chunkLines = new Set(indexes.map((index) => index + 2));
+    const chunkKinds = new Set(
+      leaks.filter((leak) => chunkLines.has(leak.line)).map((leak) => leak.kind),
+    );
+    const joined: Array<RecordingLeak> = [];
+    collectStringLeaks(text, path, lineNumber, identities, joined);
+    leaks.push(...joined.filter((leak) => !chunkKinds.has(leak.kind)));
+    if (isHomeOutputStream(first.event, homeItems) && text !== OMITTED) {
+      leaks.push({ line: lineNumber, kind: "outside-workspace", path });
+    }
+  }
   return leaks;
 }

@@ -260,6 +260,271 @@ describe("credential fields", () => {
   });
 });
 
+describe("files outside the workspace", () => {
+  const readEvent = (path: string): RecordingLine =>
+    ({
+      kind: "event",
+      dt: 0,
+      event: {
+        eventId: "e1",
+        provider: "cursor",
+        threadId: "thread-1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type: "item.completed",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: "completed",
+          title: "Read file",
+          detail: path,
+          data: { kind: "read", rawOutput: { content: "private notes from the home folder" } },
+        },
+      },
+    }) as unknown as RecordingLine;
+  const recordingOf = (path: string): ProviderReplayRecording => ({
+    header: { ...dirtyRecording().header, scrubVersion: SCRUB_VERSION },
+    lines: [readEvent(path)],
+  });
+
+  it("drops the data of tool items that touched the home folder, keeping the item", () => {
+    const dirty = recordingOf("/Users/alice/.claude/skills/notes/SKILL.md");
+    const scrubbed = scrubRecording(dirty, { homeDirectories: ["/Users/alice"] });
+    const line = scrubbed.lines[0];
+    if (line?.kind !== "event") throw new Error("expected event");
+
+    expect(line.event.payload).toEqual({
+      itemType: "dynamic_tool_call",
+      status: "completed",
+      title: "Read file",
+      detail: "/home/user/.claude/skills/notes/SKILL.md",
+      data: { omitted: "outside-workspace" },
+    });
+    expect(findLeaks(scrubbed)).toEqual([]);
+    expect(scrubRecording(scrubbed)).toEqual(scrubbed);
+  });
+
+  it("flags kept home data and leaves workspace reads alone", () => {
+    const kept = recordingOf("/home/user/.config/tool/settings.toml");
+    const workspace = recordingOf("/workspace/repo/src/parse.js");
+
+    expect(findLeaks(kept).map((leak) => leak.kind)).toEqual(["outside-workspace"]);
+    expect(findLeaks(workspace)).toEqual([]);
+    expect(scrubRecording(workspace).lines).toEqual(workspace.lines);
+  });
+});
+
+describe("streamed text", () => {
+  const deltaLine = (
+    eventId: string,
+    delta: string,
+    fields: Record<string, unknown> = {},
+  ): RecordingLine =>
+    ({
+      kind: "event",
+      dt: 5,
+      event: {
+        eventId,
+        provider: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "msg-1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type: "content.delta",
+        payload: { streamKind: "assistant_text", delta },
+        ...fields,
+      },
+    }) as unknown as RecordingLine;
+  const itemLine = (type: string, payload: Record<string, unknown>): RecordingLine =>
+    ({
+      kind: "event",
+      dt: 5,
+      event: {
+        eventId: `${type}-1`,
+        provider: "codex",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type,
+        payload,
+      },
+    }) as unknown as RecordingLine;
+  const recordingOf = (...lines: Array<RecordingLine>): ProviderReplayRecording => ({
+    header: { ...dirtyRecording().header, scrubVersion: SCRUB_VERSION },
+    lines,
+  });
+  const textOf = (recording: ProviderReplayRecording, streamKind = "assistant_text") =>
+    recording.lines
+      .flatMap((line) =>
+        line.kind === "event" &&
+        line.event.type === "content.delta" &&
+        line.event.payload.streamKind === streamKind
+          ? [line.event.payload.delta]
+          : [],
+      )
+      .join("");
+
+  // A path and a name split across chunks, the way providers stream them.
+  const split = recordingOf(
+    ...[
+      "See [parse.js](/Us",
+      "ers/al",
+      "ice/scr",
+      "atch/e6-replay-sample/src/parse.js), ",
+      "as al",
+      "ice noted.",
+    ].map((delta, index) => deltaLine(`e${index}`, delta)),
+  );
+  const options = {
+    workspaceRoots: ["/Users/alice/scratch/e6-replay-sample"],
+    homeDirectories: ["/Users/alice"],
+    identities: ["alice"],
+  };
+
+  it("finds what is split across chunks and scrubs the joined text", () => {
+    expect(findLeaks(split, { identities: ["alice"] }).map((leak) => leak.kind)).toEqual([
+      "home-path",
+      "identity",
+    ]);
+    const scrubbed = scrubRecording(split, options);
+
+    expect(scrubbed.lines).toHaveLength(split.lines.length);
+    expect(textOf(scrubbed)).toBe("See [parse.js](/workspace/repo/src/parse.js), as user noted.");
+    expect(findLeaks(scrubbed, { identities: ["alice"] })).toEqual([]);
+    expect(scrubRecording(scrubbed, options)).toEqual(scrubbed);
+  });
+
+  it("keeps a stream's chunks when nothing in it changes", () => {
+    const clean = recordingOf(deltaLine("e1", "Hello "), deltaLine("e2", "there."));
+
+    expect(
+      scrubRecording(clean).lines.map((line) => line.kind === "event" && line.event.payload),
+    ).toEqual(clean.lines.map((line) => line.kind === "event" && line.event.payload));
+  });
+
+  it("drops the output and long detail of a command that read the home folder", () => {
+    const dirty = recordingOf(
+      itemLine("item.started", {
+        itemType: "command_execution",
+        title: "Run",
+        detail: "cat ~/.zshrc",
+      }),
+      deltaLine("o1", "export PATH=/opt/tools:$PATH\n", {
+        itemId: "cmd-1",
+        payload: { streamKind: "command_output", delta: "export PATH=/opt/tools:$PATH\n" },
+      }),
+      deltaLine("o2", "alias gs='git status'\n", {
+        itemId: "cmd-1",
+        payload: { streamKind: "command_output", delta: "alias gs='git status'\n" },
+      }),
+      itemLine("item.completed", {
+        itemType: "file_change",
+        status: "completed",
+        title: "Write",
+        detail: `Write: {"file_path":"/home/user/notes.md","content":"${repeat("n", 300)}"}`,
+      }),
+      itemLine("item.updated", {
+        itemType: "file_change",
+        status: "inProgress",
+        title: "Write",
+        detail: 'Write: {"file_path":"/home/user/todo.md","content":"short private note"}',
+      }),
+    );
+
+    expect(findLeaks(dirty).map((leak) => leak.path)).toEqual([
+      "event.payload.detail",
+      "event.payload.detail",
+      "stream:command_output",
+    ]);
+    const scrubbed = scrubRecording(dirty);
+
+    expect(textOf(scrubbed, "command_output")).toBe("[omitted]");
+    expect(scrubbed.lines).toHaveLength(5);
+    expect(scrubbed.lines[3]).toMatchObject({
+      event: { payload: { detail: "/home/user/notes.md" } },
+    });
+    expect(scrubbed.lines[4]).toMatchObject({
+      event: { payload: { detail: "/home/user/todo.md" } },
+    });
+    expect(findLeaks(scrubbed)).toEqual([]);
+    expect(scrubRecording(scrubbed)).toEqual(scrubbed);
+  });
+});
+
+describe("the recorder's local environment", () => {
+  const eventLine = (type: string, payload: Record<string, unknown>): RecordingLine =>
+    ({
+      kind: "event",
+      dt: 0,
+      event: {
+        eventId: "e1",
+        provider: "claudeAgent",
+        threadId: "thread-1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        type,
+        payload,
+      },
+    }) as unknown as RecordingLine;
+  const recordingOf = (...lines: Array<RecordingLine>): ProviderReplayRecording => ({
+    header: { ...dirtyRecording().header, scrubVersion: SCRUB_VERSION },
+    lines,
+  });
+  const init = eventLine("session.configured", {
+    config: {
+      type: "system",
+      subtype: "init",
+      model: "claude-sonnet-5-5",
+      cwd: "/workspace/repo",
+      permissionMode: "default",
+      tools: ["Bash", "mcp__personal-finance__list_accounts"],
+      mcp_servers: [{ name: "personal-finance", status: "connected" }],
+      plugins: [{ name: "team-plugin" }],
+    },
+  });
+  const hook = eventLine("hook.completed", {
+    hookId: "hook-1",
+    outcome: "success",
+    output: "context injected by the recorder's own SessionStart hook",
+  });
+
+  it("keeps only the session's own settings and drops hook output", () => {
+    const scrubbed = scrubRecording(recordingOf(init, hook));
+    const [config, completed] = scrubbed.lines;
+
+    expect(config).toMatchObject({
+      event: {
+        payload: {
+          config: {
+            type: "system",
+            subtype: "init",
+            model: "claude-sonnet-5-5",
+            cwd: "/workspace/repo",
+            permissionMode: "default",
+          },
+        },
+      },
+    });
+    const settings =
+      config?.kind === "event" && config.event.type === "session.configured"
+        ? config.event.payload.config
+        : {};
+    expect(Object.keys(settings)).toEqual(["type", "subtype", "model", "cwd", "permissionMode"]);
+    expect(completed).toMatchObject({
+      event: { payload: { hookId: "hook-1", outcome: "success", output: "[omitted]" } },
+    });
+    expect(findLeaks(scrubbed)).toEqual([]);
+    expect(scrubRecording(scrubbed)).toEqual(scrubbed);
+  });
+
+  it("flags installed tools, servers and hook output left in a recording", () => {
+    expect(findLeaks(recordingOf(init, hook)).map((leak) => leak.path)).toEqual([
+      "event.payload.config.tools",
+      "event.payload.config.mcp_servers",
+      "event.payload.config.plugins",
+      "event.payload.output",
+    ]);
+  });
+});
+
 describe("findLeaks", () => {
   it("flags every class of leak in an unscrubbed recording, without echoing values", () => {
     const leaks = findLeaks(dirtyRecording(), { identities: options.identities });
