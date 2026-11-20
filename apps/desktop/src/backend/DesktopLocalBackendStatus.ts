@@ -12,7 +12,7 @@ const MAX_REASON_LENGTH = 500;
  * Reduces an exit reason or error text to the single line the renderer shows: the first
  * non-empty line, whitespace collapsed, without the stack that follows it.
  */
-export function toStatusReason(text: string): string | null {
+function toStatusReason(text: string): string | null {
   const firstLine = text
     .split(/\r?\n/u)
     .map((line) => line.replace(/\s+/gu, " ").trim())

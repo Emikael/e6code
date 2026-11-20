@@ -77,7 +77,7 @@ export interface LocalEnvironmentDetailLine {
   readonly mono: boolean;
 }
 
-export const NO_REASON_REPORTED = "No reason was reported.";
+const NO_REASON_REPORTED = "No reason was reported.";
 
 /** The lines a tooltip adds under `{label} · {word}`; none for a plain start. */
 export function localEnvironmentDetailLines(
