@@ -29,7 +29,8 @@ Check, in this order:
 3. **Motion and performance.** Animations use the named presets and only transform and
    opacity, as `AGENTS.md` "Motion and icons" allows; nothing moves at idle; the Reduced
    and Off forms exist. Run the measurements the plan named and compare with the budgets
-   in `AGENTS.md`.
+   in `AGENTS.md`; for one that needs a running client, use the primary agent's numbers
+   or report it as not measured.
 4. **Accessibility.** Names on icon-only controls, focus order and visibility, contrast
    computed from real values, status not conveyed by colour alone.
 5. **Compatibility.** Wire contracts, persisted data and older clients, as the plan

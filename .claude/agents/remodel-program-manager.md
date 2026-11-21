@@ -47,8 +47,8 @@ What you do:
   the same files. Say why these and not others. Each screen task gets one feature planner
   and one screen designer; planning and design for several tasks may run in parallel.
   Implementers run in parallel only on tasks the ownership map (E04-T05) shows as
-  file-disjoint, and at most three at once. The limit is raised only after the CI
-  performance gates (E05-T06) have caught a regression.
+  file-disjoint, and at most three at once. The limit is raised once the CI performance
+  gates (E05-T06) have caught a regression.
 - Keep one capability per task. If a task turns out to hide two, split it and move the
   inventory citations so every entry still belongs to exactly one open or completed task.
   Nothing from the inventory may end up cited by no task: that is how a feature gets

@@ -18,8 +18,8 @@ what it must still do.
 How to work:
 
 - All remodel work lands on the `remodel` branch, not on `main`. Start each task on its
-  own branch from the latest `remodel`, and open its pull request against `remodel`.
-  One task per pull request. If the task is a file in `remodel-backlog/` rather than a
+  own branch from the latest `remodel`; when the maintainer asks for a pull request, open
+  it against `remodel`. One task per pull request. If the task is a file in `remodel-backlog/` rather than a
   Linear issue, delete that file in the same pull request once the work is validated.
 
 - Stay inside the task. If you find a neighbouring problem, record it on the task or as a
@@ -36,7 +36,7 @@ How to work:
   exist. Do not skip, delete or loosen a test to make a change pass; if a test encodes
   behaviour the redesign intentionally changes, say so and change it deliberately.
 - Measure the hot paths the plan names against the budgets in `AGENTS.md` and include
-  the numbers and how you measured them.
+  the numbers and how you measured them, or name what you could not measure and why.
 - Protect running instances while you work: never start a server against the live data
   directory, never stop a process you did not start, and never bake dev origins into a
   build.
