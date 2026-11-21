@@ -118,6 +118,8 @@ export const BRAND: CssRule = {
   body: [
     ["--brand-ink", BRAND_COLORS.ink],
     ["--brand-paper", BRAND_COLORS.paper],
+    { comment: "The boot tile's band, for in-app tiles that continue the boot shell." },
+    ["--brand-graphite", BRAND_COLORS.graphite],
     {
       comment:
         "The tile's band follows the Accent setting. Stock accents write --stock-mark-band\n(stockAccent.ts, each accent's dark value) and themes write --app-theme-mark-band\n(themePalette.ts, lifted to 4.5:1 on ink). Never --primary: a light accent can\nvanish on ink. The literal is Iris's dark value, the default accent.",

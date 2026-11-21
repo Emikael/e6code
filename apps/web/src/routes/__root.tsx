@@ -32,7 +32,11 @@ import { ThreadNotificationCoordinator } from "../components/ThreadNotificationC
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
-import { StartupLandingMark, StartupShellInteractiveMark } from "../components/StartupMarks";
+import {
+  StartupLandingMark,
+  StartupShellInteractiveMark,
+  StartupShellLiveMark,
+} from "../components/StartupMarks";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useDefaultThemeAdoption } from "../hooks/useDefaultTheme";
@@ -59,13 +63,28 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
-import { resolveInitialServerAuthGateState } from "../environments/primary";
+import {
+  hasAuthenticatedPrimaryThisSession,
+  peekPairingTokenFromUrl,
+  resolveInitialServerAuthGateState,
+} from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
+import {
+  canEnterApp,
+  localEnvironmentStatusAtom,
+  readLocalEnvironmentStatus,
+  resolveRootGateMode,
+} from "../localEnvironmentStatus";
 import { shellEnvironment } from "../state/shell";
 import { useAtomValue } from "@effect/atom-react";
 import { useAtomCommand } from "../state/use-atom-command";
-import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
+import {
+  useEnvironments,
+  usePrimaryEnvironment,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
+import { environmentCatalog } from "../connection/catalog";
 import {
   primaryServerConfigAtom,
   primaryServerConfigEventAtom,
@@ -99,9 +118,19 @@ export const Route = createRootRoute({
       };
     }
 
-    const authGateState = await resolveInitialServerAuthGateState();
+    // The desktop opens its window before the local backend is up. Until it is, the app
+    // renders from cache without authenticating; requests still carry the main-minted bearer.
+    const localStarting =
+      resolveRootGateMode({
+        localEnvironmentStatus: readLocalEnvironmentStatus(window.desktopBridge),
+        hasPairingToken: peekPairingTokenFromUrl() !== null,
+        authenticatedThisSession: hasAuthenticatedPrimaryThisSession(),
+      }) === "local-starting";
+    const authGateState = localStarting
+      ? ({ status: "local-starting" } as const)
+      : await resolveInitialServerAuthGateState();
     if (
-      authGateState.status === "authenticated" &&
+      (authGateState.status === "authenticated" || authGateState.status === "local-starting") &&
       getDesktopSnapShotBridge() &&
       shouldResumeSnapShotSetupOnStartup() &&
       location.pathname !== "/settings/snap-shot"
@@ -140,6 +169,7 @@ function RootRouteView() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
+  const localStarting = authGateState.status === "local-starting";
   const returningFromWelcomeRef = useRef(pathname === "/welcome");
 
   useEffect(() => {
@@ -190,7 +220,7 @@ function RootRouteView() {
     );
   }
 
-  if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
+  if (!canEnterApp(authGateState)) {
     return (
       <>
         <StartupLandingMark landing="requires-auth" />
@@ -220,12 +250,16 @@ function RootRouteView() {
         <EnvironmentThemeSync />
         <GlassAppearanceSync />
         <FontAppearanceSync />
+        {localStarting ? <LocalEnvironmentReadyWatcher /> : null}
+        <LocalEnvironmentReconnect />
         <FirstRunGate
           enabled={primaryEnvironmentAuthenticated}
           hostedStatic={authGateState.status === "hosted-static"}
+          localStarting={localStarting}
         >
           <StartupLandingMark landing="app" />
           <StartupShellInteractiveMark />
+          <StartupShellLiveMark />
           {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
           {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
           <RelayClientInstallDialog />
@@ -357,11 +391,49 @@ function DocumentTitleSync() {
   return null;
 }
 
+/**
+ * Re-runs the root gate once the desktop's local environment is ready, which authenticates
+ * the primary and mounts what depends on it. The tree keeps its shape, so the shell stays.
+ */
+function LocalEnvironmentReadyWatcher() {
+  const router = useRouter();
+  const ready = useAtomValue(localEnvironmentStatusAtom)?.state === "ready";
+  useEffect(() => {
+    if (ready) void router.invalidate();
+  }, [ready, router]);
+  return null;
+}
+
+/**
+ * While its backend is down the primary retries on a ladder of up to 16 s; once the desktop
+ * reports the local environment ready, connect at once instead of waiting out the backoff.
+ */
+function LocalEnvironmentReconnect() {
+  const ready = useAtomValue(localEnvironmentStatusAtom)?.state === "ready";
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const retryNow = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
+  const wasReadyRef = useRef(ready);
+  useEffect(() => {
+    const becameReady = ready && !wasReadyRef.current;
+    wasReadyRef.current = ready;
+    if (becameReady && primaryEnvironmentId !== null) void retryNow(primaryEnvironmentId);
+  }, [primaryEnvironmentId, ready, retryNow]);
+  return null;
+}
+
 function HostedStaticEnvironmentBootstrap() {
   const { environments } = useEnvironments();
   const activeEnvironmentId = useActiveEnvironmentId();
+  // The primary registers from cache while the local environment starts, but a quick look
+  // could see only saved remotes; never make one of them active in the meantime.
+  const localStatus = useAtomValue(localEnvironmentStatusAtom);
+  const localStarting = localStatus != null && localStatus.state !== "ready";
 
   useEffect(() => {
+    if (localStarting) {
+      return;
+    }
+
     if (
       environments.some(
         (environment) => environment.entry.target._tag === "PrimaryConnectionTarget",
@@ -380,7 +452,7 @@ function HostedStaticEnvironmentBootstrap() {
     }
 
     setActiveEnvironmentId(firstSavedEnvironment.environmentId);
-  }, [activeEnvironmentId, environments]);
+  }, [activeEnvironmentId, environments, localStarting]);
 
   return null;
 }

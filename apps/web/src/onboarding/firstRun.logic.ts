@@ -35,6 +35,8 @@ interface FirstRunWorkspaceInput {
 
 interface FirstRunDecisionInput {
   readonly enabled: boolean;
+  /** The desktop's local environment is still starting, so there is no server to ask yet. */
+  readonly localStarting?: boolean;
   readonly hydrated: boolean;
   readonly completed: boolean;
   readonly bootstrapped: boolean;
@@ -127,7 +129,14 @@ export function resolveFirstRunDecision(input: FirstRunDecisionInput): {
   readonly decision: FirstRunDecision;
   readonly persistCompletion: boolean;
 } {
-  if (!input.enabled || (input.hydrated && input.completed)) {
+  if (input.hydrated && input.completed) {
+    return { decision: "app", persistCompletion: false };
+  }
+  // Onboarding needs the workspace the server reports, so it waits for the local environment.
+  if (input.localStarting === true) {
+    return { decision: "pending", persistCompletion: false };
+  }
+  if (!input.enabled) {
     return { decision: "app", persistCompletion: false };
   }
 
@@ -184,4 +193,32 @@ export function resolveHostedFirstRunDecision(input: HostedFirstRunDecisionInput
   return input.environmentCount === 0 && !input.localEnvironmentDisabled
     ? { decision: "wizard", persistCompletion: false }
     : { decision: "app", persistCompletion: true };
+}
+
+/** What the gate shows while its decision is pending: nothing, the starting panel, or recovery. */
+export type FirstRunPendingView = "none" | "starting" | "recovery";
+
+export function resolveFirstRunPendingView(input: {
+  readonly localStarting: boolean;
+  readonly hydrated: boolean;
+  readonly completed: boolean;
+  readonly stalled: boolean;
+}): FirstRunPendingView {
+  if (input.stalled) return "recovery";
+  // Only a client known not to be onboarded waits on the panel. Before settings hydrate, and in
+  // the render between hydration and the app decision, an onboarded client would flash it.
+  return input.localStarting && input.hydrated && !input.completed ? "starting" : "none";
+}
+
+/**
+ * "Still connecting" means the server should have answered by now. While the desktop's local
+ * environment is starting that is expected, so the timer waits for it to be ready.
+ */
+export function shouldStartFirstRunStallTimer(input: {
+  readonly enabled: boolean;
+  readonly localStarting: boolean;
+  readonly decision: FirstRunDecision;
+  readonly hydrated: boolean;
+}): boolean {
+  return input.enabled && !input.localStarting && input.decision === "pending" && input.hydrated;
 }

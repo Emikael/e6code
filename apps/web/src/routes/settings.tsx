@@ -27,6 +27,7 @@ import {
 } from "../components/settings/settingsSearch";
 import { settingsEscapeAction } from "../components/settings/settingsNavGroups";
 import { useSettingsBackNavigation } from "../components/settings/useSettingsBackNavigation";
+import { canEnterApp } from "../localEnvironmentStatus";
 
 function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void }) {
   const { changedSettingLabels, restoreDefaults } = useSettingsRestore(onRestored);
@@ -201,10 +202,7 @@ export const Route = createFileRoute("/settings")({
   validateSearch: validateSettingsRouteSearch,
   search: { middlewares: [retainSettingsScope] },
   beforeLoad: async ({ context, location }) => {
-    if (
-      context.authGateState.status !== "authenticated" &&
-      context.authGateState.status !== "hosted-static"
-    ) {
+    if (!canEnterApp(context.authGateState)) {
       throw redirect({ to: "/pair", replace: true });
     }
 

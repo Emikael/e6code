@@ -210,6 +210,7 @@ import {
   serverEnvironment,
 } from "../state/server";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { localEnvironmentWordAtom } from "../localEnvironmentWord";
 import { supportsServerUpdateCheck } from "../versionSkew";
 import { canCheckForUpdate } from "./desktopUpdate.logic";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
@@ -805,6 +806,7 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const localEnvironmentWord = useAtomValue(localEnvironmentWordAtom);
   const forceCheckForServerUpdate = useAtomCommand(serverEnvironment.forceCheckForUpdate, {
     reportFailure: false,
   });
@@ -1056,6 +1058,9 @@ function OpenCommandPaletteDialog(props: {
   const addProjectEnvironmentOptions = useMemo(() => {
     const options = environments.map((environment): AddProjectEnvironmentOption => {
       const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
+      // While the desktop's local environment starts, its status says why it cannot take a
+      // project yet, instead of the connection's "Failed to connect. Reconnecting...".
+      const localWord = isPrimary ? localEnvironmentWord : null;
       return {
         environmentId: environment.environmentId,
         label: resolveEnvironmentOptionLabel({
@@ -1066,7 +1071,7 @@ function OpenCommandPaletteDialog(props: {
         isPrimary,
         machine: resolveEnvironmentMachineKind(environment.serverConfig),
         isConnected: canCreateProjectInEnvironment(environment.connection.phase),
-        status: connectionStatusText(environment.connection),
+        status: localWord?.word ?? connectionStatusText(environment.connection),
       };
     });
 
@@ -1078,7 +1083,7 @@ function OpenCommandPaletteDialog(props: {
     });
 
     return options;
-  }, [environments]);
+  }, [environments, localEnvironmentWord]);
   const defaultAddProjectEnvironmentId =
     addProjectEnvironmentOptions.find((option) => option.isConnected)?.environmentId ?? null;
   const wslAddProjectEnvironmentOption = useMemo(

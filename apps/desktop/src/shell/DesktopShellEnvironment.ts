@@ -1,14 +1,19 @@
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import { startupClock } from "../app/DesktopStartupClock.ts";
 
 type EnvironmentPatch = Record<string, string>;
 
@@ -64,6 +69,16 @@ export class DesktopShellEnvironment extends Context.Service<
   DesktopShellEnvironment,
   {
     readonly installIntoProcess: Effect.Effect<void>;
+    /**
+     * Starts the login-shell import in the background, once per process, and returns at once.
+     * Startup calls it first so protocol registration and the window never wait for the shell.
+     */
+    readonly start: Effect.Effect<void>;
+    /**
+     * Completes when the import started by `start` has finished, whatever its outcome. Anything
+     * that spawns a process needing the user's PATH, SSH agent or desktop session waits on it.
+     */
+    readonly awaitInstalled: Effect.Effect<void>;
   }
 >()("@e6tools/desktop/shell/DesktopShellEnvironment") {}
 
@@ -547,7 +562,40 @@ export const make = Effect.gen(function* () {
       Effect.withSpan("desktop.shellEnvironment.installIntoProcess"),
     );
 
-  return DesktopShellEnvironment.of({ installIntoProcess });
+  const scope = yield* Scope.Scope;
+  const installed = yield* Deferred.make<void>();
+  const started = yield* Ref.make(false);
+  // The latch opens on every exit, interruption at shutdown included: a defect in the import
+  // must cost the user their shell PATH, not a backend that never starts.
+  const runImport = Effect.suspend(() => {
+    const startMs = startupClock.nowMs();
+    return installIntoProcess.pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logError("desktop shell environment import failed").pipe(
+              Effect.annotateLogs({
+                component: "desktop-shell-environment",
+                cause: Cause.pretty(cause),
+              }),
+            ),
+      ),
+      Effect.andThen(Effect.sync(() => startupClock.reach("shellEnvironmentImport", { startMs }))),
+      Effect.ensuring(Deferred.succeed(installed, undefined)),
+    );
+  });
+  const start = Ref.getAndSet(started, true).pipe(
+    Effect.flatMap((alreadyStarted) =>
+      alreadyStarted ? Effect.void : Effect.forkIn(runImport, scope).pipe(Effect.asVoid),
+    ),
+    Effect.withSpan("desktop.shellEnvironment.start"),
+  );
+
+  return DesktopShellEnvironment.of({
+    installIntoProcess,
+    start,
+    awaitInstalled: Deferred.await(installed),
+  });
 });
 
 export const layer = Layer.effect(DesktopShellEnvironment, make);

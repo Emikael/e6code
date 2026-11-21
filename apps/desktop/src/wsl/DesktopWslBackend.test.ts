@@ -26,6 +26,7 @@ function makeStubInstance(input: {
   return {
     id: input.id,
     label: Effect.succeed(input.label),
+    prepare: Effect.void,
     start: input.start ?? Effect.void,
     stop: () => Effect.void,
     currentConfig: Effect.succeed(Option.none<DesktopBackendStartConfig>()),

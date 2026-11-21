@@ -26,6 +26,8 @@ export const setClientSettings = DesktopIpc.makeIpcMethod({
     const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
     const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
     yield* clientSettings.set(settings);
+    // Saved at once; SnapShot picks the settings up once startup has initialized it.
+    yield* snapShot.awaitInitialized;
     yield* snapShot.configure(settings);
   }),
 });

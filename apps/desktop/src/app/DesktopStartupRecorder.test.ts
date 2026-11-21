@@ -52,7 +52,12 @@ const setup = Effect.gen(function* () {
         isPackaged: true,
         isDevelopment: false,
       },
-      launch: { localEnvironmentEnabled: true, wslOnly: false, wslBackendEnabled: false },
+      launch: {
+        localEnvironmentEnabled: true,
+        wslOnly: false,
+        wslBackendEnabled: false,
+        environmentIdKnown: true,
+      },
     }),
     sampleMemory: Effect.succeed(memory),
     writeLine: (line) => Ref.update(lines, (current) => [...current, decodeLine(line)]),
@@ -68,8 +73,10 @@ const setup = Effect.gen(function* () {
   return { clock, recorder, records, memoryLabels };
 });
 
+// With the shell interactive and the backend ready, the record also waits for the live shell.
 const settleAll = (clock: StartupClock) => {
   for (const phase of REQUIRED_STARTUP_PHASES) clock.reach(phase);
+  clock.reach("shellLive");
 };
 
 describe("makeStartupRecorder", () => {

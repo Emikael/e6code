@@ -17,6 +17,7 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
+import * as DesktopLocalBackendStatus from "./DesktopLocalBackendStatus.ts";
 import type { DesktopBackendSnapshot, DesktopBackendStartConfig } from "./DesktopBackendManager.ts";
 
 function makeStubInstance(
@@ -33,6 +34,7 @@ function makeStubInstance(
   return {
     id,
     label: Effect.succeed(label),
+    prepare: Effect.void,
     start: Effect.void,
     stop: () => Effect.void,
     currentConfig: Effect.succeed(Option.none<DesktopBackendStartConfig>()),
@@ -84,12 +86,14 @@ function makePoolLayer(
         } satisfies DesktopBackendConfiguration.DesktopBackendConfiguration["Service"]),
         DesktopAppSettings.layerTest(),
         DesktopWslEnvironment.layerTest(),
+        DesktopLocalBackendStatus.layer,
         ElectronDialog.layer,
         Layer.succeed(DesktopWindow.DesktopWindow, {
           createMain: Effect.die("unexpected window create"),
           ensureMain: Effect.die("unexpected window ensure"),
           revealOrCreateMain: Effect.die("unexpected window reveal"),
           activate: Effect.die("unexpected window activate"),
+          openMainAtStartup: Effect.die("unexpected window create"),
           createMainIfBackendReady: Effect.die("unexpected window create"),
           showConnectingSplash: Effect.void,
           handleBackendReady: () => Effect.void,

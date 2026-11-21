@@ -15,10 +15,10 @@
 //     so each instance can resolve its own start config — the primary wires
 //     `configuration.resolvePrimary`, the WSL orchestrator wires a
 //     `configuration.resolveWsl({ port, distro })` closure.
-//   - onReady / onShutdown drive UI side effects (window auto-open,
-//     readiness latch) only for instances that want them — the primary's
-//     spec passes the window's handleBackendReady/handleBackendNotReady,
-//     other pool instances pass nothing.
+//   - onReady / onShutdown / onRestartScheduled / onStartFailed drive the
+//     local environment status (and, in WSL-only mode, the window) only for
+//     instances that want them — the primary's spec passes them, other pool
+//     instances pass nothing.
 //   - log writes go through a per-instance writer that the factory
 //     pulls from `DesktopBackendOutputLogFactory.forInstance(spec.id)`,
 //     so each instance lands in its own rotating file.
@@ -264,6 +264,13 @@ export const PRIMARY_INSTANCE_ID: BackendInstanceId = BackendInstanceId(
 export interface DesktopBackendInstance {
   readonly id: BackendInstanceId;
   readonly label: Effect.Effect<string>;
+  /**
+   * Resolves and stores the start config without spawning, so `currentConfig` (and the
+   * renderer's bootstraps) know the endpoint and token before the backend runs. A no-op once a
+   * config exists. `start` still resolves its own config, so the spawn sees the environment of
+   * the moment it starts, not this one.
+   */
+  readonly prepare: Effect.Effect<void>;
   readonly start: Effect.Effect<void>;
   readonly stop: (options?: { readonly timeout?: Duration.Duration }) => Effect.Effect<void>;
   readonly currentConfig: Effect.Effect<Option.Option<DesktopBackendStartConfig>>;
@@ -299,6 +306,15 @@ export interface BackendInstanceSpec {
   // retries. Returns true when the callback changed configuration and the
   // manager should resolve once more; false stops the failed instance.
   readonly onPreflightFailed?: (failure: PreflightFailure) => Effect.Effect<boolean>;
+  // Fired when an unplanned exit or failed start schedules a restart. `attempt`
+  // counts restarts since the backend was last ready.
+  readonly onRestartScheduled?: (restart: {
+    readonly reason: string;
+    readonly attempt: number;
+  }) => Effect.Effect<void>;
+  // Fired when the instance gives up without scheduling another start: its
+  // config could not be resolved on a first start, or its preflight failed for good.
+  readonly onStartFailed?: (reason: string) => Effect.Effect<void>;
 }
 
 interface ActiveBackendRun {
@@ -719,6 +735,11 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
         if (Option.isNone(config)) {
           if (current.desiredRunning) {
             yield* scheduleRestart("failed to generate desktop backend configuration");
+          } else {
+            yield* (
+              spec.onStartFailed?.("failed to generate desktop backend configuration") ??
+                Effect.void
+            );
           }
           return;
         }
@@ -770,6 +791,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
               desiredRunning: false,
               ready: false,
             }));
+            yield* spec.onStartFailed?.(reason) ?? Effect.void;
             return;
           }
           if (attempt === attemptLimit) {
@@ -792,6 +814,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
                 desiredRunning: false,
                 ready: false,
               }));
+              yield* spec.onStartFailed?.(reason) ?? Effect.void;
             }
             return;
           }
@@ -990,26 +1013,30 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   ) {
     const scheduled = yield* Ref.modify(state, (latest) => {
       if (!latest.desiredRunning || Option.isSome(latest.restartFiber)) {
-        return [Option.none<Duration.Duration>(), latest] as const;
+        return [Option.none<{ delay: Duration.Duration; attempt: number }>(), latest] as const;
       }
 
-      const delay = calculateRestartDelay(latest.restartAttempt);
+      const attempt = latest.restartAttempt + 1;
       return [
-        Option.some(delay),
+        Option.some({ delay: calculateRestartDelay(latest.restartAttempt), attempt }),
         {
           ...latest,
-          restartAttempt: latest.restartAttempt + 1,
+          restartAttempt: attempt,
         },
       ] as const;
     });
 
     yield* Option.match(scheduled, {
       onNone: () => Effect.void,
-      onSome: Effect.fn("desktop.backendInstance.scheduleRestartFiber")(function* (delay) {
+      onSome: Effect.fn("desktop.backendInstance.scheduleRestartFiber")(function* ({
+        delay,
+        attempt,
+      }) {
         yield* logInstanceError("backend exited unexpectedly; restart scheduled", {
           reason,
           delayMs: Duration.toMillis(delay),
         });
+        yield* spec.onRestartScheduled?.({ reason, attempt }) ?? Effect.void;
         const restartFiber = yield* Effect.forkIn(
           Effect.sleep(delay).pipe(
             Effect.andThen(
@@ -1044,6 +1071,27 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
       }),
     });
   });
+
+  const prepare: Effect.Effect<void> = Effect.suspend(() =>
+    mutex.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* Ref.get(state);
+        if (Option.isSome(current.config) || Option.isSome(current.active)) return;
+        const config = yield* spec.configResolve.pipe(
+          Effect.tapError((error) =>
+            logInstanceWarning("could not prepare the desktop backend configuration", {
+              cause: error.message,
+            }),
+          ),
+          Effect.option,
+        );
+        if (Option.isNone(config)) return;
+        yield* Ref.update(state, (latest) =>
+          Option.isSome(latest.config) ? latest : { ...latest, config },
+        );
+      }),
+    ),
+  ).pipe(Effect.withSpan("desktop.backendInstance.prepare", { attributes: { id: spec.id } }));
 
   const stop = Effect.fn("desktop.backendInstance.stop")(function* (options?: {
     readonly timeout?: Duration.Duration;
@@ -1159,6 +1207,7 @@ export const makeBackendInstance = Effect.fn("makeBackendInstance")(function* (
   return {
     id: spec.id,
     label: spec.label,
+    prepare,
     start,
     stop,
     currentConfig,

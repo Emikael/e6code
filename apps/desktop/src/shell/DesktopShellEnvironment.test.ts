@@ -1,6 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as PlatformError from "effect/PlatformError";
@@ -614,4 +616,87 @@ describe("DesktopShellEnvironment", () => {
       Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
     );
   });
+
+  it.effect("start runs the import once in the background and opens the latch when it ends", () =>
+    Effect.gen(function* () {
+      const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+      const shellAnswered = yield* Deferred.make<void>();
+      const spawned = yield* Deferred.make<void>();
+      let spawnCount = 0;
+      const spawnerLayer = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make(() =>
+          Effect.gen(function* () {
+            spawnCount += 1;
+            yield* Deferred.succeed(spawned, undefined);
+            yield* Deferred.await(shellAnswered);
+            return makeProcess(envOutput({ PATH: "/opt/homebrew/bin" }));
+          }),
+        ),
+      );
+      const environmentLayer = Layer.succeed(
+        DesktopEnvironment.DesktopEnvironment,
+        DesktopEnvironment.DesktopEnvironment.of({
+          platform: "darwin",
+        } as DesktopEnvironment.DesktopEnvironment["Service"]),
+      );
+
+      const program = Effect.gen(function* () {
+        const shellEnvironment = yield* DesktopShellEnvironment.DesktopShellEnvironment;
+        yield* shellEnvironment.start;
+        yield* shellEnvironment.start;
+        const waiter = yield* Effect.forkChild(shellEnvironment.awaitInstalled);
+
+        // start returned while the login shell is still running.
+        yield* Deferred.await(spawned);
+        assert.isUndefined(waiter.pollUnsafe());
+        assert.equal(env.PATH, "/usr/bin");
+
+        yield* Deferred.succeed(shellAnswered, undefined);
+        yield* Fiber.join(waiter);
+        assert.equal(env.PATH, "/opt/homebrew/bin:/usr/bin");
+        assert.equal(spawnCount, 1);
+      }).pipe(
+        Effect.provide(
+          DesktopShellEnvironment.layer.pipe(
+            Layer.provide(Layer.mergeAll(environmentLayer, NodeServices.layer, spawnerLayer)),
+          ),
+        ),
+      );
+
+      yield* withProcessEnv(env, program);
+    }),
+  );
+
+  it.effect("opens the latch when the import dies, so nothing waits forever", () =>
+    Effect.gen(function* () {
+      const env: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+      const spawnerLayer = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make(() => Effect.die(new Error("spawner exploded"))),
+      );
+      const environmentLayer = Layer.succeed(
+        DesktopEnvironment.DesktopEnvironment,
+        DesktopEnvironment.DesktopEnvironment.of({
+          platform: "darwin",
+        } as DesktopEnvironment.DesktopEnvironment["Service"]),
+      );
+
+      yield* withProcessEnv(
+        env,
+        Effect.gen(function* () {
+          const shellEnvironment = yield* DesktopShellEnvironment.DesktopShellEnvironment;
+          yield* shellEnvironment.start;
+          yield* shellEnvironment.awaitInstalled;
+          assert.equal(env.PATH, "/usr/bin");
+        }).pipe(
+          Effect.provide(
+            DesktopShellEnvironment.layer.pipe(
+              Layer.provide(Layer.mergeAll(environmentLayer, NodeServices.layer, spawnerLayer)),
+            ),
+          ),
+        ),
+      );
+    }),
+  );
 });

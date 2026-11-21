@@ -1,11 +1,19 @@
+import { useAtomValue } from "@effect/atom-react";
 import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { APP_VERSION } from "../../branding";
+import { useLocalEnvironmentWord } from "../../hooks/useLocalEnvironmentWord";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
+import { localEnvironmentStatusAtom } from "../../localEnvironmentStatus";
+import {
+  localEnvironmentDetailLines,
+  localEnvironmentWordAtom,
+  type LocalEnvironmentWord,
+} from "../../localEnvironmentWord";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import { connectionPhaseDotClassName } from "../ConnectionStatusDot";
 import { connectionPhaseWord } from "../EnvironmentConnectionChip";
@@ -99,6 +107,13 @@ export const SidebarEnvironmentHeader = memo(function SidebarEnvironmentHeader({
       })
     : null;
   const phase = environment?.connection.phase ?? null;
+  // While the desktop's local environment starts, the status speaks for it, also before any
+  // primary is registered (no cached identity yet): then its bootstrap label names it.
+  const primaryLocalWord = useLocalEnvironmentWord(environment?.environmentId ?? null);
+  const unregisteredLocalWord = useAtomValue(localEnvironmentWordAtom);
+  const localLabel = useAtomValue(localEnvironmentStatusAtom)?.label ?? null;
+  const localWord = environment ? primaryLocalWord : unregisteredLocalWord;
+  const title = environment?.label ?? (localWord && localLabel ? localLabel : "E6 Code");
 
   return (
     <SidebarHeader
@@ -128,7 +143,7 @@ export const SidebarEnvironmentHeader = memo(function SidebarEnvironmentHeader({
         <div className="flex min-w-0 flex-col">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-[13px] leading-[18px] font-semibold text-sidebar-foreground">
-              {environment?.label ?? "E6 Code"}
+              {title}
             </span>
             {channel && channelLabel ? (
               <span
@@ -139,7 +154,9 @@ export const SidebarEnvironmentHeader = memo(function SidebarEnvironmentHeader({
               </span>
             ) : null}
           </div>
-          {reach && phase ? (
+          {localWord ? (
+            <SidebarLocalEnvironmentLine reach={reach ?? "local"} word={localWord} />
+          ) : reach && phase ? (
             <span className="flex min-w-0 items-center gap-[5px] font-mono text-[11px] leading-[14px] text-sidebar-muted-foreground">
               <span
                 aria-hidden
@@ -155,6 +172,55 @@ export const SidebarEnvironmentHeader = memo(function SidebarEnvironmentHeader({
     </SidebarHeader>
   );
 });
+
+/**
+ * "local · starting…" and the escalations, from the local environment's status rather than the
+ * connection, which retries on its own ladder while the backend is down. Not a live region: the
+ * thread-header chip is. A detail is on hover and, without a new tab stop, in sr-only text.
+ */
+function SidebarLocalEnvironmentLine({
+  reach,
+  word,
+}: {
+  readonly reach: string;
+  readonly word: LocalEnvironmentWord;
+}) {
+  const details = localEnvironmentDetailLines(word);
+  const line = (
+    // The header is a window drag region on desktop, which swallows hover; a line with a
+    // tooltip opts out so the detail can be read.
+    <span
+      className={cn(
+        "flex min-w-0 items-center gap-[5px] font-mono text-[11px] leading-[14px] text-sidebar-muted-foreground",
+        details.length > 0 && "[-webkit-app-region:no-drag]",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn("size-1.5 shrink-0 rounded-full", connectionPhaseDotClassName(word.dotPhase))}
+      />
+      <span className="truncate">
+        {reach} · {word.word.toLowerCase()}
+      </span>
+      {details.length > 0 ? (
+        <span className="sr-only">{details.map((detail) => ` ${detail.text}`).join("")}</span>
+      ) : null}
+    </span>
+  );
+  if (details.length === 0) return line;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={line} />
+      <TooltipPopup side="bottom" className="max-w-80 whitespace-pre-wrap leading-tight">
+        {details.map((detail) => (
+          <span key={detail.text} className={cn("block", detail.mono && "font-mono")}>
+            {detail.text}
+          </span>
+        ))}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
 
 function SidebarBrand({ stageLabel }: { stageLabel: string }) {
   const build = stageLabel === "Alpha" ? APP_VERSION : `${stageLabel} ${APP_VERSION}`;

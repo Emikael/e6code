@@ -39,3 +39,13 @@ export function resolveDesktopStateDir(input: {
     input.isDevelopment && Option.isNone(normalizeConfiguredBaseDir(input.e6Home));
   return input.joinPath(input.baseDir, useDevSubdir ? "dev" : "userdata");
 }
+
+/**
+ * Where the local backend persists its environment id. The server writes it on first boot
+ * under the same state directory the desktop resolves (`environmentIdPath` in the server's
+ * `deriveServerPaths`); the desktop only reads it, so a cached shell can show before the
+ * backend answers.
+ */
+export function resolveLocalEnvironmentIdPath(stateDir: string, joinPath: JoinPath): string {
+  return joinPath(stateDir, "environment-id");
+}

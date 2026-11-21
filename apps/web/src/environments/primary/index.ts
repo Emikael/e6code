@@ -7,6 +7,7 @@ export {
 
 export {
   createServerPairingCredential,
+  hasAuthenticatedPrimaryThisSession,
   isPrimaryEnvironmentPairingCredentialRejectedError,
   peekPairingTokenFromUrl,
   PrimaryEnvironmentPairingCredentialRejectedError,

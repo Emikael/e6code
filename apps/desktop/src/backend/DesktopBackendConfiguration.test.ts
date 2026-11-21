@@ -916,6 +916,35 @@ describe("DesktopBackendConfiguration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("resolvePrimary leaves the login-shell environment to the spawn", () =>
+    withHarness(
+      Effect.gen(function* () {
+        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+        const config = yield* configuration.resolvePrimary;
+
+        // The spawner merges the live process.env at spawn time, so a config resolved
+        // before the login-shell import still starts the backend with the imported values.
+        assert.isTrue(config.extendEnv);
+        for (const name of [
+          "PATH",
+          "SSH_AUTH_SOCK",
+          "LANG",
+          "LC_ALL",
+          "LC_CTYPE",
+          "HOMEBREW_PREFIX",
+          "DBUS_SESSION_BUS_ADDRESS",
+          "XDG_CURRENT_DESKTOP",
+          "XDG_RUNTIME_DIR",
+          "DISPLAY",
+          "WAYLAND_DISPLAY",
+          "E6CODE_BITBUCKET_API_TOKEN",
+        ]) {
+          assert.notProperty(config.env, name);
+        }
+      }),
+    ),
+  );
+
   it.effect("resolvePrimary captures backend output in dev so child logs can be persisted", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

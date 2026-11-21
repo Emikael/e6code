@@ -91,10 +91,12 @@ export async function handleDesktopAppActivationRequest(
   }
 
   try {
-    const opened = await dependencies.openThread({
-      environmentId: target.environmentId,
-      projectId,
-    });
+    const projectRef = { environmentId: target.environmentId, projectId };
+    // A null open lost a race with a concurrent navigation and wrote nothing. At startup the
+    // landing's own draft opens the moment the local environment goes live, which is also when
+    // this request is first processed; the request names this project, so it tries once more.
+    const opened =
+      (await dependencies.openThread(projectRef)) ?? (await dependencies.openThread(projectRef));
     if (opened === null) {
       return failure(
         request.requestId,

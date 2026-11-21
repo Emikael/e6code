@@ -89,6 +89,7 @@ import {
   type AtomCommandResult,
 } from "@e6tools/client-runtime/state/runtime";
 import { isElectron } from "../env";
+import { localEnvironmentWordAtom } from "../localEnvironmentWord";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -2393,6 +2394,9 @@ export default function Sidebar() {
     },
   });
   const newThreadContext = useHandleNewThread();
+  // While the desktop's local environment starts there is nowhere to add a project yet, and
+  // its projects are not here because it has nothing cached, not because there are none.
+  const localEnvironmentWord = useAtomValue(localEnvironmentWordAtom);
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],
@@ -5337,7 +5341,13 @@ export default function Sidebar() {
             settledThreads.length ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground">
-              {projects.length === 0 ? (
+              {projects.length === 0 && localEnvironmentWord ? (
+                <span>
+                  {localEnvironmentWord.kind === "failed"
+                    ? "Local projects are unavailable."
+                    : "Local projects appear once the local environment is ready."}
+                </span>
+              ) : projects.length === 0 ? (
                 <>
                   <span>No projects yet</span>
                   <button

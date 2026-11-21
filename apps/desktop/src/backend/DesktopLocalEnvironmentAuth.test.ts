@@ -1,5 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -8,6 +10,7 @@ import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@e6tools/contracts";
 
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
+import * as DesktopLocalBackendStatus from "./DesktopLocalBackendStatus.ts";
 import * as DesktopLocalEnvironmentAuth from "./DesktopLocalEnvironmentAuth.ts";
 
 const config = {
@@ -65,7 +68,7 @@ describe("DesktopLocalEnvironmentAuth", () => {
         ]),
       } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
       const testLayer = DesktopLocalEnvironmentAuth.layer.pipe(
-        Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
+        Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer, DesktopLocalBackendStatus.layer)),
       );
 
       const [first, second] = yield* Effect.gen(function* () {
@@ -76,6 +79,126 @@ describe("DesktopLocalEnvironmentAuth", () => {
       assert.strictEqual(first, "desktop-bearer-token");
       assert.strictEqual(second, "desktop-bearer-token");
       assert.strictEqual(yield* Ref.get(requestCount), 1);
+    }),
+  );
+
+  it.effect("gives up on a backend that accepts the exchange and never answers", () =>
+    Effect.gen(function* () {
+      const requestCount = yield* Ref.make(0);
+      const httpClientLayer = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() =>
+          Ref.update(requestCount, (count) => count + 1).pipe(Effect.andThen(Effect.never)),
+        ),
+      );
+      const poolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
+        list: Effect.succeed([
+          {
+            id: PRIMARY_LOCAL_ENVIRONMENT_ID,
+            label: Effect.succeed("Local environment"),
+            currentConfig: Effect.succeed(Option.some(config)),
+          },
+        ]),
+      } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
+      const testLayer = DesktopLocalEnvironmentAuth.layer.pipe(
+        Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer, DesktopLocalBackendStatus.layer)),
+      );
+
+      yield* Effect.gen(function* () {
+        const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
+        const first = yield* Effect.forkChild(Effect.flip(auth.getBearerToken));
+        const second = yield* Effect.forkChild(Effect.flip(auth.getBearerToken));
+        yield* TestClock.adjust(DesktopLocalEnvironmentAuth.BEARER_EXCHANGE_TIMEOUT);
+        yield* TestClock.adjust(DesktopLocalEnvironmentAuth.BEARER_EXCHANGE_TIMEOUT);
+
+        // Both callers return instead of queueing behind the stalled exchange forever.
+        assert.strictEqual(
+          (yield* Fiber.join(first))._tag,
+          "DesktopLocalEnvironmentAuthSessionBootstrapError",
+        );
+        assert.strictEqual(
+          (yield* Fiber.join(second))._tag,
+          "DesktopLocalEnvironmentAuthSessionBootstrapError",
+        );
+        assert.strictEqual(yield* Ref.get(requestCount), 2);
+      }).pipe(Effect.provide(testLayer));
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  const tokenResponse = (request: Parameters<Parameters<typeof HttpClient.make>[0]>[0]) =>
+    HttpClientResponse.fromWeb(
+      request,
+      new Response(
+        JSON.stringify({
+          access_token: "desktop-bearer-token",
+          issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "orchestration:read",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+  const startingBackendLayer = (requestCount: Ref.Ref<number>) => {
+    const httpClientLayer = Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) =>
+        Ref.update(requestCount, (count) => count + 1).pipe(Effect.as(tokenResponse(request))),
+      ),
+    );
+    const poolLayer = Layer.succeed(DesktopBackendPool.DesktopBackendPool, {
+      list: Effect.succeed([
+        {
+          id: PRIMARY_LOCAL_ENVIRONMENT_ID,
+          label: Effect.succeed("Local environment"),
+          currentConfig: Effect.succeed(Option.some(config)),
+        },
+      ]),
+    } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
+    return DesktopLocalEnvironmentAuth.layer.pipe(
+      Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
+      Layer.provideMerge(DesktopLocalBackendStatus.layer),
+    );
+  };
+
+  it.effect("waits for the starting backend to be ready before the exchange", () =>
+    Effect.gen(function* () {
+      const requestCount = yield* Ref.make(0);
+      yield* Effect.gen(function* () {
+        const status = yield* DesktopLocalBackendStatus.DesktopLocalBackendStatus;
+        const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
+        yield* status.begin({ environmentId: null, label: "Local environment" });
+
+        const token = yield* Effect.forkChild(auth.getBearerToken);
+        yield* TestClock.adjust(DesktopLocalEnvironmentAuth.BEARER_EXCHANGE_TIMEOUT);
+        yield* status.markRestartScheduled({ reason: "code=1", attempt: 1 });
+        yield* TestClock.adjust(DesktopLocalEnvironmentAuth.BEARER_EXCHANGE_TIMEOUT);
+        // A booting port can accept and not answer: nothing is sent until the backend is ready.
+        assert.strictEqual(yield* Ref.get(requestCount), 0);
+
+        yield* status.markReady;
+        assert.strictEqual(yield* Fiber.join(token), "desktop-bearer-token");
+        assert.strictEqual(yield* Ref.get(requestCount), 1);
+      }).pipe(Effect.provide(startingBackendLayer(requestCount)));
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("fails without an exchange once the local environment failed", () =>
+    Effect.gen(function* () {
+      const requestCount = yield* Ref.make(0);
+      yield* Effect.gen(function* () {
+        const status = yield* DesktopLocalBackendStatus.DesktopLocalBackendStatus;
+        const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth;
+        yield* status.begin({ environmentId: null, label: "Local environment" });
+
+        const token = yield* Effect.forkChild(Effect.flip(auth.getBearerToken));
+        yield* status.markFailed("spawn ENOENT");
+
+        const error = yield* Fiber.join(token);
+        assert.strictEqual(error._tag, "DesktopLocalEnvironmentAuthBackendUnavailableError");
+        assert.strictEqual(yield* Ref.get(requestCount), 0);
+      }).pipe(Effect.provide(startingBackendLayer(requestCount)));
     }),
   );
 });

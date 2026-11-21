@@ -5,6 +5,7 @@ import {
   PairingPendingSurface,
   PairingRouteSurface,
 } from "../components/auth/PairingRouteSurface";
+import { canEnterApp } from "../localEnvironmentStatus";
 
 export const Route = createFileRoute("/pair")({
   beforeLoad: async ({ context }) => {
@@ -15,7 +16,7 @@ export const Route = createFileRoute("/pair")({
       };
     }
 
-    if (authGateState.status === "authenticated" || authGateState.status === "hosted-static") {
+    if (canEnterApp(authGateState)) {
       throw redirect({ to: "/", replace: true });
     }
     return {

@@ -95,6 +95,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
+import * as DesktopLocalBackendStatus from "./DesktopLocalBackendStatus.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import { startupClock } from "../app/DesktopStartupClock.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -213,6 +214,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
     const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    const localStatus = yield* DesktopLocalBackendStatus.DesktopLocalBackendStatus;
     const electronDialog = yield* ElectronDialog.ElectronDialog;
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
     // Anchor the pool's lifetime to its layer scope so registered
@@ -278,7 +280,7 @@ export const layer = Layer.effect(
       },
     );
 
-    const primary = yield* DesktopBackendManager.makeBackendInstance({
+    const primary: DesktopBackendInstance = yield* DesktopBackendManager.makeBackendInstance({
       id: DesktopBackendManager.PRIMARY_INSTANCE_ID,
       // Keep this lazy. The pool layer is initialized before startup loads
       // persisted desktop settings, so resolving the primary label here would
@@ -291,9 +293,12 @@ export const layer = Layer.effect(
       // from being reset), so we absorb them here. The window service only
       // logs on success, so log the failure here before swallowing it —
       // otherwise a post-readiness window-open failure vanishes silently and
-      // is near-impossible to diagnose in production.
+      // is near-impossible to diagnose in production. Only WSL-only launches
+      // still open the main window from readiness; the status reaches the
+      // renderer first either way.
       onReady: (httpBaseUrl) =>
         Effect.sync(() => startupClock.reach("backendReady")).pipe(
+          Effect.andThen(localStatus.markReady),
           Effect.andThen(desktopWindow.handleBackendReady(httpBaseUrl)),
           Effect.catch((error) =>
             logBackendPoolWarning("failed to open main window after backend readiness", {
@@ -301,8 +306,18 @@ export const layer = Layer.effect(
             }),
           ),
         ),
-      onShutdown: () => desktopWindow.handleBackendNotReady,
+      // A deliberate stop has already cleared desiredRunning; anything else is an exit
+      // the manager follows with a restart.
+      onShutdown: () =>
+        desktopWindow.handleBackendNotReady.pipe(
+          Effect.andThen(Effect.suspend(() => primary.snapshot)),
+          Effect.flatMap((snapshot) =>
+            snapshot.desiredRunning ? localStatus.markNotReady : localStatus.markStopped,
+          ),
+        ),
       onPreflightFailed: handlePrimaryPreflightFailure,
+      onRestartScheduled: localStatus.markRestartScheduled,
+      onStartFailed: localStatus.markFailed,
     });
 
     const instancesRef = yield* SynchronizedRef.make<

@@ -9,6 +9,7 @@ import type * as Scope from "effect/Scope";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
+import * as DesktopLocalBackendStatus from "../backend/DesktopLocalBackendStatus.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -151,6 +152,7 @@ export const startDesktopStartupRecorder = Effect.fn("desktop.startupRecorder.st
   const electronApp = yield* ElectronApp.ElectronApp;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
+  const localStatus = yield* DesktopLocalBackendStatus.DesktopLocalBackendStatus;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
   const filePath = environment.path.join(environment.logDir, STARTUP_RECORD_FILE_NAME);
@@ -169,8 +171,8 @@ export const startDesktopStartupRecorder = Effect.fn("desktop.startupRecorder.st
     Effect.cached,
   );
 
-  const describe = desktopSettings.get.pipe(
-    Effect.map((settings) => ({
+  const describe = Effect.all([desktopSettings.get, localStatus.get]).pipe(
+    Effect.map(([settings, status]) => ({
       app: {
         version: environment.appVersion,
         platform: environment.platform,
@@ -182,6 +184,7 @@ export const startDesktopStartupRecorder = Effect.fn("desktop.startupRecorder.st
         localEnvironmentEnabled: settings.localEnvironmentEnabled,
         wslOnly: settings.wslOnly,
         wslBackendEnabled: settings.wslBackendEnabled,
+        environmentIdKnown: status?.environmentId != null,
       },
     })),
   );

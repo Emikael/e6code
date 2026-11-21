@@ -3,14 +3,22 @@ import {
   EnvironmentId,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
   type DesktopBridge,
+  type DesktopLocalEnvironmentStatus,
   type DesktopSshEnvironmentTarget,
 } from "@e6tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Chunk from "effect/Chunk";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
 
 import {
   canRetainCachedPlatformRegistrationAfterRefreshFailure,
   canReuseCachedPlatformRegistration,
+  localEnvironmentStatusChanges,
+  planPrimaryRegistration,
+  primaryRegistrationToRetainAfterDiscoveryFailure,
   primaryRegistrationToRetainAfterTopologyRead,
   provisionDesktopSshEnvironment,
   readPrimaryEnvironmentTargetResult,
@@ -222,4 +230,139 @@ describe("primary topology cache", () => {
       }),
     ).toBeUndefined();
   });
+});
+
+describe("primary registration while the local environment starts", () => {
+  const target = {
+    source: "desktop-managed",
+    target: { httpBaseUrl: "http://127.0.0.1:3773/", wsBaseUrl: "ws://127.0.0.1:3773/" },
+  } as const;
+  const signature = "primary|http://127.0.0.1:3773/|ws://127.0.0.1:3773/";
+  const environmentId = EnvironmentId.make("env-local");
+  const status = (
+    state: DesktopLocalEnvironmentStatus["state"],
+    id: EnvironmentId | null = environmentId,
+  ): DesktopLocalEnvironmentStatus => ({
+    state,
+    environmentId: id,
+    label: "Local environment",
+    sinceEpochMs: 0,
+    restartAttempt: 0,
+    reason: null,
+  });
+
+  it("registers the persisted primary without asking the backend while it starts", () => {
+    for (const state of ["starting", "restarting", "failed"] as const) {
+      const plan = planPrimaryRegistration({
+        target,
+        signature,
+        cached: undefined,
+        localStatus: status(state),
+        nowEpochMs: 0,
+      });
+      expect(plan._tag).toBe("Provisional");
+      if (plan._tag !== "Provisional") return;
+      expect(plan.cached.provisional).toBe(true);
+      expect(plan.cached.registration.target).toMatchObject({
+        _tag: "PrimaryConnectionTarget",
+        environmentId,
+        label: "Local environment",
+        httpBaseUrl: "http://127.0.0.1:3773/",
+        wsBaseUrl: "ws://127.0.0.1:3773/",
+      });
+
+      // Later reads keep the same registration, so the environment is never reinstalled.
+      expect(
+        planPrimaryRegistration({
+          target,
+          signature,
+          cached: plan.cached,
+          localStatus: status(state),
+          nowEpochMs: 3_000,
+        }),
+      ).toEqual({ _tag: "Reuse", cached: plan.cached });
+    }
+  });
+
+  it("waits without a persisted id instead of guessing one", () => {
+    expect(
+      planPrimaryRegistration({
+        target,
+        signature,
+        cached: undefined,
+        localStatus: status("starting", null),
+        nowEpochMs: 0,
+      }),
+    ).toEqual({ _tag: "Wait" });
+  });
+
+  it("describes the backend once it is ready, and keeps the primary if that fails", () => {
+    const provisional = planPrimaryRegistration({
+      target,
+      signature,
+      cached: undefined,
+      localStatus: status("starting"),
+      nowEpochMs: 0,
+    });
+    if (provisional._tag !== "Provisional") throw new Error("expected a provisional plan");
+
+    expect(
+      planPrimaryRegistration({
+        target,
+        signature,
+        cached: provisional.cached,
+        localStatus: status("ready"),
+        nowEpochMs: 3_000,
+      }),
+    ).toEqual({ _tag: "Discover" });
+    // Dropping the primary would remove the environment and clear its cache and drafts.
+    expect(primaryRegistrationToRetainAfterDiscoveryFailure(provisional.cached, signature)).toBe(
+      provisional.cached,
+    );
+    expect(
+      primaryRegistrationToRetainAfterDiscoveryFailure(provisional.cached, "primary|elsewhere"),
+    ).toBeUndefined();
+  });
+
+  it("keeps today's discovery wherever the desktop reports no status", () => {
+    for (const localStatus of [undefined, null]) {
+      expect(
+        planPrimaryRegistration({
+          target,
+          signature,
+          cached: undefined,
+          localStatus,
+          nowEpochMs: 0,
+        }),
+      ).toEqual({ _tag: "Discover" });
+    }
+  });
+
+  it.effect("reads the topology again on every status push", () =>
+    Effect.gen(function* () {
+      const listeners = yield* Queue.unbounded<(status: DesktopLocalEnvironmentStatus) => void>();
+      let stopped = false;
+      const bridge: Pick<DesktopBridge, "onLocalEnvironmentStatus"> = {
+        onLocalEnvironmentStatus: (listener) => {
+          Queue.offerUnsafe(listeners, listener);
+          return () => {
+            stopped = true;
+          };
+        },
+      };
+
+      const reads = yield* localEnvironmentStatusChanges(bridge).pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const push = yield* Queue.take(listeners);
+      push(status("restarting"));
+      push(status("ready"));
+
+      expect(Chunk.size(Chunk.fromIterable(yield* Fiber.join(reads)))).toBe(2);
+      expect(stopped).toBe(true);
+      expect(localEnvironmentStatusChanges(undefined)).toBe(Stream.empty);
+    }),
+  );
 });

@@ -1,7 +1,11 @@
+import { DesktopLocalEnvironmentStatusSchema } from "@e6tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
+import * as DesktopLocalBackendStatus from "../../backend/DesktopLocalBackendStatus.ts";
+import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as IpcChannels from "../channels.ts";
 import { makeIpcMethod, makeSyncIpcMethod } from "../DesktopIpc.ts";
@@ -27,4 +31,40 @@ export const setLocalEnvironmentEnabled = makeIpcMethod({
       yield* lifecycle.relaunch(`localEnvironmentEnabled=${enabled}`);
     }
   }),
+});
+
+/** Read once, synchronously, by the renderer's first route decision. */
+export const getLocalEnvironmentStatus = makeSyncIpcMethod({
+  channel: IpcChannels.GET_LOCAL_ENVIRONMENT_STATUS_CHANNEL,
+  result: Schema.NullOr(DesktopLocalEnvironmentStatusSchema),
+  handler: Effect.fn("desktop.ipc.localEnvironment.getStatus")(function* () {
+    const status = yield* DesktopLocalBackendStatus.DesktopLocalBackendStatus;
+    return yield* status.get;
+  }),
+});
+
+/** Pushes every status change to every window; the renderer keeps the latest. */
+export const installLocalEnvironmentStatusForwarding = Effect.fn(
+  "desktop.ipc.installLocalEnvironmentStatusForwarding",
+)(function* () {
+  const status = yield* DesktopLocalBackendStatus.DesktopLocalBackendStatus;
+  const electronWindow = yield* ElectronWindow.ElectronWindow;
+  const encode = Schema.encodeEffect(DesktopLocalEnvironmentStatusSchema);
+  yield* status.changes.pipe(
+    Stream.drop(1),
+    Stream.filter((value) => value !== null),
+    Stream.runForEach((value) =>
+      encode(value).pipe(
+        Effect.flatMap((encoded) =>
+          electronWindow.sendAll(IpcChannels.LOCAL_ENVIRONMENT_STATUS_CHANNEL, encoded),
+        ),
+        Effect.catch((error) =>
+          Effect.logWarning("could not forward the local environment status", {
+            error: error.message,
+          }),
+        ),
+      ),
+    ),
+    Effect.forkScoped,
+  );
 });
