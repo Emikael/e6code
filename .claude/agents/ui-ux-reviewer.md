@@ -14,7 +14,7 @@ files in full where a hunk depends on its surroundings.
 Review for:
 
 - **Color roles.** Colors come from the semantic roles in
-  `apps/web/src/index.css` and `packages/shared/src/themePalettes.ts`. Flag raw
+  `packages/design-tokens` and `apps/web/src/index.css`. Flag raw
   Tailwind palette colors, `text-primary` used as text (a theme's raw accent
   can be unreadable as text: `text-primary-text` exists), white text on `primary`
   fills, and roles that built-in themes (`html[data-theme-id]`) do not define.
@@ -34,7 +34,7 @@ Review for:
   inconsistent is a finding.
 - **Rendering cost.** New work in hot paths (sidebar rows, timeline rows,
   per-keystroke composer code), hooks that rebuild large structures per row,
-  continuously repainting animations, layout shifts in virtualized or
+  anything that moves at idle, layout shifts in virtualized or
   `content-visibility` lists.
 - **Copy.** Sentence case, plain wording, consistent terms.
 

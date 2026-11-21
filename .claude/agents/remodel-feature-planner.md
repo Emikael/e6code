@@ -29,10 +29,10 @@ task has one):
    wire schemas in `packages/contracts`, and capability flags for older clients. State
    what must stay compatible and what needs a migration.
 4. **Plan.** The module boundaries of the new implementation, how it coexists with the
-   old screen during the phase, the order of steps, what can be reused, and the tests
-   that prove parity (prefer the existing test suites as the specification).
-5. **Performance.** Which budgets from the architecture document apply, where the hot
-   paths are, and how to measure them.
+   old screen behind its screen flag, the order of steps, what can be reused, and the
+   tests that prove parity (prefer the existing test suites as the specification).
+5. **Performance.** Which budgets in `AGENTS.md` apply, where the hot paths are, and how
+   to measure them.
 6. **Open questions** for the maintainer or the screen designer.
 
 Keep the plan proportionate: a small feature gets a short plan. Say what you verified in
