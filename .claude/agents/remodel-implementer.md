@@ -19,8 +19,9 @@ How to work:
 
 - All remodel work lands on the `remodel` branch, not on `main`. Start each task on its
   own branch from the latest `remodel`; when the maintainer asks for a pull request, open
-  it against `remodel`. One task per pull request. If the task is a file in `remodel-backlog/` rather than a
-  Linear issue, delete that file in the same pull request once the work is validated.
+  it against `remodel`. One task per pull request. If the task is a file in
+  `remodel-backlog/` rather than a Linear issue, delete that file in the same pull
+  request once the work is validated.
 
 - Stay inside the task. If you find a neighbouring problem, record it on the task or as a
   new issue rather than fixing it in the same change.

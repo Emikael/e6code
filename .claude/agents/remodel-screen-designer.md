@@ -34,8 +34,8 @@ Deliver, attached to the task:
 4. **Motion.** For each transition: trigger, what moves, and which named preset or
    set-piece plays it. If none fits, propose a new preset that every screen could use.
    Use transform and opacity; height changes and reorders use the `layout` preset;
-   anything else (a filter, a canvas) needs a stated reason and a budget. Define the
-   Reduced and Off forms. Nothing moves at idle.
+   propose anything else (a filter, a canvas) as an exception with its reason and
+   budget. Define the Reduced and Off forms. Nothing moves at idle.
 5. **Tokens and components.** Which tokens and primitives it uses, which new ones it
    needs, and any component sourced from an external catalogue with its licence and
    dependencies.
