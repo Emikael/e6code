@@ -56,3 +56,28 @@ export function isIdentifier(node: Option.Option<AstNode>, name?: string): boole
     (name === undefined || expression.name === name)
   );
 }
+
+/** A string literal, or a template literal with no expressions (`import(\`gsap\`)`). */
+export const literalStringValue = (node: unknown): string | undefined => {
+  if (typeof node !== "object" || node === null || !("type" in node)) return undefined;
+  if (node.type === "Literal") {
+    return "value" in node && typeof node.value === "string" ? node.value : undefined;
+  }
+  if (node.type !== "TemplateLiteral") return undefined;
+  if (!("expressions" in node) || !Array.isArray(node.expressions)) return undefined;
+  if (node.expressions.length > 0 || !("quasis" in node) || !Array.isArray(node.quasis)) {
+    return undefined;
+  }
+  const cooked: unknown = node.quasis[0]?.value?.cooked;
+  return typeof cooked === "string" ? cooked : undefined;
+};
+
+/** The package names an override grants through `{ allow: [...] }`, the rule's first option. */
+export const readAllow = (options: ReadonlyArray<unknown>): ReadonlySet<string> => {
+  const first = options[0];
+  if (typeof first !== "object" || first === null || !("allow" in first)) return new Set();
+  const allow = first.allow;
+  return new Set(
+    Array.isArray(allow) ? allow.filter((name): name is string => typeof name === "string") : [],
+  );
+};
