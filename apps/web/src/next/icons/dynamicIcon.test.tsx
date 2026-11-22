@@ -1,10 +1,11 @@
 import type { IconName } from "@e6tools/design-tokens/icons";
-import { Component, type ReactNode } from "react";
+import { Component, type ComponentType, forwardRef, memo, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createDynamicIcon } from "./dynamicIcon.tsx";
 import { Icon as AppIcon } from "./Icon.tsx";
+import type { IconProps } from "./IconSvg.tsx";
 
 let renderer: ReactTestRenderer | null = null;
 
@@ -150,6 +151,25 @@ describe("dynamic Icon", () => {
     expect(shown()).toBe("folder 16 hidden");
     expect(folder.load).toHaveBeenCalledTimes(1);
   });
+
+  // `typeof` reports these as objects, not functions.
+  const wrappers = {
+    memo: (Inner: ComponentType<IconProps>) => memo(Inner),
+    forwardRef: (Inner: ComponentType<IconProps>) =>
+      forwardRef<SVGSVGElement, IconProps>((props, _ref) => <Inner {...props} />),
+  };
+
+  it.each(Object.keys(wrappers) as Array<keyof typeof wrappers>)(
+    "draws an icon its module exports through %s",
+    async (wrapper) => {
+      const { IconFolder } = await import("./testing/IconFolderFixture.tsx");
+      const load = vi.fn(async () => ({ IconFolder: wrappers[wrapper](IconFolder) }));
+      const Icon: typeof AppIcon = createDynamicIcon({ "./generated/lazy/IconFolder.tsx": load });
+      await mount(<Icon name="folder" fallback="no icon" />);
+      await act(async () => {});
+      expect(shown()).toBe("folder 16 hidden");
+    },
+  );
 
   it.each(["fails", "lacks the export"] as const)(
     "renders the fallback when the chunk %s, and retries on the next mount",

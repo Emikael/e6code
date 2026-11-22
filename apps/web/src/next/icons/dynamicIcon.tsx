@@ -41,11 +41,19 @@ function IconLoadFailed({ fallback }: LoadedIconProps) {
 const FAILED = { default: IconLoadFailed };
 const PLACEHOLDER_TRAITS = { fillWhenActive: false } as const;
 
+/** A component a module may export: a function, or one wrapped in `memo` or `forwardRef`. */
+const isComponentType = (value: unknown) => {
+  if (typeof value === "function") return true;
+  if (typeof value !== "object" || value === null) return false;
+  const kind = (value as { readonly $$typeof?: unknown }).$$typeof;
+  return kind === Symbol.for("react.memo") || kind === Symbol.for("react.forward_ref");
+};
+
 /** The named component a lazy module exports, if it is there. */
 const exportedComponent = (module: unknown, exportName: string) => {
   if (typeof module !== "object" || module === null || !(exportName in module)) return undefined;
   const value: unknown = (module as Record<string, unknown>)[exportName];
-  return typeof value === "function" ? (value as ComponentType<IconProps>) : undefined;
+  return isComponentType(value) ? (value as ComponentType<IconProps>) : undefined;
 };
 
 /**

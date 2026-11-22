@@ -66,10 +66,11 @@ const stripComments = (text: string) =>
 
 /**
  * `import … from`, `export … from` (named, `*`, `* as`), bare `import "…"` and literal `import()`.
- * The clause cannot hold `;`, quotes, `(`, `)`, `=`, `<` or `>`, so it never spans two statements.
+ * The clause cannot hold `;`, quotes, `(`, `)`, `=`, `<`, `>` or another `import` or `export`, so
+ * it never spans two statements, even where a statement has no semicolon.
  */
 const MODULE_REFERENCE =
-  /\b(?:import|export)\s+(type\s+)?[^;'"()=<>]*?\bfrom\s*["']([^"']+)["']|\bimport\s*["']([^"']+)["']|\bimport\(\s*["'`]([^"'`$]+)["'`]\s*\)/g;
+  /\b(?:import|export)\s+(type\s+)?(?:(?!\b(?:import|export)\b)[^;'"()=<>])*?\bfrom\s*["']([^"']+)["']|\bimport\s*["']([^"']+)["']|\bimport\(\s*["'`]([^"'`$]+)["'`]\s*\)/g;
 
 const referencesOf = (text: string) =>
   [...stripComments(text).matchAll(MODULE_REFERENCE)].map((match) => ({
@@ -263,6 +264,14 @@ describe("icon layer static path", () => {
       {
         "generated/IconProbe.tsx":
           'import { type IconName, ICONS } from "@e6tools/design-tokens/icons";',
+      },
+      "packages/design-tokens/src/icons/registry.ts",
+    ],
+    [
+      "a value import after a type export with no semicolon",
+      {
+        "generated/IconProbe.tsx":
+          'type Probe = 1\nexport type { Probe }\nimport { ICONS } from "@e6tools/design-tokens/icons"\nexport const count = Object.keys(ICONS).length',
       },
       "packages/design-tokens/src/icons/registry.ts",
     ],

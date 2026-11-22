@@ -39,12 +39,19 @@ describe(RULE, () => {
   );
 
   rule.invalid(
-    "reports Lucide's dynamic icon and its type-only exports",
+    "reports Lucide's dynamic icon",
     `
       import { DynamicIcon } from "lucide-react/dynamic";
+      export { DynamicIcon };
+    `,
+    (output) => assert.match(output, /import lucide-react here/),
+  );
+
+  rule.invalid(
+    "reports a type-only import",
+    `
       import type { LucideIcon } from "lucide-react";
       export type T = LucideIcon;
-      export { DynamicIcon };
     `,
     (output) => assert.match(output, /import lucide-react here/),
   );
