@@ -23,6 +23,10 @@
       "types": "./src/startupMarks.ts",
       "import": "./src/startupMarks.ts"
     },
+    "./perfReport": {
+      "types": "./src/perfReport.ts",
+      "import": "./src/perfReport.ts"
+    },
     "./legacyCliLauncher": {
       "types": "./src/legacyCliLauncher.ts",
       "import": "./src/legacyCliLauncher.ts"
