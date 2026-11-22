@@ -10,12 +10,14 @@
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
+import * as NodeFSP from "node:fs/promises";
 import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
 import * as NodePerfHooks from "node:perf_hooks";
 import * as NodeUtil from "node:util";
 
 import { REPO_ROOT } from "./runRoot.ts";
+import { readTraceRecords, type TraceRecord } from "./serverSignals.ts";
 
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 const SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
@@ -101,10 +103,15 @@ const redact = (line: string) =>
     ? "[qr code redacted]"
     : line.replace(/(Token:\s*)\S+/g, "$1[redacted]").replace(/(token=)[^&\s"]+/g, "$1[redacted]");
 
-function spawnLogged(
-  args: ReadonlyArray<string>,
-  options: { readonly env: Record<string, string>; readonly cwd: string; readonly logPath: string },
-) {
+interface SpawnOptions {
+  readonly env: Record<string, string>;
+  readonly cwd: string;
+  readonly logPath: string;
+  /** Keep the output out of the log, for commands that print a secret such as a bearer token. */
+  readonly secretOutput?: boolean;
+}
+
+function spawnLogged(args: ReadonlyArray<string>, options: SpawnOptions) {
   const child = NodeChildProcess.spawn(process.execPath, [...args], {
     cwd: options.cwd,
     env: options.env,
@@ -122,7 +129,9 @@ function spawnLogged(
       pending = parts.pop() ?? "";
       for (const line of parts) {
         lines.push(line);
-        log.write(`[${stream}] ${redact(line)}\n`);
+        log.write(
+          `[${stream}] ${options.secretOutput === true ? "[secret output]" : redact(line)}\n`,
+        );
       }
       // Startup lines stay readable; a long run keeps only its recent tail in memory.
       if (lines.length > MAX_LINES) lines.splice(KEPT_HEAD_LINES, lines.length - MAX_LINES);
@@ -137,7 +146,7 @@ function spawnLogged(
 /** Runs a Node script to completion; rejects on a non-zero exit with the output's tail. */
 export async function runNodeScript(
   args: ReadonlyArray<string>,
-  options: { readonly env: Record<string, string>; readonly cwd: string; readonly logPath: string },
+  options: SpawnOptions,
 ): Promise<{ readonly pid: number; readonly lines: ReadonlyArray<string>; readonly ms: number }> {
   const startedAt = NodePerfHooks.performance.now();
   const { child, lines } = spawnLogged(args, options);
@@ -147,8 +156,9 @@ export async function runNodeScript(
     child.once("exit", (exitCode) => resolve(exitCode));
   });
   if (code !== 0) {
+    const tail = options.secretOutput === true ? "[secret output]" : lines.slice(-8).join(" | ");
     throw new Error(
-      `'${NodePath.basename(String(args[0]))} ${args.slice(1, 3).join(" ")}' exited with ${String(code)}: ${lines.slice(-8).join(" | ")}`,
+      `'${NodePath.basename(String(args[0]))} ${args.slice(1, 3).join(" ")}' exited with ${String(code)}: ${tail}`,
     );
   }
   return { pid, lines, ms: NodePerfHooks.performance.now() - startedAt };
@@ -282,3 +292,26 @@ export async function listenersOn(port: number): Promise<Array<number>> {
 }
 
 export const serverBinPath = SERVER_BIN;
+
+/**
+ * Every record in a stopped server's trace file and its rotated siblings
+ * (`server.trace.ndjson.<n>`, oldest highest), with the files and bytes read.
+ */
+export async function readServerTrace(home: string): Promise<{
+  readonly records: Array<TraceRecord>;
+  readonly files: number;
+  readonly bytes: number;
+}> {
+  const logs = NodePath.join(home, "userdata/logs");
+  const names = (await NodeFSP.readdir(logs).catch((): Array<string> => [])).filter((name) =>
+    /^server\.trace\.ndjson(\.\d+)?$/.test(name),
+  );
+  const records: Array<TraceRecord> = [];
+  let bytes = 0;
+  for (const name of names) {
+    const text = await NodeFSP.readFile(NodePath.join(logs, name), "utf8");
+    bytes += Buffer.byteLength(text);
+    records.push(...readTraceRecords(text));
+  }
+  return { records, files: names.length, bytes };
+}

@@ -9,13 +9,13 @@
  *
  *   node scripts/perf-harness/run.ts [--scenario all|coldLoad,threadSwitch,...] [--out <dir>]
  *     [--build] [--variant legacy] [--motion full|reduced|off] [--screenshots]
- *     [--keep-home] [--keep-traces] [--stop-timeout <seconds>]
+ *     [--keep-home] [--keep-traces] [--stop-timeout <seconds>] [--no-otlp]
  *     [--threads 50] [--long-thread-turns 1000] [--turns-per-thread 4]
  *     [--long-thread-shape turns|imported-messages] [--soak-minutes 6] [--soak-factor 32]
  *
  * The report is written even when a scenario fails: its rows become
- * `notMeasured` with the failure. Scenarios not built yet or not selected
- * report "scenario not run".
+ * `notMeasured` with the failure. Scenarios not selected report "scenario
+ * not run".
  *
  * @module perf-harness/run
  */
@@ -41,6 +41,8 @@ import {
   type MotionRequest,
 } from "./browser.ts";
 import { checkProductionBuild, isWebBuildStale } from "./bundle.ts";
+import { controlClient, issueBearer, type ControlClient } from "./controlClient.ts";
+import { startOtlpSink, type OtlpSink } from "./otlpSink.ts";
 import { buildReport, encodeReport, SCENARIO_IDS, type ScenarioRecord } from "./report.ts";
 import {
   buildServerSettings,
@@ -53,8 +55,15 @@ import {
   type RunRoot,
 } from "./runRoot.ts";
 import { REMOTE_PROFILE, runColdLoad } from "./scenarios/coldLoad.ts";
-import type { ScenarioContext, ScenarioResult } from "./scenarios/scenario.ts";
+import type { AfterStop, ScenarioContext, ScenarioResult } from "./scenarios/scenario.ts";
+import { runSoak, SOAK_MAX_GAP_MS } from "./scenarios/soak.ts";
+import {
+  runStreamingInput,
+  STREAM_EVENTS_PER_SECOND,
+  STREAM_RECORDING,
+} from "./scenarios/streamingInput.ts";
 import { runThreadSwitch } from "./scenarios/threadSwitch.ts";
+import { runTimelineScroll } from "./scenarios/timelineScroll.ts";
 import {
   listenersOn,
   runNodeScript,
@@ -65,12 +74,46 @@ import {
 
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 
-const BUILT_SCENARIOS: Partial<
-  Record<PerfScenarioId, (ctx: ScenarioContext) => Promise<ScenarioResult>>
-> = {
-  coldLoad: runColdLoad,
-  threadSwitch: runThreadSwitch,
+interface ScenarioDefinition {
+  readonly run: (ctx: ScenarioContext) => Promise<ScenarioResult>;
+  /** Server environment beyond the replay switches every scenario gets. */
+  readonly serverEnv?: (input: {
+    readonly options: Options;
+    readonly otlp: OtlpSink | null;
+  }) => Record<string, string>;
+  /** Whether the server exports metrics to a local OTLP receiver (off with `--no-otlp`). */
+  readonly otlp?: boolean;
+}
+
+const SCENARIOS: Record<PerfScenarioId, ScenarioDefinition> = {
+  coldLoad: { run: runColdLoad },
+  threadSwitch: { run: runThreadSwitch },
+  streamingInput: {
+    run: runStreamingInput,
+    otlp: true,
+    serverEnv: ({ otlp }) => ({
+      E6CODE_PROVIDER_REPLAY_EVENTS_PER_SECOND: String(STREAM_EVENTS_PER_SECOND),
+      ...(otlp === null
+        ? {}
+        : {
+            E6CODE_OTLP_METRICS_URL: otlp.url,
+            E6CODE_OTLP_PROTOCOL: "http/json",
+            E6CODE_OTLP_EXPORT_INTERVAL_MS: String(OTLP_EXPORT_INTERVAL_MS),
+          }),
+    }),
+  },
+  timelineScroll: { run: runTimelineScroll },
+  soak: {
+    run: runSoak,
+    // Recorded gaps, sped up: an events-per-second pace would flatten the timing the soak keeps.
+    serverEnv: ({ options }) => ({
+      E6CODE_PROVIDER_REPLAY_SPEED: String(options.soakFactor),
+      E6CODE_PROVIDER_REPLAY_MAX_GAP_MS: String(SOAK_MAX_GAP_MS),
+    }),
+  },
 };
+
+const OTLP_EXPORT_INTERVAL_MS = 2_000;
 
 const RECORDINGS_DIR = NodePath.join(
   REPO_ROOT,
@@ -83,8 +126,6 @@ const RECORDINGS = [
   "opencode.tool-heavy",
 ];
 const REPLAYED_KINDS = ["cursor", "claudeAgent", "codex", "opencode"];
-const STREAM_RECORDING = "cursor.streaming-prose";
-const STREAM_EVENTS_PER_SECOND = 50;
 const SEED_SCRIPT = NodePath.join(REPO_ROOT, "apps/server/scripts/perf-seed.ts");
 const ROUTE_TREE = "apps/web/src/routeTree.gen.ts";
 const PROVIDER_CLI_NAMES = new Set([
@@ -111,11 +152,13 @@ const USAGE = `Usage: node scripts/perf-harness/run.ts [options]
   --keep-home                keep the run root (homes, workspace, logs)
   --keep-traces              write CDP traces to <out>/traces
   --stop-timeout <seconds>   SIGTERM grace before SIGKILL (default 10)
+  --no-otlp                  do not export server metrics to a local OTLP receiver (no command ack)
   --threads <n>              seeded threads (default 50)
   --long-thread-turns <n>    turns on the long thread (default 1000)
   --turns-per-thread <n>     turns on the other threads (default 4)
   --long-thread-shape turns|imported-messages
-  --soak-minutes <n>, --soak-factor <n>   recorded in the report; the soak is not built yet
+  --soak-minutes <n>         soak length (default 6)
+  --soak-factor <n>          soak replay speed-up over the recorded timing (default 32)
 `;
 
 interface Options {
@@ -128,6 +171,7 @@ interface Options {
   readonly keepHome: boolean;
   readonly keepTraces: boolean;
   readonly stopTimeoutMs: number;
+  readonly otlp: boolean;
   readonly threads: number;
   readonly longThreadTurns: number;
   readonly turnsPerThread: number;
@@ -172,6 +216,7 @@ function parseOptions(argv: ReadonlyArray<string>): Options {
       "keep-home": { type: "boolean" },
       "keep-traces": { type: "boolean" },
       "stop-timeout": { type: "string" },
+      "no-otlp": { type: "boolean" },
       threads: { type: "string" },
       "long-thread-turns": { type: "string" },
       "turns-per-thread": { type: "string" },
@@ -211,6 +256,7 @@ function parseOptions(argv: ReadonlyArray<string>): Options {
     keepHome: values["keep-home"] ?? false,
     keepTraces: values["keep-traces"] ?? false,
     stopTimeoutMs: positive("stop-timeout", values["stop-timeout"], 10) * 1000,
+    otlp: !(values["no-otlp"] ?? false),
     threads,
     longThreadTurns: Math.floor(positive("long-thread-turns", values["long-thread-turns"], 1000)),
     turnsPerThread: Math.floor(positive("turns-per-thread", values["turns-per-thread"], 4)),
@@ -478,11 +524,7 @@ async function main(): Promise<number> {
       records.push(skipped(id, "not selected"));
       continue;
     }
-    const run = BUILT_SCENARIOS[id];
-    if (run === undefined) {
-      records.push(skipped(id, "not built yet (ENG-128 phase C)"));
-      continue;
-    }
+    const definition = SCENARIOS[id];
     const startedAt = new Date().toISOString();
     const startMs = NodePerfHooks.performance.now();
     if (setupError !== null || seed === null || browser === null) {
@@ -498,17 +540,22 @@ async function main(): Promise<number> {
     let server: ServerHandle | null = null;
     const serverRaw: Record<string, unknown> = {};
     const children = new Set<string>();
+    let childSamples = 0;
     let childSampler: ReturnType<typeof setInterval> | null = null;
     let home: string | null = null;
+    let otlp: OtlpSink | null = null;
+    let afterStop: ScenarioResult["afterStop"];
     try {
       home = await scenarioHome(runRoot, id);
       const scenarioHomeDir = home;
+      if (definition.otlp === true && options.otlp) otlp = await startOtlpSink();
       const env = runRoot.childEnv({
         E6CODE_PROVIDER_REPLAY: RECORDINGS.map((recording) =>
           NodePath.join(RECORDINGS_DIR, `${recording}.ndjson`),
         ).join(","),
         E6CODE_PROVIDER_REPLAY_ON_EXHAUSTED: "loop",
         E6CODE_PROVIDER_REPLAY_AUTO_RESPOND: "true",
+        ...definition.serverEnv?.({ options, otlp }),
       });
       server = await startServer({
         home: scenarioHomeDir,
@@ -522,6 +569,7 @@ async function main(): Promise<number> {
       );
       const sample = async () => {
         for (const command of await started.childCommands()) children.add(command);
+        childSamples += 1;
       };
       childSampler = setInterval(() => void sample(), SERVER_CHILD_SAMPLE_MS);
       serverRaw.readyMs = started.readyMs;
@@ -566,7 +614,18 @@ async function main(): Promise<number> {
         credential,
         motion: options.motion,
       });
-      const result = await run({
+      let control: Promise<ControlClient> | null = null;
+      const issueControl = async () => {
+        const { token, pid } = await issueBearer({
+          home: scenarioHomeDir,
+          env,
+          cwd: runRoot.workspace,
+          logDir,
+        });
+        processes.push({ role: "auth", scenario: id, pid, port: null, stop: null });
+        return controlClient({ origin: started.origin, token });
+      };
+      const result = await definition.run({
         browser: activeBrowser,
         origin: started.origin,
         serverPort: started.port,
@@ -577,13 +636,20 @@ async function main(): Promise<number> {
         outDir,
         traceDir,
         screenshots: options.screenshots,
+        variant: options.variant,
         seed: {
           projectId: seed.summary.projectId,
           longThreadId: seed.summary.longThreadId,
           threads: seed.summary.threads,
         },
+        home: scenarioHomeDir,
+        server: { pid: started.pid, rssKb: started.rssKb },
+        control: () => (control ??= issueControl()),
+        otlp,
+        soak: { minutes: options.soakMinutes, factor: options.soakFactor },
         log: (message) => log(`  ${message}`),
       });
+      afterStop = result.afterStop;
       await sample();
       serverRaw.rssKbAtEnd = await started.rssKb();
       if (result.validity.motionResolved !== undefined && validity.motionResolved === null) {
@@ -628,12 +694,42 @@ async function main(): Promise<number> {
         processes.push({ role: "server", scenario: id, pid: server.pid, port: server.port, stop });
         serverRaw.listenersAfterStop = await listenersOn(server.port);
         if (home !== null) serverRaw.secretStore = await secretStoreUsed(home);
-        serverRaw.children = [...children].toSorted();
         const providerChildren = [...children].filter((command) => PROVIDER_CLI_NAMES.has(command));
-        if (providerChildren.length > 0) {
-          notes.push(`hermetic providers: server ${id} spawned ${providerChildren.join(", ")}`);
+        serverRaw.hermeticProviders = {
+          samples: childSamples,
+          children: [...children].toSorted(),
+          providerChildren,
+        };
+        notes.push(
+          providerChildren.length > 0
+            ? `hermetic providers: server ${id} spawned ${providerChildren.join(", ")}`
+            : `hermetic providers: server ${id}, ${childSamples} child samples, no provider CLI (children: ${[...children].toSorted().join(", ") || "none"})`,
+        );
+        if (afterStop !== undefined && home !== null) {
+          const merged = await afterStop({ home, forced: stop.forced }).catch(
+            (error: unknown): AfterStop => ({
+              notes: [
+                `${id}: reading the server's files after stop failed: ${errorMessage(error)}`,
+              ],
+            }),
+          );
+          const index = records.findIndex((record) => record.id === id);
+          const record = records[index];
+          if (record !== undefined && record.status === "passed") {
+            const replaced = new Set((merged.metrics ?? []).map((metric) => metric.id));
+            records[index] = {
+              ...record,
+              raw: { ...record.raw, ...merged.raw },
+              metrics: [
+                ...record.metrics.filter((metric) => !replaced.has(metric.id)),
+                ...(merged.metrics ?? []),
+              ],
+            };
+          }
+          notes.push(...(merged.notes ?? []));
         }
       }
+      await otlp?.close();
     }
   }
 

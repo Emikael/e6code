@@ -5,6 +5,7 @@ import {
   DelayQueue,
   linkSettings,
   type ProxyClock,
+  requestTarget,
   ShapedLink,
   throughputMbps,
   TokenBucket,
@@ -156,9 +157,35 @@ describe("ByteCounters", () => {
     counters.add(1, "serverToClient", 24);
     expect(counters.totals()).toEqual({ clientToServer: 100, serverToClient: 1_074 });
     expect(counters.connections()).toEqual([
-      { id: 1, clientToServer: 100, serverToClient: 1_024 },
-      { id: 2, clientToServer: 0, serverToClient: 50 },
+      { id: 1, target: null, clientToServer: 100, serverToClient: 1_024 },
+      { id: 2, target: null, clientToServer: 0, serverToClient: 50 },
     ]);
+  });
+
+  it("names a connection by its first request, so the WebSocket's bytes can be told apart", () => {
+    const counters = new ByteCounters();
+    counters.add(1, "serverToClient", 10);
+    counters.setTarget(1, "GET /ws");
+    counters.setTarget(1, "GET /later");
+    expect(counters.connections()).toEqual([
+      { id: 1, target: "GET /ws", clientToServer: 0, serverToClient: 10 },
+    ]);
+  });
+});
+
+describe("requestTarget", () => {
+  it("reads the method and path of an HTTP request line, dropping the query", () => {
+    expect(
+      requestTarget(Buffer.from("GET /ws?wsTicket=secret&x=1 HTTP/1.1\r\nHost: a\r\n\r\n")),
+    ).toBe("GET /ws");
+    expect(requestTarget(Buffer.from("POST /api/orchestration/dispatch HTTP/1.1\r\n"))).toBe(
+      "POST /api/orchestration/dispatch",
+    );
+  });
+
+  it("is null for bytes that do not start an HTTP request", () => {
+    expect(requestTarget(Buffer.from([0x16, 0x03, 0x01]))).toBeNull();
+    expect(requestTarget(Buffer.from("p"))).toBeNull();
   });
 });
 

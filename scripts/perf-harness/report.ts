@@ -45,8 +45,11 @@ export interface ScenarioRecord {
   readonly raw: Record<string, unknown>;
   readonly screenshots: ReadonlyArray<{ readonly point: string; readonly path: string }>;
   readonly metrics: ReadonlyArray<MetricOutcome>;
-  /** `design.idleAnimationFrames` values, one per capture point. */
-  readonly idlePoints: ReadonlyArray<{ readonly label: string; readonly value: number }>;
+  /**
+   * `design.idleAnimationFrames` values, one per capture point; `null` when the
+   * idle trace held no renderer main-thread events, so zero frames proves nothing.
+   */
+  readonly idlePoints: ReadonlyArray<{ readonly label: string; readonly value: number | null }>;
 }
 
 export const SCENARIO_IDS: ReadonlyArray<PerfScenarioId> = [
@@ -128,19 +131,29 @@ export function assembleMetrics(
     }
     if (id === IDLE_METRIC) {
       const owners = IDLE_OWNERS.map((owner) => byScenario.get(owner));
-      const points = owners
+      const reported = owners
         .filter((owner) => owner?.status === "passed")
-        .flatMap((owner) => owner?.idlePoints ?? [])
-        .filter((point) => Number.isInteger(point.value) && point.value >= 0);
+        .flatMap((owner) => owner?.idlePoints ?? []);
+      const emptyTraceFlags = reported
+        .filter((point) => point.value === null)
+        .map((point) => `idleTraceEmpty:${point.label}`);
+      const points = reported.flatMap((point) =>
+        point.value !== null && Number.isInteger(point.value) && point.value >= 0
+          ? [{ label: point.label, value: point.value }]
+          : [],
+      );
       if (points.length === 0) {
         const failed = owners.find((owner) => owner?.status === "failed");
         return {
           id,
           budgetRow,
           status: "notMeasured",
-          reason: absentReason(failed),
+          reason:
+            emptyTraceFlags.length > 0 && failed === undefined
+              ? "the idle traces held no renderer main-thread events"
+              : absentReason(failed),
           scenario: null,
-          flags: flagsFor(),
+          flags: flagsFor(emptyTraceFlags),
         };
       }
       return {
@@ -153,7 +166,7 @@ export function assembleMetrics(
         samples: points.length,
         source: "cdp-trace:PipelineReporter",
         scenario: null,
-        flags: flagsFor(),
+        flags: flagsFor(emptyTraceFlags),
         points: points.map((point) => ({ label: point.label, atMs: null, value: point.value })),
       };
     }

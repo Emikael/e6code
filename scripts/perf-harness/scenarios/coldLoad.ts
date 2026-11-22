@@ -1,4 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off - names screenshot files under the out directory.
 /**
  * Cold load (plan §4.1). Five local cold loads, each a new context carrying
  * only the session cookie, traced from navigation to 2 s after the shell is
@@ -9,8 +8,6 @@
  *
  * @module perf-harness/scenarios/coldLoad
  */
-import * as NodePath from "node:path";
-
 import type { BrowserContext, Cookie, Page } from "playwright-core";
 
 import {
@@ -18,7 +15,6 @@ import {
   idleCheck,
   newMeasuredContext,
   readPageTimings,
-  screenshot,
   sleep,
   traced,
   waitForMark,
@@ -26,12 +22,7 @@ import {
 } from "../browser.ts";
 import { observedScriptBytes } from "../bundle.ts";
 import type { MetricOutcome } from "../report.ts";
-import {
-  addedRoundTripMs,
-  pingRoundTrips,
-  unaryRoundTrips,
-  type WsFrame,
-} from "../rpcRoundTrip.ts";
+import { addedRoundTripMs, pingRoundTrips, unaryRoundTrips, type WsFrame } from "../wsFrames.ts";
 import { percentile } from "../stats.ts";
 import { runProxySelfTest, startThrottleProxy } from "../throttleProxy.ts";
 import {
@@ -40,7 +31,12 @@ import {
   userTimingTs,
   type TraceEvent,
 } from "../traceFrames.ts";
-import { screenshotName, type ScenarioContext, type ScenarioResult } from "./scenario.ts";
+import {
+  idlePoint,
+  screenshotIfStill,
+  type ScenarioContext,
+  type ScenarioResult,
+} from "./scenario.ts";
 
 const LOCAL_LOADS = 5;
 const REMOTE_COLD_LOADS = 3;
@@ -162,20 +158,9 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
           keepDir: ctx.traceDir,
         });
         directPings = pingRoundTrips(liveFrames);
-        if (ctx.screenshots) {
-          if (idle.framesWithUpdate === 0) {
-            const path = NodePath.join(
-              ctx.outDir,
-              screenshotName("coldLoad.shellInteractive", ctx.motion),
-            );
-            await screenshot(page, path);
-            screenshots.push({ point: "coldLoad.shellInteractive", path });
-          } else {
-            notes.push(
-              `coldLoad.shellInteractive screenshot skipped: ${idle.framesWithUpdate} frames at idle`,
-            );
-          }
-        }
+        const shot = await screenshotIfStill(ctx, page, "coldLoad.shellInteractive", idle);
+        if ("taken" in shot) screenshots.push(shot.taken);
+        else if (shot.skipped !== null) notes.push(shot.skipped);
       }
     } finally {
       await context.close();
@@ -352,8 +337,7 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
 
   return {
     metrics,
-    idlePoints:
-      idle === null ? [] : [{ label: "coldLoad.shellInteractive", value: idle.framesWithUpdate }],
+    idlePoints: idle === null ? [] : [idlePoint("coldLoad.shellInteractive", idle)],
     screenshots,
     raw: {
       local: local.map((sample, index) => ({

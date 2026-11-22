@@ -167,6 +167,53 @@ describe("assembleMetrics", () => {
     });
   });
 
+  it("leaves out idle points whose trace held no renderer data, and flags them", () => {
+    const metrics = byId(
+      assembleMetrics(
+        [
+          {
+            ...notRun("coldLoad"),
+            status: "passed",
+            idlePoints: [{ label: "coldLoad.shellInteractive", value: null }],
+          },
+          {
+            ...notRun("threadSwitch"),
+            status: "passed",
+            idlePoints: [{ label: "threadSwitch.threadLive", value: 0 }],
+          },
+        ],
+        { frameMetricTrusted: true },
+      ),
+    );
+    expect(metrics.get("design.idleAnimationFrames")).toMatchObject({
+      status: "measured",
+      value: 0,
+      samples: 1,
+      flags: ["idleTraceEmpty:coldLoad.shellInteractive"],
+      points: [{ label: "threadSwitch.threadLive", atMs: null, value: 0 }],
+    });
+  });
+
+  it("does not report idle frames when no idle trace held renderer data", () => {
+    const metrics = byId(
+      assembleMetrics(
+        [
+          {
+            ...notRun("coldLoad"),
+            status: "passed",
+            idlePoints: [{ label: "coldLoad.shellInteractive", value: null }],
+          },
+        ],
+        { frameMetricTrusted: true },
+      ),
+    );
+    expect(metrics.get("design.idleAnimationFrames")).toMatchObject({
+      status: "notMeasured",
+      reason: expect.stringContaining("no renderer main-thread events"),
+      flags: ["idleTraceEmpty:coldLoad.shellInteractive"],
+    });
+  });
+
   it("flags frame metrics when the frame cadence probe failed", () => {
     const metrics = byId(
       assembleMetrics(

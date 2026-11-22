@@ -194,20 +194,25 @@ export function classifyFrames(events: ReadonlyArray<TraceEvent>): FrameSummary 
 /**
  * What a page that should be still did during a trace: frames that produced
  * or attempted an update, and main-thread frames (`BeginMainThreadFrame`).
- * Counted from the trace, so measuring requests no frames of its own.
+ * Counted from the trace, so measuring requests no frames of its own. A still
+ * page emits no frame reports at all, so `rendererMainEvents` (anything the
+ * renderer's main thread recorded) tells "no frames" from "no trace data".
  */
 export function idleFrameActivity(events: ReadonlyArray<TraceEvent>): {
   readonly framesWithUpdate: number;
   readonly mainThreadFrames: number;
+  readonly rendererMainEvents: number;
   readonly source: FrameSummary["source"];
 } {
   const { source, frames } = framesOf(events);
   const pids = rendererProcessIds(events);
+  const isMain = onRendererMain(events);
   return {
     framesWithUpdate: frames.filter((frame) => frame.state !== "noUpdate").length,
     mainThreadFrames: events.filter(
       (event) => event.name === "BeginMainThreadFrame" && pids.has(event.pid),
     ).length,
+    rendererMainEvents: events.filter((event) => event.ph !== "M" && isMain(event)).length,
     source,
   };
 }

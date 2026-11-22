@@ -136,14 +136,28 @@ export class DelayQueue<T> {
 
 export type Direction = "clientToServer" | "serverToClient";
 
-/** Bytes per connection and direction. */
+/** `METHOD /path` of the HTTP request a connection opened with, without its query; else null. */
+export function requestTarget(firstChunk: Buffer): string | null {
+  const line = firstChunk.subarray(0, 2_048).toString("latin1").split("\r\n", 1)[0] ?? "";
+  const match = /^([A-Z]+) (\S+) HTTP\/1\.[01]$/.exec(line);
+  if (match === null) return null;
+  return `${match[1]} ${match[2]!.split("?", 1)[0]}`;
+}
+
+/** Bytes per connection and direction, with the request each connection opened with. */
 export class ByteCounters {
   readonly #byConnection = new Map<number, Record<Direction, number>>();
+  readonly #targets = new Map<number, string | null>();
 
   add(connection: number, direction: Direction, bytes: number): void {
     const entry = this.#byConnection.get(connection) ?? { clientToServer: 0, serverToClient: 0 };
     entry[direction] += bytes;
     this.#byConnection.set(connection, entry);
+  }
+
+  /** Records the connection's first request; later ones on a kept-alive connection do not rename it. */
+  setTarget(connection: number, target: string | null): void {
+    if (!this.#targets.has(connection)) this.#targets.set(connection, target);
   }
 
   totals(): Record<Direction, number> {
@@ -155,10 +169,12 @@ export class ByteCounters {
     return totals;
   }
 
-  connections(): Array<{ readonly id: number } & Record<Direction, number>> {
+  connections(): Array<
+    { readonly id: number; readonly target: string | null } & Record<Direction, number>
+  > {
     return [...this.#byConnection.entries()]
       .toSorted(([left], [right]) => left - right)
-      .map(([id, entry]) => ({ id, ...entry }));
+      .map(([id, entry]) => ({ id, target: this.#targets.get(id) ?? null, ...entry }));
   }
 }
 
@@ -247,6 +263,7 @@ export async function startThrottleProxy(options: ThrottleProxyOptions): Promise
         queue.push({ kind: "end" }, links[direction].deliveryTime(clock.now(), 0));
       };
       from.on("data", (chunk: Buffer) => {
+        if (direction === "clientToServer") counters.setTarget(connection, requestTarget(chunk));
         counters.add(connection, direction, chunk.length);
         queue.push(
           { kind: "data", chunk },

@@ -17,11 +17,12 @@ import {
   chromium,
   type Browser,
   type BrowserContext,
+  type CDPSession,
   type Cookie,
   type Page,
 } from "playwright-core";
 
-import type { WsFrame } from "./rpcRoundTrip.ts";
+import type { WsFrame } from "./wsFrames.ts";
 import { classifyFrames, idleFrameActivity, type TraceEvent } from "./traceFrames.ts";
 
 export type MotionRequest = "full" | "reduced" | "off";
@@ -53,6 +54,11 @@ interface PerfProbe {
   }>;
   /** Durations from an observer asking for a 0 ms threshold, to see whether 16 ms is enforced. */
   readonly clampProbe: Array<number>;
+  readonly longAnimationFrames: Array<{
+    readonly start: number;
+    readonly duration: number;
+    readonly blockingDuration: number;
+  }>;
   readonly firstInput: Array<{ readonly name: string; readonly duration: number }>;
   readonly waitForMark: (prefix: string, timeoutMs: number) => Promise<MarkHit | null>;
 }
@@ -64,6 +70,7 @@ interface ObservedEntry {
   readonly duration: number;
   readonly initiatorType?: string;
   readonly transferSize?: number;
+  readonly blockingDuration?: number;
 }
 
 export interface PageGlobal {
@@ -105,6 +112,7 @@ function installPerfProbe(clientSettings: string) {
     longTasks: [],
     events: [],
     clampProbe: [],
+    longAnimationFrames: [],
     firstInput: [],
     waitForMark: (prefix, timeoutMs) =>
       new Promise((resolve) => {
@@ -151,6 +159,13 @@ function installPerfProbe(clientSettings: string) {
   );
   observe({ type: "event", durationThreshold: 0 }, (entry) =>
     probe.clampProbe.push(entry.duration),
+  );
+  observe({ type: "long-animation-frame" }, (entry) =>
+    probe.longAnimationFrames.push({
+      start: entry.startTime,
+      duration: entry.duration,
+      blockingDuration: entry.blockingDuration ?? 0,
+    }),
   );
   observe({ type: "first-input" }, (entry) =>
     probe.firstInput.push({ name: entry.name, duration: entry.duration }),
@@ -233,10 +248,18 @@ export async function newMeasuredContext(
 export async function traced<A>(
   browser: Browser,
   page: Page,
-  input: { readonly name: string; readonly keepDir: string | null },
+  input: {
+    readonly name: string;
+    readonly keepDir: string | null;
+    readonly categories?: ReadonlyArray<string>;
+  },
   run: () => Promise<A>,
-): Promise<{ readonly result: A; readonly events: Array<TraceEvent> }> {
-  await browser.startTracing(page, { categories: TRACE_CATEGORIES });
+): Promise<{
+  readonly result: A;
+  readonly events: Array<TraceEvent>;
+  readonly traceBytes: number;
+}> {
+  await browser.startTracing(page, { categories: [...(input.categories ?? TRACE_CATEGORIES)] });
   let buffer: Buffer | null = null;
   let result: A;
   try {
@@ -251,7 +274,7 @@ export async function traced<A>(
   const parsed = JSON.parse(buffer.toString("utf8")) as {
     readonly traceEvents?: Array<TraceEvent>;
   };
-  return { result, events: parsed.traceEvents ?? [] };
+  return { result, events: parsed.traceEvents ?? [], traceBytes: buffer.length };
 }
 
 /** The first mark in this document whose name starts with `prefix`, or `null` after `timeoutMs`. */
@@ -275,10 +298,15 @@ export interface PageTimings {
   /** All resource entries; at the buffer size, scripts may be missing. */
   readonly resourceEntries: number;
   readonly clicks: ReadonlyArray<number>;
-  readonly events: ReadonlyArray<{ readonly name: string; readonly duration: number }>;
+  readonly events: ReadonlyArray<{
+    readonly name: string;
+    readonly start: number;
+    readonly duration: number;
+  }>;
   readonly clampProbe: ReadonlyArray<number>;
   readonly firstInput: ReadonlyArray<{ readonly name: string; readonly duration: number }>;
   readonly longTasks: ReadonlyArray<{ readonly start: number; readonly duration: number }>;
+  readonly longAnimationFrames: PerfProbe["longAnimationFrames"];
   readonly motion: string | null;
   /** The Motion setting stored in client settings after boot, to see the seed survived. */
   readonly storedMotion: string | null;
@@ -303,11 +331,13 @@ export function readPageTimings(page: Page): Promise<PageTimings> {
       clicks: [...(probe?.clicks ?? [])],
       events: (probe?.events ?? []).map((entry) => ({
         name: entry.name,
+        start: entry.start,
         duration: entry.duration,
       })),
       clampProbe: [...(probe?.clampProbe ?? [])],
       firstInput: [...(probe?.firstInput ?? [])],
       longTasks: [...(probe?.longTasks ?? [])],
+      longAnimationFrames: [...(probe?.longAnimationFrames ?? [])],
       motion: global.document.documentElement.dataset.motion ?? null,
       storedMotion: (() => {
         try {
@@ -327,14 +357,26 @@ export function readPageTimings(page: Page): Promise<PageTimings> {
  * Records the page's WebSocket text frames over CDP. `Network.enable` reports
  * only sockets opened after it, so call this before navigating.
  */
-export async function captureWsFrames(
-  page: Page,
-): Promise<{ readonly frames: Array<WsFrame>; readonly stop: () => Promise<void> }> {
+export async function captureWsFrames(page: Page): Promise<{
+  readonly frames: Array<WsFrame>;
+  /** The first frame from `fromIndex` on that `matches`, waiting up to `timeoutMs`. */
+  readonly waitForFrame: (
+    fromIndex: number,
+    matches: (frame: WsFrame) => boolean,
+    timeoutMs: number,
+  ) => Promise<number | null>;
+  readonly stop: () => Promise<void>;
+}> {
   const session = await page.context().newCDPSession(page);
   const frames: Array<WsFrame> = [];
+  const waiters = new Set<() => void>();
+  const record = (frame: WsFrame) => {
+    frames.push(frame);
+    for (const wake of waiters) wake();
+  };
   session.on("Network.webSocketFrameSent", (event) => {
     if (event.response.opcode === 1) {
-      frames.push({
+      record({
         socket: event.requestId,
         direction: "sent",
         timestampMs: event.timestamp * 1000,
@@ -344,7 +386,7 @@ export async function captureWsFrames(
   });
   session.on("Network.webSocketFrameReceived", (event) => {
     if (event.response.opcode === 1) {
-      frames.push({
+      record({
         socket: event.requestId,
         direction: "received",
         timestampMs: event.timestamp * 1000,
@@ -353,7 +395,77 @@ export async function captureWsFrames(
     }
   });
   await session.send("Network.enable");
-  return { frames, stop: () => session.detach().catch(() => undefined) };
+  const find = (fromIndex: number, matches: (frame: WsFrame) => boolean) => {
+    for (let index = fromIndex; index < frames.length; index += 1) {
+      if (matches(frames[index]!)) return index;
+    }
+    return null;
+  };
+  return {
+    frames,
+    waitForFrame: (fromIndex, matches, timeoutMs) => {
+      const found = find(fromIndex, matches);
+      if (found !== null) return Promise.resolve(found);
+      return new Promise((resolve) => {
+        let scanned = frames.length;
+        const wake = () => {
+          const next = find(scanned, matches);
+          scanned = frames.length;
+          if (next === null) return;
+          clearTimeout(timer);
+          waiters.delete(wake);
+          resolve(next);
+        };
+        const timer = setTimeout(() => {
+          waiters.delete(wake);
+          resolve(null);
+        }, timeoutMs);
+        waiters.add(wake);
+      });
+    },
+    stop: () => session.detach().catch(() => undefined),
+  };
+}
+
+/**
+ * Renderer heap after a forced major GC, over CDP. Forcing GC disturbs the
+ * page, so call it only at sample points, never inside a latency window.
+ */
+export async function heapAfterGc(
+  page: Page,
+): Promise<{ readonly usedBytes: number; readonly totalBytes: number }> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send("HeapProfiler.collectGarbage");
+    const usage = await session.send("Runtime.getHeapUsage");
+    return { usedBytes: usage.usedSize, totalBytes: usage.totalSize };
+  } finally {
+    await session.detach().catch(() => undefined);
+  }
+}
+
+/**
+ * A synthetic scroll gesture at (`x`, `y`) through the input pipeline Chromium's
+ * smoothness benchmarks use; positive `yDistance` scrolls up. Resolves when the
+ * gesture has finished.
+ */
+export async function scrollGesture(
+  session: CDPSession,
+  input: {
+    readonly x: number;
+    readonly y: number;
+    readonly yDistance: number;
+    readonly speed: number;
+  },
+): Promise<void> {
+  await session.send("Input.synthesizeScrollGesture", {
+    x: input.x,
+    y: input.y,
+    yDistance: input.yDistance,
+    speed: input.speed,
+    gestureSourceType: "mouse",
+    preventFling: true,
+  });
 }
 
 /** Clears the marks whose names start with `prefix`. */
@@ -387,6 +499,7 @@ export async function idleCheck(
 ): Promise<{
   readonly framesWithUpdate: number;
   readonly mainThreadFrames: number;
+  readonly rendererMainEvents: number;
   readonly source: string;
 }> {
   await settleForIdle(page);

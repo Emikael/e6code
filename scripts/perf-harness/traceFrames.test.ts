@@ -214,15 +214,40 @@ describe("idleFrameActivity", () => {
     expect(idleFrameActivity(events)).toEqual({
       framesWithUpdate: 2,
       mainThreadFrames: 1,
+      rendererMainEvents: 1,
       source: "PipelineReporter",
     });
   });
 
-  it("reads a still page as zero frames", () => {
-    expect(idleFrameActivity(metadata)).toEqual({
+  it("reads a still page, whose main thread still ran tasks, as zero frames", () => {
+    const task: TraceEvent = {
+      name: "RunTask",
+      ph: "X",
+      pid: RENDERER,
+      tid: RENDERER_MAIN,
+      ts: 1_000,
+      dur: 120,
+    };
+    expect(idleFrameActivity([...metadata, task])).toEqual({
       framesWithUpdate: 0,
       mainThreadFrames: 0,
+      rendererMainEvents: 1,
       source: "none",
+    });
+  });
+
+  it("tells a trace with no renderer main-thread events from a still page", () => {
+    const elsewhere: TraceEvent = {
+      name: "RunTask",
+      ph: "X",
+      pid: RENDERER,
+      tid: RENDERER_COMPOSITOR,
+      ts: 1_000,
+      dur: 120,
+    };
+    expect(idleFrameActivity([...metadata, elsewhere])).toMatchObject({
+      framesWithUpdate: 0,
+      rendererMainEvents: 0,
     });
   });
 });

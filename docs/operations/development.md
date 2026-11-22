@@ -152,6 +152,33 @@ To record a new one:
 
 `provider-replay.ts stats --in <file>` prints a recording's duration, event rate and sizes.
 
+### Web performance harness
+
+`vp run perf:web` measures the web client against the performance budgets and writes one JSON
+report in the `@e6tools/shared/perfReport` shape. It seeds a throwaway home under the system temp
+directory (50 threads, one with 1,000 turns), starts one server per scenario on a copy of it with
+the recordings above replayed in place of every provider, and drives the production build of
+`apps/web` in headless Chromium. It never touches the live E6 home: homes live in the temp
+directory, secrets use the file store rather than the shared OS keychain, ports are probed, and it
+stops only the processes it started.
+
+It needs a production build (`--build` makes one first; otherwise a stale `dist` is flagged) and
+Playwright's Chromium headless shell, which it never downloads. Install that once with
+`pnpm --filter @e6tools/scripts exec playwright-core install --only-shell chromium`.
+
+- `--scenario` picks from `coldLoad`, `threadSwitch`, `streamingInput`, `timelineScroll` and
+  `soak` (default all).
+- `--out <dir>` sets where the report, logs and screenshots go, by default
+  `$TMPDIR/e6-perf/<runId>/`. It must be outside the repository or ignored by git.
+- `--soak-minutes` and `--soak-factor` (default 6 and 32) size the soak, which takes most of a
+  full run.
+- `--threads` and `--long-thread-turns` shrink the seed while iterating; `--screenshots`,
+  `--keep-traces` and `--keep-home` keep evidence.
+
+The report records values and where they came from, never pass or fail; a row it could not
+measure says why. Read `validity.notes` first: it records the frame-cadence, isolation, replay-rate
+and hermetic-provider checks.
+
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo, then
