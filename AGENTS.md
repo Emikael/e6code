@@ -160,17 +160,17 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 The E6 Code Remodel rewrites every screen in phases. Its decisions live in the Linear project "E6 Code Remodel", in the documents "Architecture decisions and performance budgets", "Design direction" and "Agent team and workflow". Tasks not yet filed in Linear are files in `remodel-backlog/`.
 
-- Remodel work integrates on the `remodel` branch. Start each task from the latest `remodel`; one task is one PR into `remodel`, opened when the maintainer asks. The maintainer keeps `remodel` current by merging `main` into it. Never rebase `remodel`, and do not merge into it unless asked.
+- Remodel work integrates on the `remodel` branch. Start each task from the latest `remodel`; one task is one PR into `remodel`, opened when the maintainer asks. The maintainer keeps `remodel` current by merging `main` into it. Never rebase `remodel`, and do not merge into it unless asked; to integrate, merge `remodel` into the task branch instead.
 - A rule below that names a task still to land applies already; that task adds the code or the enforcement. Until it lands, do not build a substitute for a layer another task owns, such as a flag registry or an icon layer: wait for that task or ask the maintainer.
 
 ### v2 layout
 
-- v2 web code lives in `apps/web/src/next/`: `app/` (shell frame, launch, route switches), `features/<feature>/` (screen, components, view-model hooks, feature stores), `ui/` (primitives over Base UI), `motion/` and `icons/`. `motion/` and `ui/` exist; `app/` and `features/` arrive with the strangler shell (E04-T02, ENG-81) and the first screen tasks, and `icons/` with E03-T04 (ENG-93).
+- v2 web code lives in `apps/web/src/next/`: `app/` (shell frame, launch, route switches), `features/<feature>/` (screen, components, view-model hooks, feature stores), `ui/` (primitives over Base UI), `motion/` and `icons/`. `motion/`, `ui/` and `icons/` exist; `app/` and `features/` arrive with the strangler shell (E04-T02, ENG-81) and the first screen tasks.
 - Legacy code does not import from `next/`. The legacy imports of `next/motion` and `next/redesignedScreens.ts` that shipped with the Motion setting (ENG-126) already exist; add others only where a task's approved plan names them, such as the E04-T02 route switches, or with the maintainer's agreement. `next/**` never imports `components/ChatView*`, `components/Sidebar*`, `LegacySidebar`, `composerDraftStore` or any legacy zustand store; move the logic into `packages/client-runtime` or `next/features/<feature>/model` first.
 - Features do not import each other's internals; they share through `client-runtime` atoms or an explicit `features/<feature>/index.ts`. A component file over 600 lines needs a reason in review.
 - Server state lives only in Effect atoms in `client-runtime`: lists subscribe to ordered ids, each row to its own entity atom. UI state lives in per-feature zustand stores that persist per key. No `useEffect` copies of atom values into stores.
 - Presentation logic mobile also needs (row view models, status wording) lives in `client-runtime`, so web and mobile render the same view model.
-- E04-T05 (ENG-85) adds lint rules for these boundaries. Today, besides the repository-wide rules, `next/**` has only the raw-palette and animation-engine rules in `vite.config.ts`.
+- E04-T05 (ENG-85) adds lint rules for these boundaries. Today, besides the repository-wide rules, `next/**` has only the raw-palette, animation-engine and icon-library rules in `vite.config.ts`.
 
 ### Screen flags
 
@@ -184,7 +184,7 @@ The E6 Code Remodel rewrites every screen in phases. Its decisions live in the L
 - v2 code animates only through the named presets in `next/motion`, which apply MotionPolicy (Full, Reduced, Off). No hand-written keyframes or durations. Entrances are opt-in with `data-enter`; mounting alone never animates.
 - Only `transform` and `opacity` animate. The named exceptions are `checkDraw` (stroke-dashoffset on small checks), `iconSwap`'s scale down to 0.6 on icons of 20 px or less, and the ambient canvas where [Taste](#taste) allows it. Never animate width, height, position, margin, padding, border width, box-shadow or blur radius; height changes and reorders go through the `layout` preset.
 - `motion` is the default engine. `gsap` is only for authored timelines (launch, onboarding, celebrations): it arrives with the launch sequence (E04-T16) through the one runner module the lint allows in `next/motion/cinematic/`, loads lazily, stays off the chat critical path and always runs under MotionPolicy. `apps/marketing` may load it lazily too. Anime.js stays behind the legacy `apps/web/src/lib/motion.ts` until its last caller is deleted. The `e6code/no-animation-library-imports` lint rule enforces where each engine may be imported (ENG-110). ScrollTrigger, SplitText and MorphSVG in the app need their own decision.
-- v2 icons come only from `next/icons` (ENG-87): Phosphor artwork generated into named components (`<IconChevronDown />`) for static use, and `<Icon name>` only for dynamic names such as saved project icons and palette entries; `@phosphor-icons/react` is not used at runtime. Regular weight at rest, fill when selected or active, bold at 12 to 14 px, duotone for empty states. Semantic names live in `packages/design-tokens/src/icons`. `next/**` never imports an icon library directly.
+- v2 icons come only from `next/icons` (ENG-87): Phosphor artwork as named components (`<IconChevronDown />`), which E03-T06 (ENG-96) generates, for static use, and `<Icon name>` only for dynamic names such as saved project icons and palette entries; `@phosphor-icons/react` is not used at runtime. Regular weight at rest, fill when selected or active, bold at 12 to 14 px, duotone for empty states. Semantic names live in `packages/design-tokens/src/icons`. `next/**` never imports an icon library directly.
 
 ### Budgets
 
@@ -214,7 +214,7 @@ Five roles do the remodel, defined in `.claude/agents/remodel-*.md`: program man
 - Each screen task gets one feature planner and one screen designer. Planning and design for several tasks may run in parallel.
 - Implementers run in parallel only on tasks the ownership map (E04-T05) shows as file-disjoint, and at most three at once. Until E04-T05 lands, the program manager judges file-disjointness from each plan's file list. The maintainer raises the limit once the CI performance gates (E05-T06) have caught a regression.
 - The validator is always a different agent from the task's implementer.
-- Real-client verification follows [Verifying](#verifying): the primary agent, after it integrates the task's branch locally and before its PR merges into `remodel`, with the maintainer's permission.
+- Real-client verification follows [Verifying](#verifying): the primary agent, on the task's branch once it holds the latest `remodel` and before its PR merges into `remodel`, with the maintainer's permission.
 
 ### Taste Skill
 
