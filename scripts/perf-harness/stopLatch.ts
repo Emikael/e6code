@@ -1,5 +1,6 @@
 /**
- * The harness's stop switch. The SIGINT/SIGTERM trap sets it before it awaits
+ * The harness's stop switch. The trap (`trapStops`: SIGINT, SIGTERM, SIGHUP,
+ * an uncaught exception or an unhandled rejection) sets it before it awaits
  * anything; from then on nothing new starts. `spawnLogged` checks it before
  * every child process, so the trap's one pass over the running children sees
  * them all, and the browser, OTLP sink and throttle proxies start through
@@ -49,3 +50,40 @@ export class StopLatch {
 
 /** The one latch of this harness process. */
 export const harnessStop = new StopLatch();
+
+/** Exit codes for the trapped signals: 128 plus the signal's number. */
+const SIGNAL_EXIT_CODES = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 } as const;
+
+/**
+ * Routes the trapped signals and crashes into one teardown: the latch is set
+ * before anything is awaited, `teardown` runs once, and the process exits with
+ * the signal's code, or 1 after a crash, whether or not the teardown succeeded.
+ * A signal or crash during the teardown only waits for it to finish.
+ */
+export function trapStops(input: {
+  readonly latch: StopLatch;
+  readonly events: { on(event: string, listener: (value: unknown) => void): unknown };
+  readonly teardown: () => Promise<void>;
+  readonly exit: (code: number) => void;
+  readonly log: (message: string) => void;
+  /** The text of a crash's error as it may appear in the log. */
+  readonly describeError: (error: unknown) => string;
+}): void {
+  const stop = (reason: string, code: number) => {
+    if (!input.latch.request(reason)) return;
+    input.log(`${reason}: stopping the processes this run started`);
+    void input
+      .teardown()
+      .catch((error: unknown) => input.log(`stopping failed: ${input.describeError(error)}`))
+      .finally(() => input.exit(code));
+  };
+  for (const [signal, code] of Object.entries(SIGNAL_EXIT_CODES)) {
+    input.events.on(signal, () => stop(signal, code));
+  }
+  for (const crash of ["uncaughtException", "unhandledRejection"]) {
+    input.events.on(crash, (error) => {
+      input.log(`${crash}: ${input.describeError(error)}`);
+      stop(crash, 1);
+    });
+  }
+}

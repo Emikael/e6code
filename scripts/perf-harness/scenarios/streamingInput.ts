@@ -35,7 +35,6 @@ import {
   type PageGlobal,
 } from "../browser.ts";
 import { turnStartCommand } from "../controlClient.ts";
-import { ackWindow, COMMAND_ACK_METRIC } from "../otlpSink.ts";
 import type { MetricOutcome } from "../report.ts";
 import { readServerTrace } from "../serverProcess.ts";
 import {
@@ -44,7 +43,7 @@ import {
   snapshotEventLoopIntervals,
   type WallWindow,
 } from "../serverSignals.ts";
-import { p95WithUnreported, summarize } from "../stats.ts";
+import { summarize } from "../stats.ts";
 import { harnessStop } from "../stopLatch.ts";
 import { startThrottleProxy, type ByteCounters } from "../throttleProxy.ts";
 import { classifyWsFrames, liveTraffic, threadEvents, type WsFrame } from "../wsFrames.ts";
@@ -55,6 +54,7 @@ import {
   type ScenarioContext,
   type ScenarioResult,
 } from "./scenario.ts";
+import { commandAckRow, keystrokeRow, wireBytesRow } from "./streamingRows.ts";
 import { sidebarRowKeys, switchTo, threadIdOf } from "./threadSwitch.ts";
 
 export const STREAM_RECORDING = "cursor.streaming-prose";
@@ -84,12 +84,16 @@ const isThreadEventFrame = (threadId: string) => (frame: WsFrame) =>
   frame.payload.includes('"kind":"event"') &&
   frame.payload.includes(`"threadId":"${threadId}"`);
 
-/** Server-to-client bytes on the proxy's WebSocket connections. */
-const wsBytes = (counters: ByteCounters) =>
-  counters
+/** The proxy's WebSocket connections so far and their server-to-client bytes. */
+const wsTraffic = (counters: ByteCounters) => {
+  const connections = counters
     .connections()
-    .filter((connection) => connection.target === "GET /ws")
-    .reduce((sum, connection) => sum + connection.serverToClient, 0);
+    .filter((connection) => connection.target === "GET /ws");
+  return {
+    connections: connections.length,
+    bytes: connections.reduce((sum, connection) => sum + connection.serverToClient, 0),
+  };
+};
 
 interface TurnRecord {
   readonly turn: number;
@@ -162,11 +166,12 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
       startFrame: ws.frames.length,
       startWallMs: Date.now(),
       startPageMs: await page.evaluate(() => performance.now()),
-      startWsBytes: wsBytes(proxy.counters),
+      startWsBytes: wsTraffic(proxy.counters).bytes,
       endFrame: 0,
       endWallMs: 0,
       endPageMs: 0,
       endWsBytes: 0,
+      endWsConnections: 0,
     };
     const turns: Array<TurnRecord> = [];
     let typed = 0;
@@ -250,7 +255,9 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
     window.endFrame = ws.frames.length;
     window.endWallMs = Date.now();
     window.endPageMs = await page.evaluate(() => performance.now());
-    window.endWsBytes = wsBytes(proxy.counters);
+    const endTraffic = wsTraffic(proxy.counters);
+    window.endWsBytes = endTraffic.bytes;
+    window.endWsConnections = endTraffic.connections;
     const wall: WallWindow = { startMs: window.startWallMs, endMs: window.endWallMs };
     const windowSeconds = (window.endWallMs - window.startWallMs) / 1000;
     ctx.log(`stream window ${windowSeconds.toFixed(1)} s, ${typed} keys typed`);
@@ -261,11 +268,7 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
     const keydowns = timings.events
       .filter((entry) => entry.name === "keydown" && inPageWindow(entry.start))
       .map((entry) => entry.duration);
-    const keystroke = p95WithUnreported({
-      reported: keydowns,
-      total: typed,
-      thresholdMs: EVENT_TIMING_THRESHOLD_MS,
-    });
+    const eventTimingObserved = timings.firstInput.length > 0;
     const longTasks = timings.longTasks
       .filter((entry) => inPageWindow(entry.start))
       .map((entry) => entry.duration);
@@ -305,8 +308,14 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
     const ackAfter =
       ctx.otlp === null ? null : await ctx.otlp.exportAtOrAfter(window.endWallMs, OTLP_WAIT_MS);
     const ackBefore = ctx.otlp?.exportAtOrBefore(window.startWallMs) ?? null;
-    const ack =
-      ackAfter === null ? null : ackWindow({ before: ackBefore?.ack ?? [], after: ackAfter.ack });
+    const commandAck = commandAckRow({
+      otlpEnabled: ctx.otlp !== null,
+      waitMs: OTLP_WAIT_MS,
+      windowStartMs: window.startWallMs,
+      windowEndMs: window.endWallMs,
+      before: ackBefore,
+      after: ackAfter,
+    });
 
     const rpc = await control.openRpc();
     const performanceMetrics = await rpc.getPerformanceMetrics().finally(() => rpc.close());
@@ -333,24 +342,14 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
 
     const fastestClamped = timings.clampProbe.length === 0 ? null : Math.min(...timings.clampProbe);
     const metrics: Array<MetricOutcome> = [
-      keystroke === null
-        ? { kind: "notMeasured", id: "web.input.keystrokeToPaint.p95", reason: "no keys typed" }
-        : {
-            kind: "measured",
-            id: "web.input.keystrokeToPaint.p95",
-            unit: "ms",
-            statistic: keystroke.atMost ? "p95AtMost" : "p95",
-            value: keystroke.value,
-            samples: keystroke.samples,
-            source:
-              "event-timing:keydown duration over keys typed while a turn streamed; unreported keys count as under the threshold",
-            flags: [
-              `eventTimingThreshold:${EVENT_TIMING_THRESHOLD_MS}ms`,
-              `keydownsReported:${keydowns.length}`,
-              // Stop is checked every KEYS_PER_CHECK keys, so only a bound is known.
-              `keysAfterTurnEndAtMost:${turns.reduce((sum, turn) => sum + turn.keysAfterEndAtMost, 0)}`,
-            ],
-          },
+      keystrokeRow({
+        eventTimingObserved,
+        keydownsMs: keydowns,
+        keysTyped: typed,
+        thresholdMs: EVENT_TIMING_THRESHOLD_MS,
+        keysAfterTurnEndAtMost: turns.reduce((sum, turn) => sum + turn.keysAfterEndAtMost, 0),
+        turnBoundaryHeld: stopSignalHeld,
+      }),
       {
         kind: "measured",
         id: "web.input.longTaskMax.streaming",
@@ -383,40 +382,7 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
               value: interval.p99Ms,
             })),
           },
-      ctx.otlp === null
-        ? {
-            kind: "notMeasured",
-            id: "server.commandAck.p95",
-            reason: "--no-otlp: the server exported no metrics",
-          }
-        : ack === null
-          ? {
-              kind: "notMeasured",
-              id: "server.commandAck.p95",
-              reason: `no OTLP export arrived within ${OTLP_WAIT_MS} ms after the window`,
-            }
-          : ack.p95AtMost === null
-            ? {
-                kind: "notMeasured",
-                id: "server.commandAck.p95",
-                reason:
-                  ack.samples === 0
-                    ? "no command was acknowledged inside the window"
-                    : `the p95 fell in the overflow bucket (${ack.bucket})`,
-              }
-            : {
-                kind: "measured",
-                id: "server.commandAck.p95",
-                unit: "ms",
-                statistic: "p95AtMost",
-                value: ack.p95AtMost,
-                samples: ack.samples,
-                source: `otlp:${COMMAND_ACK_METRIC} bucket delta between the exports either side of the stream window`,
-                flags: [
-                  `bucketResolution:${ack.bucket}ms`,
-                  `windowEdgeSlackMs:${Math.round(window.startWallMs - (ackBefore?.timeUnixMs ?? window.startWallMs))}+${Math.round((ackAfter?.timeUnixMs ?? window.endWallMs) - window.endWallMs)}`,
-                ],
-              },
+      commandAck.metric,
       traffic.liveFrameMaxBytes === null
         ? {
             kind: "notMeasured",
@@ -448,16 +414,12 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
             samples: traffic.liveEvents,
             source: "cdp:Network.webSocketFrameReceived, JSON bytes of each live chunk value",
           },
-      {
-        kind: "measured",
-        id: "ws.streaming.wireBytesPerSecond",
-        unit: "bytesPerSecond",
-        statistic: "value",
-        value: (window.endWsBytes - window.startWsBytes) / windowSeconds,
-        samples: null,
-        source:
-          "tcp-proxy passthrough: server-to-client bytes on the /ws connection over the stream window",
-      },
+      wireBytesRow({
+        wsConnections: window.endWsConnections,
+        serverToClientBytes: window.endWsBytes - window.startWsBytes,
+        windowSeconds,
+        turnBoundaryHeld: stopSignalHeld,
+      }),
     ];
 
     return {
@@ -496,6 +458,7 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
           byMethod: traffic.byMethod,
         },
         wire: {
+          wsConnections: window.endWsConnections,
           wsServerToClientBytes: window.endWsBytes - window.startWsBytes,
           compressionRatio:
             window.endWsBytes > window.startWsBytes
@@ -513,11 +476,11 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
           })),
         },
         commandAck:
-          ack === null
+          ctx.otlp === null
             ? null
             : {
-                ...ack,
-                exportsSeen: ctx.otlp?.exports.length ?? 0,
+                ...commandAck.ack,
+                exportsSeen: ctx.otlp.exports.length,
                 beforeAtMs: ackBefore?.timeUnixMs ?? null,
                 afterAtMs: ackAfter?.timeUnixMs ?? null,
               },
@@ -525,7 +488,7 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
         idle,
       },
       validity: {
-        eventTimingObserved: timings.firstInput.length > 0,
+        eventTimingObserved,
         notes,
       },
       afterStop: async ({ home, forced }) => {

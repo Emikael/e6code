@@ -16,6 +16,9 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 
+import { DATA_DIR_NAME, readBrandEnv } from "@e6tools/shared/brand";
+import { expandHomePath } from "@e6tools/shared/path";
+
 export const REPO_ROOT = NodePath.resolve(
   NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),
   "../..",
@@ -41,14 +44,21 @@ export function isSameOrInside(parent: string, child: string): boolean {
   );
 }
 
-/** Live E6 homes no harness home may touch: `~/.e6` per account home, and `E6CODE_HOME`. */
+/**
+ * Live E6 homes no harness home may touch: `~/.e6` per account home, and `E6CODE_HOME` read the
+ * way the server reads it, a leading `~` expanded against each account home and then resolved.
+ */
 export function liveHomeCandidates(input: {
   readonly accountHomes: ReadonlyArray<string>;
   readonly env: Readonly<Record<string, string | undefined>>;
 }): Array<string> {
-  const homes = new Set(input.accountHomes.map((home) => NodePath.join(home, ".e6")));
-  const configured = input.env.E6CODE_HOME?.trim();
-  if (configured) homes.add(configured);
+  const homes = new Set(input.accountHomes.map((home) => NodePath.join(home, DATA_DIR_NAME)));
+  const configured = readBrandEnv(input.env, "HOME");
+  if (configured !== undefined) {
+    for (const homeDir of input.accountHomes) {
+      homes.add(NodePath.resolve(expandHomePath(configured, { homeDir, join: NodePath.join })));
+    }
+  }
   return [...homes];
 }
 

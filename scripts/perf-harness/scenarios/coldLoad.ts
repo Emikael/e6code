@@ -44,6 +44,7 @@ import {
   userTimingTs,
   type TraceEvent,
 } from "../traceFrames.ts";
+import { LandingError, landedOnAuth } from "./landing.ts";
 import {
   idlePoint,
   screenshotIfStill,
@@ -68,7 +69,8 @@ const PING_QUERY = { [ORCHESTRATION_PROTOCOL_QUERY_PARAM]: String(ORCHESTRATION_
 
 /**
  * Navigates (or reloads) and waits until the shell is interactive. Landing
- * anywhere but the app (an empty home's welcome, a failed pairing) throws.
+ * anywhere but the app (an empty home's welcome, a failed pairing) throws a
+ * `LandingError`.
  */
 export async function loadUntilInteractive(
   page: Page,
@@ -81,9 +83,7 @@ export async function loadUntilInteractive(
   await navigate();
   const hit = await waitForMark(page, LANDING_PREFIX, 60_000);
   const landing = hit === null ? "none" : hit.name.slice(LANDING_PREFIX.length);
-  if (landing !== "app") {
-    throw new Error(`the load landed on '${landing}', not the app (seed or auth problem)`);
-  }
+  if (landing !== "app") throw new LandingError(landing);
   const interactive = await waitForMark(page, INTERACTIVE_PREFIX, 60_000);
   if (interactive === null) throw new Error("the shell never became interactive");
   if (holdMs > 0) await sleep(holdMs);
@@ -226,9 +226,12 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
           traceName: null,
         });
       } catch (error) {
-        if (load !== 1 || pairedThroughProxy) throw error;
-        // The plan's fallback (§4.1, check 7.4) when the cookie does not carry to the proxy port.
-        notes.push(`cookie did not carry through the proxy (${String(error)}); paired through it`);
+        // The plan's fallback (§4.1, check 7.4) when the cookie does not carry to the proxy port;
+        // any other failure is the sample's own and fails the scenario.
+        if (load !== 1 || pairedThroughProxy || !landedOnAuth(error)) throw error;
+        notes.push(
+          `cookie did not carry through the proxy (the load landed on '${error.landing}'); paired through it`,
+        );
         remoteCookies = await ctx.pairAt(remoteOrigin);
         pairedThroughProxy = true;
         attempt = await coldLoad(ctx, {

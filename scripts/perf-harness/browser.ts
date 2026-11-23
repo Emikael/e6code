@@ -198,7 +198,7 @@ const INSTALL_HINT =
 export async function launchBrowser(): Promise<{ browser: Browser; info: BrowserInfo }> {
   let browser: Browser;
   try {
-    // The harness's own SIGINT/SIGTERM trap closes the browser after stopping its servers;
+    // The harness's own stop trap (`trapStops`) closes the browser after stopping its servers;
     // Playwright's handlers would exit the process before those servers are down.
     browser = await chromium.launch({
       headless: true,

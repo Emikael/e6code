@@ -59,7 +59,7 @@ import { REMOTE_PROFILE, runColdLoad } from "./scenarios/coldLoad.ts";
 import type { AfterStop, ScenarioContext, ScenarioResult } from "./scenarios/scenario.ts";
 import { runSoak, SOAK_MAX_GAP_MS } from "./scenarios/soak.ts";
 import { soakCycleIntervalMs } from "./soakScheduler.ts";
-import { harnessStop } from "./stopLatch.ts";
+import { harnessStop, trapStops } from "./stopLatch.ts";
 import {
   runStreamingInput,
   STREAM_EVENTS_PER_SECOND,
@@ -486,20 +486,21 @@ async function main(): Promise<number> {
   // The latch is set before anything is awaited, so no child, proxy, sink or browser starts after
   // it and the one pass of stopAllChildren reaches every child; a server that finishes starting
   // later is stopped by its own PID where it was started.
-  const onSignal = (signal: NodeJS.Signals) => {
-    if (!harnessStop.request(signal)) return;
-    log(`${signal}: stopping the processes this run started`);
-    void (async () => {
+  trapStops({
+    latch: harnessStop,
+    events: process,
+    log,
+    describeError: (error) =>
+      redactLogLine(error instanceof Error ? (error.stack ?? error.message) : String(error)),
+    teardown: async () => {
       await stopAllChildren(options.stopTimeoutMs);
       const closing = browser;
       browser = null;
       await closing?.close().catch(() => undefined);
       if (!options.keepHome) await NodeFSP.rm(runRoot.root, { recursive: true, force: true });
-      process.exit(signal === "SIGINT" ? 130 : 143);
-    })();
-  };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
+    },
+    exit: (code) => process.exit(code),
+  });
 
   const notes: Array<string> = [];
   const processes: Array<PerfReport["processes"][number]> = [];
@@ -865,13 +866,10 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-  main().then(
-    (code) => process.exit(code),
-    (error: unknown) => {
-      process.stderr.write(
-        `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-      );
-      void stopAllChildren(5_000).then(() => process.exit(1));
-    },
-  );
+  // A rejection is left unhandled on purpose: once the run root exists, trapStops tears the run
+  // down and exits 1; before that nothing has started and Node's default exits 1. Once the trap
+  // has fired it owns the exit, so a run that finishes during its teardown cannot exit 0.
+  void main().then((code) => {
+    if (!harnessStop.stopped) process.exit(code);
+  });
 }

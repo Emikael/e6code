@@ -41,6 +41,35 @@ describe("liveHomeCandidates", () => {
     ).toEqual(["/Users/me/.e6", "/srv/e6"]);
   });
 
+  it("expands a ~ in E6CODE_HOME against the account home, as the server does", () => {
+    for (const [configured, expected] of [
+      ["~/x", "/Users/me/x"],
+      [" ~/x ", "/Users/me/x"],
+      ["~\\x", "/Users/me/x"],
+      ["~", "/Users/me"],
+    ] as const) {
+      expect(
+        liveHomeCandidates({ accountHomes: ["/Users/me"], env: { E6CODE_HOME: configured } }),
+        configured,
+      ).toEqual(["/Users/me/.e6", expected]);
+    }
+  });
+
+  it("refuses --out inside a ~-relative E6CODE_HOME", () => {
+    const liveHomes = liveHomeCandidates({
+      accountHomes: ["/Users/me"],
+      env: { E6CODE_HOME: "~/e6-live" },
+    });
+    expect(
+      checkOutDir({
+        outDir: "/Users/me/e6-live/userdata",
+        repoRoot: "/work/e6code",
+        ignoredByGit: false,
+        liveHomes,
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
   it("ignores a blank E6CODE_HOME", () => {
     expect(liveHomeCandidates({ accountHomes: ["/home/ci"], env: { E6CODE_HOME: " " } })).toEqual([
       "/home/ci/.e6",

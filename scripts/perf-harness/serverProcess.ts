@@ -76,7 +76,7 @@ async function stopProcess(
   };
 }
 
-/** Stops every child still running, for the SIGINT/SIGTERM trap once `harnessStop` is set. */
+/** Stops every child still running, for the stop trap (`trapStops`) once `harnessStop` is set. */
 export async function stopAllChildren(timeoutMs: number): Promise<void> {
   await Promise.all([...running].map((child) => stopProcess(child, timeoutMs)));
 }
