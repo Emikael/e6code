@@ -1,6 +1,11 @@
+// @effect-diagnostics nodeBuiltinImport:off - exercises the real filesystem the run-root guards resolve against.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import { ServerSettings } from "@e6tools/contracts/settings";
 import * as Schema from "effect/Schema";
-import { describe, expect, it } from "vite-plus/test";
+import { afterAll, describe, expect, it } from "vite-plus/test";
 
 import {
   buildServerSettings,
@@ -8,6 +13,7 @@ import {
   findUnsafeHome,
   isSameOrInside,
   liveHomeCandidates,
+  realPathThroughAncestors,
   scrubChildEnv,
 } from "./runRoot.ts";
 
@@ -40,6 +46,27 @@ describe("liveHomeCandidates", () => {
       "/home/ci/.e6",
     ]);
   });
+});
+
+describe("realPathThroughAncestors", () => {
+  const base = NodeFS.realpathSync.native(
+    NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "e6-perf-case-")),
+  );
+  const home = NodePath.join(base, "Live-Home");
+  NodeFS.mkdirSync(home);
+  const caseVariant = NodePath.join(base, "lIVE-hOME");
+  const caseInsensitive = NodeFS.existsSync(caseVariant);
+  afterAll(() => NodeFS.rmSync(base, { recursive: true, force: true }));
+
+  it.skipIf(!caseInsensitive)(
+    "spells a case-variant path the way the filesystem does, so guards compare equal",
+    () => {
+      expect(realPathThroughAncestors(caseVariant)).toBe(home);
+      expect(realPathThroughAncestors(NodePath.join(caseVariant, "out", "logs"))).toBe(
+        NodePath.join(home, "out", "logs"),
+      );
+    },
+  );
 });
 
 describe("findUnsafeHome", () => {

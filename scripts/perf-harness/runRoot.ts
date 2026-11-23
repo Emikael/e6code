@@ -186,7 +186,11 @@ export function buildServerSettings(input: {
   };
 }
 
-/** The real path of `target`, resolved through its nearest existing ancestor. */
+/**
+ * The real path of `target`, resolved through its nearest existing ancestor. The native
+ * realpath also canonicalises letter case on case-insensitive filesystems, so a
+ * differently-capitalised path cannot slip past the live-home guards.
+ */
 export function realPathThroughAncestors(target: string): string {
   let existing = NodePath.resolve(target);
   const missing: Array<string> = [];
@@ -196,7 +200,7 @@ export function realPathThroughAncestors(target: string): string {
     missing.unshift(NodePath.basename(existing));
     existing = parent;
   }
-  return NodePath.join(NodeFS.realpathSync(existing), ...missing);
+  return NodePath.join(NodeFS.realpathSync.native(existing), ...missing);
 }
 
 /** Real paths of the live homes for this account and the parent environment. */

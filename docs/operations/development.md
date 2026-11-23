@@ -160,8 +160,9 @@ directory (50 threads, one with 1,000 turns), starts one server per scenario on 
 the recordings above replayed in place of Cursor, Claude, Codex and OpenCode (Grok and Antigravity
 have no recording and are disabled), and drives the production build of `apps/web` in headless
 Chromium. It never touches the live E6 home: homes live in the temp directory, secrets use the
-file store rather than the shared OS keychain, child processes get only an allowlisted environment
-(no tokens or `NODE_OPTIONS`), ports are probed, and it stops only the processes it started.
+file store rather than the shared OS keychain, the seed, auth CLI and servers get only an
+allowlisted environment (no tokens or `NODE_OPTIONS`), ports are probed, and it stops only the
+processes it started.
 
 It needs a production build (`--build` makes one first; otherwise a stale `dist` is flagged) and
 Playwright's Chromium headless shell, which it never downloads. Install that once with
