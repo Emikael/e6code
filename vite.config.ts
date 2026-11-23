@@ -190,6 +190,12 @@ export default defineConfig({
         rules: { "e6code/no-raw-tailwind-palette-colors": "error" },
       },
       {
+        // v2 web code draws icons through apps/web/src/next/icons only (E03-T04). ENG-90 widens
+        // `files` after its codemod; grants go per file through `allow`. None today.
+        files: ["apps/web/src/next/**"],
+        rules: { "e6code/no-icon-library-imports": "error" },
+      },
+      {
         // Shared client code must not call APIs missing from Hermes. Our ESNext
         // TypeScript target accepts them even when they would crash mobile at launch.
         // Tests run on Node and are exempt.

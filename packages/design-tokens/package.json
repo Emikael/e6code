@@ -43,6 +43,10 @@
       "types": "./src/icons/registry.ts",
       "import": "./src/icons/registry.ts"
     },
+    "./iconWeight": {
+      "types": "./src/icons/weight.ts",
+      "import": "./src/icons/weight.ts"
+    },
     "./projectIcons": {
       "types": "./src/icons/projectIcons.ts",
       "import": "./src/icons/projectIcons.ts"

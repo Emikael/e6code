@@ -1,15 +1,6 @@
 import type { EnvironmentMachineKind } from "@e6tools/contracts";
-import { SymbolView, type AppSymbolName } from "./AppSymbol";
-
-const SYMBOL_BY_KIND: Record<EnvironmentMachineKind, AppSymbolName> = {
-  server: "server.rack",
-  cloud: "cloud",
-  linux: "terminal",
-  desktop: "desktopcomputer",
-  laptop: "laptopcomputer",
-  "mac-mini": "macmini",
-  "mac-studio": "macstudio",
-};
+import { SymbolView } from "./AppSymbol";
+import { environmentMachineIcon } from "./environmentMachineIcon";
 
 export const ENVIRONMENT_MACHINE_KIND_LABELS: Record<EnvironmentMachineKind, string> = {
   server: "Server",
@@ -30,7 +21,7 @@ export function EnvironmentMachineSymbol(props: {
   return (
     <SymbolView
       accessibilityLabel={ENVIRONMENT_MACHINE_KIND_LABELS[props.kind]}
-      name={SYMBOL_BY_KIND[props.kind]}
+      icon={environmentMachineIcon(props.kind)}
       size={props.size}
       tintColorClassName={props.tintColorClassName}
       type="monochrome"
