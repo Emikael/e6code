@@ -560,6 +560,7 @@ import {
 } from "./ui/alert-dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ServerUpdateAction } from "./ServerUpdateAction";
+import { ThreadMarks } from "./ThreadMarks";
 import { useAutoBalanceUpdateBanner } from "./chat/useAutoBalanceUpdateBanner";
 import {
   ComposerServerUpdateIcon,
@@ -10462,6 +10463,17 @@ export default function ChatView(props: ChatViewProps) {
               {...workspaceAreaProps("conversation", 1, "Conversation")}
               className="relative flex min-h-0 flex-1 flex-col bg-background"
             >
+              {routeKind === "server" ? (
+                <ThreadMarks
+                  key={routeThreadKey}
+                  environmentId={environmentId}
+                  threadId={threadId}
+                  hasRows={
+                    displayedTimeline.displayThreadKey === routeThreadKey &&
+                    displayedTimeline.entries.length > 0
+                  }
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}

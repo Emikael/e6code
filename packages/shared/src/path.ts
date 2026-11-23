@@ -95,3 +95,19 @@ export function normalizeProjectPathForComparison(value: string): string {
   }
   return normalized;
 }
+
+/**
+ * `input` with a leading `~`, `~/` or `~\` replaced by `homeDir`, the rule the server applies to
+ * `E6CODE_HOME` and `--base-dir` (`apps/server/src/os-jank.ts`). Anything else, another user's
+ * `~name` included, comes back unchanged. `join` is the caller's path join.
+ */
+export function expandHomePath(
+  input: string,
+  home: { readonly homeDir: string; readonly join: (first: string, second: string) => string },
+): string {
+  if (input === "~") return home.homeDir;
+  if (input.startsWith("~/") || input.startsWith("~\\")) {
+    return home.join(home.homeDir, input.slice(2));
+  }
+  return input;
+}

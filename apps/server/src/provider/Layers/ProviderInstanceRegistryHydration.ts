@@ -52,7 +52,8 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { BUILT_IN_DRIVERS, type BuiltInDriversEnv } from "../builtInDrivers.ts";
+import { BUILT_IN_DRIVERS } from "../builtInDrivers.ts";
+import type { AnyProviderDriver } from "../ProviderDriver.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderInstanceRegistryMutator } from "../Services/ProviderInstanceRegistryMutator.ts";
 import { ProviderInstanceRegistryMutableLayer } from "./ProviderInstanceRegistryLive.ts";
@@ -136,7 +137,8 @@ const SettingsWatcherLive = Layer.effectDiscard(
 
 /**
  * Hydrate `ProviderInstanceRegistry` from `ServerSettings` and keep it in
- * sync with subsequent `streamChanges` emissions.
+ * sync with subsequent `streamChanges` emissions, building instances with
+ * `drivers`.
  *
  * The Layer's two halves:
  *   - `ProviderInstanceRegistryMutableLayer` produces the registry +
@@ -149,27 +151,34 @@ const SettingsWatcherLive = Layer.effectDiscard(
  * from the mutable layer while still surfacing the registry as an output.
  * The mutator tag is technically also exposed; only this module imports
  * it, so the visibility leak is harmless in practice.
+ *
+ * The config map is still derived from the built-in kinds, so `drivers` must
+ * cover the same kinds; the provider replay seam swaps a driver for a replay
+ * driver of the same kind.
  */
-export const ProviderInstanceRegistryHydrationLive: Layer.Layer<
-  ProviderInstanceRegistry,
-  never,
-  BuiltInDriversEnv | ServerSettingsService
-> = Layer.unwrap(
-  Effect.gen(function* () {
-    const serverSettings = yield* ServerSettingsService;
-    const initialSettings: ServerSettings | undefined = yield* serverSettings.getSettings.pipe(
-      Effect.orElseSucceed(() => undefined),
-    );
-    const initialConfigMap =
-      initialSettings === undefined
-        ? ({} as ProviderInstanceConfigMap)
-        : deriveProviderInstanceConfigMap(initialSettings);
+export const makeProviderInstanceRegistryHydration = <R>(
+  drivers: ReadonlyArray<AnyProviderDriver<R>>,
+): Layer.Layer<ProviderInstanceRegistry, never, R | ServerSettingsService> =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const initialSettings: ServerSettings | undefined = yield* serverSettings.getSettings.pipe(
+        Effect.orElseSucceed(() => undefined),
+      );
+      const initialConfigMap =
+        initialSettings === undefined
+          ? ({} as ProviderInstanceConfigMap)
+          : deriveProviderInstanceConfigMap(initialSettings);
 
-    const mutableLayer = ProviderInstanceRegistryMutableLayer({
-      drivers: BUILT_IN_DRIVERS,
-      configMap: initialConfigMap,
-    });
+      const mutableLayer = ProviderInstanceRegistryMutableLayer({
+        drivers,
+        configMap: initialConfigMap,
+      });
 
-    return SettingsWatcherLive.pipe(Layer.provideMerge(mutableLayer));
-  }),
-) as Layer.Layer<ProviderInstanceRegistry, never, BuiltInDriversEnv | ServerSettingsService>;
+      return SettingsWatcherLive.pipe(Layer.provideMerge(mutableLayer));
+    }),
+  ) as Layer.Layer<ProviderInstanceRegistry, never, R | ServerSettingsService>;
+
+/** The hydration layer over the drivers this build ships. */
+export const ProviderInstanceRegistryHydrationLive =
+  makeProviderInstanceRegistryHydration(BUILT_IN_DRIVERS);

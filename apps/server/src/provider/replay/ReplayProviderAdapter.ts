@@ -10,6 +10,9 @@
  * with `autoRespond`. Ids are rewritten per session and per loop, so one
  * recording can drive many threads or a soak without colliding ids.
  *
+ * Each played segment runs in a `ReplayProviderAdapter.playSegment` span whose
+ * `replay.events` and `replay.elapsedMs` attributes give the achieved rate.
+ *
  * @module provider/replay/ReplayProviderAdapter
  */
 import {
@@ -27,6 +30,7 @@ import type {
   RecordingEvent,
   RecordingStep,
 } from "@e6tools/shared/testing/providerReplay/recording";
+import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -58,6 +62,12 @@ export interface ReplayProviderAdapterOptions {
   readonly onExhausted?: "loop" | "fail";
   /** Answer approvals and questions with the recorded answer after the recorded delay. */
   readonly autoRespond?: boolean;
+  /**
+   * Plays each segment's events at this steady rate instead of their recorded
+   * gaps, timed from the segment's start so late timers never accumulate.
+   * Gates still wait, and `speed` still scales autoRespond think time.
+   */
+  readonly eventsPerSecond?: number;
 }
 
 interface Segment {
@@ -141,6 +151,15 @@ export const makeReplayProviderAdapter = Effect.fn("makeReplayProviderAdapter")(
       issue: `speed must be a positive number or "instant", received ${String(speed)}`,
     });
   }
+  const eventsPerSecond = options.eventsPerSecond;
+  if (eventsPerSecond !== undefined && !(Number.isFinite(eventsPerSecond) && eventsPerSecond > 0)) {
+    return yield* new ProviderAdapterValidationError({
+      provider,
+      operation: "makeReplayProviderAdapter",
+      issue: `eventsPerSecond must be a positive number, received ${String(eventsPerSecond)}`,
+    });
+  }
+  const eventIntervalMs = eventsPerSecond === undefined ? undefined : 1_000 / eventsPerSecond;
   const segments = segmentRecording(options.recording);
   const firstTurnIndex = segments.findIndex((segment) => segment.step?.on === "sendTurn");
   const runtimeEvents = yield* makeQueuedRuntimeEventStream;
@@ -243,23 +262,51 @@ export const makeReplayProviderAdapter = Effect.fn("makeReplayProviderAdapter")(
     return step?.on === "respondToRequest" || step?.on === "respondToUserInput" ? step : undefined;
   };
 
+  /** Plays one segment's events, paced by `eventsPerSecond` or by the recorded gaps. */
+  const playSegment = (state: ReplaySession, job: PlaybackJob) =>
+    Effect.flatMap(Clock.currentTimeMillis, (startedAt) => {
+      const inFlight = { job, next: 0 };
+      return Effect.gen(function* () {
+        state.inFlight = inFlight;
+        for (const [index, line] of job.segment.events.entries()) {
+          if (eventIntervalMs !== undefined) {
+            const delay = startedAt + index * eventIntervalMs - (yield* Clock.currentTimeMillis);
+            if (delay > 0) yield* Effect.sleep(delay);
+          } else {
+            const delay = delayFor(line.dt);
+            if (delay > 0) {
+              yield* Effect.sleep(delay);
+            } else if (speed === "instant" && (inFlight.next + 1) % INSTANT_YIELD_EVERY === 0) {
+              yield* Effect.yieldNow;
+            }
+          }
+          yield* emit(state, job, line.event, () => {
+            inFlight.next += 1;
+          });
+        }
+        state.inFlight = undefined;
+      }).pipe(
+        Effect.ensuring(
+          Effect.flatMap(Clock.currentTimeMillis, (endedAt) =>
+            Effect.annotateCurrentSpan({
+              "replay.events": inFlight.next,
+              "replay.elapsedMs": endedAt - startedAt,
+            }),
+          ),
+        ),
+        Effect.withSpan("ReplayProviderAdapter.playSegment", {
+          attributes: {
+            "replay.recording": options.recording.header.id,
+            "replay.step": job.segment.step?.on ?? "none",
+          },
+        }),
+      );
+    });
+
   const playJob = Effect.fnUntraced(function* (state: ReplaySession, first: PlaybackJob) {
     let job: PlaybackJob | undefined = first;
     while (job !== undefined) {
-      const inFlight = { job, next: 0 };
-      state.inFlight = inFlight;
-      for (const line of job.segment.events) {
-        const delay = delayFor(line.dt);
-        if (delay > 0) {
-          yield* Effect.sleep(delay);
-        } else if (speed === "instant" && (inFlight.next + 1) % INSTANT_YIELD_EVERY === 0) {
-          yield* Effect.yieldNow;
-        }
-        yield* emit(state, job, line.event, () => {
-          inFlight.next += 1;
-        });
-      }
-      state.inFlight = undefined;
+      yield* playSegment(state, job);
       // With autoRespond, the recorded user answers a gate that directly
       // follows this segment after the recorded think time.
       const gateIndex = job.index + 1;

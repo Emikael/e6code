@@ -99,6 +99,11 @@ jq -c 'select(.type == "metrics-snapshot") | {
 }' "$TRACE_FILE"
 ```
 
+Command acknowledgement (`e6_orchestration_command_ack_duration`) is neither in
+`server.getPerformanceMetrics` nor in the snapshots; to read it locally, point `E6CODE_OTLP_METRICS_URL` at any OTLP/HTTP JSON receiver with
+`E6CODE_OTLP_PROTOCOL=http/json`, as the web performance harness does with
+`scripts/perf-harness/otlpSink.ts`.
+
 `E6CODE_PERF_METRICS=false` turns the performance metrics off, for example to measure their own
 overhead. The server then stops advertising the `performanceMetrics` capability and the Settings
 section says the server does not report them.

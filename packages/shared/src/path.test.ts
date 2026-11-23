@@ -1,5 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off - uses Node's own POSIX and Windows joins as callers do.
+import * as NodePath from "node:path";
+
 import { describe, expect, it } from "vite-plus/test";
 import {
+  expandHomePath,
   isExplicitRelativePath,
   isUncPath,
   isWindowsAbsolutePath,
@@ -42,5 +46,23 @@ describe("path helpers", () => {
     expect(normalizeProjectPathForComparison("C:")).toBe(normalizeProjectPathForComparison("C:/"));
     // Non-root drive paths keep their trailing separator trimmed as before.
     expect(normalizeProjectPathForDispatch("C:\\repo\\")).toBe("C:\\repo");
+  });
+});
+
+describe("expandHomePath", () => {
+  const posix = { homeDir: "/Users/me", join: NodePath.posix.join };
+  const windows = { homeDir: "C:\\Users\\me", join: NodePath.win32.join };
+
+  it("replaces a leading ~ with the home directory, with either separator", () => {
+    expect(expandHomePath("~", posix)).toBe("/Users/me");
+    expect(expandHomePath("~/e6-alt", posix)).toBe("/Users/me/e6-alt");
+    expect(expandHomePath("~\\e6-alt", posix)).toBe("/Users/me/e6-alt");
+    expect(expandHomePath("~\\e6-alt\\home", windows)).toBe("C:\\Users\\me\\e6-alt\\home");
+  });
+
+  it("leaves other paths, and another user's ~name, unchanged", () => {
+    for (const input of ["/srv/e6", "e6-alt", "./~/e6", "~other/e6", "~e6", ""]) {
+      expect(expandHomePath(input, posix), input).toBe(input);
+    }
   });
 });

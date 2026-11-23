@@ -1,4 +1,9 @@
-import { ProviderDriverKind, type ProviderRuntimeEvent, ThreadId } from "@e6tools/contracts";
+import {
+  ApprovalRequestId,
+  ProviderDriverKind,
+  type ProviderRuntimeEvent,
+  ThreadId,
+} from "@e6tools/contracts";
 import { listCorpusFiles, readCorpusFile } from "@e6tools/shared/testing/providerReplay/corpus";
 import {
   decodeRecording,
@@ -7,10 +12,12 @@ import {
 } from "@e6tools/shared/testing/providerReplay/recording";
 import { describe, expect, it } from "@effect/vitest";
 import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import * as Tracer from "effect/Tracer";
 
 import type { ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
@@ -429,4 +436,169 @@ describe("ReplayProviderAdapter interrupts", () => {
       }),
     );
   }
+});
+
+describe("ReplayProviderAdapter pacing", () => {
+  const codex = ProviderDriverKind.make("codex");
+  const threadId = ThreadId.make("paced-thread");
+
+  /** The plain contract recording with bursty recorded gaps inside each turn. */
+  const burstyRecording = (): ProviderReplayRecording => {
+    const base = contractRecording(codex, "plain");
+    const gaps = [0, 900, 0, 2_500, 3];
+    let eventInTurn = 0;
+    return {
+      ...base,
+      lines: base.lines.map((line) => {
+        if (line.kind === "step") {
+          eventInTurn = 0;
+          return line;
+        }
+        const dt = gaps[eventInTurn % gaps.length]!;
+        eventInTurn += 1;
+        return { ...line, dt };
+      }),
+    };
+  };
+
+  const offsetsFrom = (start: number, events: ReadonlyArray<ProviderRuntimeEvent>) =>
+    events.map((event) => Date.parse(event.createdAt) - start);
+
+  /** A clock whose timers always fire `lateMs` late, without real waiting. */
+  const lateClock = (lateMs: number): Clock.Clock => {
+    let now = Date.parse("2026-01-01T00:00:00.000Z");
+    const nanos = () => BigInt(Math.round(now * 1_000_000));
+    return {
+      currentTimeMillisUnsafe: () => now,
+      currentTimeMillis: Effect.sync(() => now),
+      currentTimeNanosUnsafe: nanos,
+      currentTimeNanos: Effect.sync(nanos),
+      monotonicTimeNanosUnsafe: nanos,
+      monotonicTimeNanos: Effect.sync(nanos),
+      sleep: (duration) =>
+        Effect.sync(() => {
+          now += Duration.toMillis(duration) + lateMs;
+        }),
+    };
+  };
+
+  it.effect("spaces events 1000/rate apart from the segment start, ignoring recorded gaps", () =>
+    Effect.gen(function* () {
+      const adapter = yield* makeReplayProviderAdapter({
+        recording: burstyRecording(),
+        eventsPerSecond: 50,
+      });
+      const events = yield* collect(adapter);
+      const start = yield* Clock.currentTimeMillis;
+      yield* adapter.startSession({ threadId, provider: codex, runtimeMode: "full-access" });
+      yield* adapter.sendTurn({ threadId, input: "Go." });
+      for (let step = 0; step < 4; step += 1) yield* TestClock.adjust(20);
+
+      const emitted = yield* events.total(6);
+      expect(emitted.map((event) => event.type)).toEqual([
+        "session.started",
+        "turn.started",
+        "content.delta",
+        "content.delta",
+        "item.completed",
+        "turn.completed",
+      ]);
+      expect(offsetsFrom(start, emitted)).toEqual([0, 0, 20, 40, 60, 80]);
+    }),
+  );
+
+  it.effect("keeps events on the segment's grid when timers fire late", () =>
+    Effect.gen(function* () {
+      const adapter = yield* makeReplayProviderAdapter({
+        recording: burstyRecording(),
+        eventsPerSecond: 50,
+      });
+      const events = yield* collect(adapter);
+      const start = yield* Clock.currentTimeMillis;
+      yield* adapter.startSession({ threadId, provider: codex, runtimeMode: "full-access" });
+      const turn = yield* adapter.sendTurn({ threadId, input: "Go." });
+      yield* events.until(turnEnded(turn.turnId));
+
+      // Each wait is measured from the segment start, so lateness never accumulates.
+      expect(offsetsFrom(start, events.seen.slice(1))).toEqual([0, 27, 47, 67, 87]);
+    }).pipe(Effect.provideService(Clock.Clock, lateClock(7))),
+  );
+
+  it.effect("still pauses at gates and paces the answered segment from the answer", () =>
+    Effect.gen(function* () {
+      const adapter = yield* makeReplayProviderAdapter({
+        recording: contractRecording(codex, "approval"),
+        eventsPerSecond: 50,
+      });
+      const events = yield* collect(adapter);
+      yield* adapter.startSession({ threadId, provider: codex, runtimeMode: "approval-required" });
+      yield* adapter.sendTurn({ threadId, input: "Go." });
+      for (let step = 0; step < 2; step += 1) yield* TestClock.adjust(20);
+      const opened = yield* events.until((event) => event.type === "request.opened");
+
+      yield* TestClock.adjust("10 seconds");
+      expect(yield* adapter.runtimeEventSequence).toBe(4);
+
+      const answeredAt = yield* Clock.currentTimeMillis;
+      yield* adapter.respondToRequest(
+        threadId,
+        ApprovalRequestId.make(opened.requestId!),
+        "accept",
+      );
+      for (let step = 0; step < 2; step += 1) yield* TestClock.adjust(20);
+      const answered = (yield* events.total(7)).slice(4);
+      expect(answered.map((event) => event.type)).toEqual([
+        "request.resolved",
+        "item.completed",
+        "turn.completed",
+      ]);
+      expect(offsetsFrom(answeredAt, answered)).toEqual([0, 20, 40]);
+    }),
+  );
+
+  it.effect("rejects a rate that is not a positive number", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        makeReplayProviderAdapter({ recording: burstyRecording(), eventsPerSecond: 0 }),
+      );
+      expect(error._tag).toBe("ProviderAdapterValidationError");
+    }),
+  );
+
+  it.effect("reports each played segment as a span with its event count and duration", () =>
+    Effect.gen(function* () {
+      const ended = yield* Queue.unbounded<Tracer.NativeSpan>();
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          const end = span.end.bind(span);
+          span.end = (endTime, exit) => {
+            end(endTime, exit);
+            if (span.name === "ReplayProviderAdapter.playSegment") Queue.offerUnsafe(ended, span);
+          };
+          return span;
+        },
+      });
+      yield* Effect.gen(function* () {
+        const adapter = yield* makeReplayProviderAdapter({
+          recording: burstyRecording(),
+          eventsPerSecond: 50,
+        });
+        yield* adapter.startSession({ threadId, provider: codex, runtimeMode: "full-access" });
+        yield* adapter.sendTurn({ threadId, input: "Go." });
+        for (let step = 0; step < 4; step += 1) yield* TestClock.adjust(20);
+      }).pipe(Effect.withTracer(tracer));
+
+      const spans = [yield* Queue.take(ended), yield* Queue.take(ended)];
+      expect(
+        spans.map((span) => ({
+          events: span.attributes.get("replay.events"),
+          elapsedMs: span.attributes.get("replay.elapsedMs"),
+        })),
+      ).toEqual([
+        { events: 1, elapsedMs: 0 },
+        { events: 5, elapsedMs: 80 },
+      ]);
+    }),
+  );
 });
