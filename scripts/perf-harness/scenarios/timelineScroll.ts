@@ -38,6 +38,8 @@ const PRE_PAGE_LIMIT_MS = 60_000;
 const LOADED_LEG_MS = 10_000;
 const GESTURE_PX = 1_200;
 const GESTURE_SPEED_PX_PER_S = 2_400;
+/** Synthesized gestures, then one wheel fallback, before the scenario gives up on scrolling. */
+const PROBE_ATTEMPTS = 4;
 const INITIAL_TURNS = 10;
 const LOAD_EARLIER = "Load earlier turns";
 const PAGE_LOAD_TIMEOUT_MS = 30_000;
@@ -137,6 +139,9 @@ function listState(page: Page): Promise<ListState | null> {
     };
   }, LOAD_EARLIER);
 }
+
+const distanceFromBottom = (state: ListState) =>
+  state.scrollHeight - state.scrollTop - state.clientHeight;
 
 /** Moves the timeline's scroll container to `to` at once (unmeasured jumps only). */
 function jumpTo(page: Page, to: "top" | "bottom"): Promise<void> {
@@ -246,19 +251,33 @@ export async function runTimelineScroll(ctx: ScenarioContext): Promise<ScenarioR
     const viewport: Viewport = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await page.mouse.move(viewport.x, viewport.y);
     const session = await context.newCDPSession(page);
+    const settledMs = await settleAtBottom(page);
     const initial = await listState(page);
     if (initial === null) throw new Error("the timeline has no scroll container");
-    // One unmeasured gesture confirms that a positive distance scrolls toward older turns.
-    await scrollGesture(session, {
-      x: viewport.x,
-      y: viewport.y,
-      yDistance: GESTURE_PX / 2,
-      speed: GESTURE_SPEED_PX_PER_S,
-    });
-    const probed = await listState(page);
-    if (probed === null || probed.scrollTop >= initial.scrollTop) {
+    // Unmeasured gestures confirm that a positive distance scrolls toward older turns and
+    // carry the list out of its pinned-to-end state, which can swallow a single gesture
+    // while rows are still being measured. Movement is read as distance from the bottom:
+    // rows measured or merged above the viewport raise scrollTop and scrollHeight together.
+    const probes: Array<string> = [];
+    let probed: ListState | null = initial;
+    for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt++) {
+      if (attempt < PROBE_ATTEMPTS - 1) {
+        await scrollGesture(session, {
+          x: viewport.x,
+          y: viewport.y,
+          yDistance: GESTURE_PX,
+          speed: GESTURE_SPEED_PX_PER_S,
+        });
+      } else {
+        await page.mouse.wheel(0, -GESTURE_PX);
+      }
+      probed = await listState(page);
+      probes.push(probed === null ? "none" : String(distanceFromBottom(probed)));
+      if (probed !== null && distanceFromBottom(probed) > distanceFromBottom(initial)) break;
+    }
+    if (probed === null || distanceFromBottom(probed) <= distanceFromBottom(initial)) {
       throw new Error(
-        `a scroll-up gesture did not move the timeline up (scrollTop ${initial.scrollTop} -> ${probed?.scrollTop ?? "none"})`,
+        `scroll-up gestures did not move the timeline up (distance from bottom ${distanceFromBottom(initial)} -> ${probes.join(", ")}; settled at bottom ${settledMs === null ? "never" : `in ${Math.round(settledMs)} ms`})`,
       );
     }
 
