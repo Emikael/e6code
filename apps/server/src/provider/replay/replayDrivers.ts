@@ -12,7 +12,7 @@
  *   E6CODE_PROVIDER_REPLAY_AUTO_RESPOND      answer recorded approvals (default true)
  *
  * Unset (or blank), the server gets `ProviderInstanceRegistryHydrationLive`
- * itself. Set, a recording that cannot be read or decoded, a kind with no
+ * itself and the other switches are not read. Set, a recording that cannot be read or decoded, a kind with no
  * built-in driver, or two recordings for one kind fail server start: an
  * explicit opt-in never falls back to real providers.
  *
@@ -54,17 +54,17 @@ const NonNegativeFinite = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
 const optional = <A>(suffix: string, schema: Schema.ConstraintCodec<A, unknown>) =>
   withLegacyBrandEnv(suffix, (name) => Config.schema(schema, name)).pipe(Config.option);
 
-/** The replay switches, read from the environment; `paths` is empty when replay is off. */
-export const replayDriversConfig = Config.all({
-  paths: withLegacyBrandEnv("PROVIDER_REPLAY", Config.String).pipe(
-    Config.withDefault(""),
-    Config.map((value) =>
-      value
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0),
-    ),
+const replayPathsConfig = withLegacyBrandEnv("PROVIDER_REPLAY", Config.String).pipe(
+  Config.withDefault(""),
+  Config.map((value) =>
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
   ),
+);
+
+const replayOptionsConfig = Config.all({
   speed: withLegacyBrandEnv("PROVIDER_REPLAY_SPEED", (name) =>
     Config.schema(Schema.Union([Schema.Literal("instant"), PositiveFinite]), name),
   ).pipe(Config.withDefault(1)),
@@ -77,20 +77,35 @@ export const replayDriversConfig = Config.all({
     Config.withDefault(true),
   ),
 }).pipe(
-  Config.map(({ paths, speed, eventsPerSecond, maxGapMs, onExhausted, autoRespond }) => ({
-    paths,
-    options: {
-      speed,
-      ...Option.match(eventsPerSecond, {
-        onNone: () => ({}),
-        onSome: (value) => ({ eventsPerSecond: value }),
-      }),
-      ...Option.match(maxGapMs, { onNone: () => ({}), onSome: (value) => ({ maxGapMs: value }) }),
-      onExhausted,
-      autoRespond,
-    } satisfies ReplayDriverOptions,
-  })),
+  Config.map(
+    ({ speed, eventsPerSecond, maxGapMs, onExhausted, autoRespond }) =>
+      ({
+        speed,
+        ...Option.match(eventsPerSecond, {
+          onNone: () => ({}),
+          onSome: (value) => ({ eventsPerSecond: value }),
+        }),
+        ...Option.match(maxGapMs, {
+          onNone: () => ({}),
+          onSome: (value) => ({ maxGapMs: value }),
+        }),
+        onExhausted,
+        autoRespond,
+      }) satisfies ReplayDriverOptions,
+  ),
 );
+
+/**
+ * The replay switches, read from the environment: none when replay is off.
+ * The playback switches are read only once a recording is named, so a stray
+ * or invalid one never stops a server that does not replay.
+ */
+export const replayDriversConfig = Effect.gen(function* () {
+  const paths = yield* replayPathsConfig;
+  if (paths.length === 0) return Option.none();
+  const options = yield* replayOptionsConfig;
+  return Option.some({ paths, options });
+});
 
 /** Replaces each recorded kind's driver in `base` with a replay driver of that kind. */
 export const withReplayDrivers = Effect.fnUntraced(function* <R>(
@@ -147,10 +162,11 @@ const readRecording = Effect.fnUntraced(function* (filePath: string) {
 
 /** The built-in drivers with recorded kinds replayed, or none when replay is off. */
 export const loadReplayDrivers = Effect.gen(function* () {
-  const { paths, options } = yield* replayDriversConfig.pipe(
+  const config = yield* replayDriversConfig.pipe(
     Effect.mapError((cause) => new ProviderReplayConfigError({ detail: cause.message })),
   );
-  if (paths.length === 0) return Option.none();
+  if (Option.isNone(config)) return Option.none();
+  const { paths, options } = config.value;
   const recordings = yield* Effect.forEach(paths, readRecording);
   const drivers = yield* withReplayDrivers(BUILT_IN_DRIVERS, recordings, options);
   for (const recording of recordings) {

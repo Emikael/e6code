@@ -64,6 +64,25 @@ describe("replayDrivers", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("ignores the playback switches, even invalid ones, while replay is off", () =>
+    Effect.gen(function* () {
+      const invalidPlayback = {
+        E6CODE_PROVIDER_REPLAY_SPEED: "fast",
+        E6CODE_PROVIDER_REPLAY_EVENTS_PER_SECOND: "-5",
+        E6CODE_PROVIDER_REPLAY_MAX_GAP_MS: "soon",
+        E6CODE_PROVIDER_REPLAY_ON_EXHAUSTED: "stop",
+        E6CODE_PROVIDER_REPLAY_AUTO_RESPOND: "maybe",
+      };
+      for (const replay of [{}, { E6CODE_PROVIDER_REPLAY: " " }]) {
+        expect(
+          yield* resolveProviderInstanceRegistryHydration.pipe(
+            withEnv({ ...invalidPlayback, ...replay }),
+          ),
+        ).toBe(ProviderInstanceRegistryHydrationLive);
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("substitutes the recorded kind and keeps every other driver", () =>
     Effect.gen(function* () {
       const base = [fakeDriver("codex"), fakeDriver("cursor"), fakeDriver("grok")];
@@ -162,10 +181,12 @@ describe("replayDrivers", () => {
   it.effect("decodes playback options with harness defaults", () =>
     Effect.gen(function* () {
       const defaults = yield* replayDriversConfig.pipe(withEnv({ E6CODE_PROVIDER_REPLAY: "/r" }));
-      expect(defaults).toEqual({
-        paths: ["/r"],
-        options: { speed: 1, onExhausted: "loop", autoRespond: true },
-      });
+      expect(defaults).toEqual(
+        Option.some({
+          paths: ["/r"],
+          options: { speed: 1, onExhausted: "loop", autoRespond: true },
+        }),
+      );
 
       const tuned = yield* replayDriversConfig.pipe(
         withEnv({
@@ -177,21 +198,23 @@ describe("replayDrivers", () => {
           E6CODE_PROVIDER_REPLAY_AUTO_RESPOND: "false",
         }),
       );
-      expect(tuned).toEqual({
-        paths: ["/a", "/b"],
-        options: {
-          speed: 7,
-          eventsPerSecond: 50,
-          maxGapMs: 500,
-          onExhausted: "fail",
-          autoRespond: false,
-        },
-      });
+      expect(tuned).toEqual(
+        Option.some({
+          paths: ["/a", "/b"],
+          options: {
+            speed: 7,
+            eventsPerSecond: 50,
+            maxGapMs: 500,
+            onExhausted: "fail",
+            autoRespond: false,
+          },
+        }),
+      );
 
       const instant = yield* replayDriversConfig.pipe(
         withEnv({ E6CODE_PROVIDER_REPLAY: "/r", E6CODE_PROVIDER_REPLAY_SPEED: "instant" }),
       );
-      expect(instant.options.speed).toBe("instant");
+      expect(Option.getOrThrow(instant).options.speed).toBe("instant");
 
       for (const [name, value] of [
         ["E6CODE_PROVIDER_REPLAY_SPEED", "fast"],
