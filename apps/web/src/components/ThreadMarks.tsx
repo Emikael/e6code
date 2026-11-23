@@ -2,10 +2,10 @@ import type { EnvironmentId, ThreadId } from "@e6tools/contracts";
 import { scopeThreadRef } from "@e6tools/client-runtime/environment";
 import {
   nextThreadMarks,
-  parseThreadMark,
+  threadMarkProgress,
   type ThreadMarkProgress,
 } from "@e6tools/shared/threadMarks";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useThreadStatus } from "../state/entities";
 
@@ -28,22 +28,31 @@ export const ThreadMarks = memo(function ThreadMarks({
 }) {
   const [watching, setWatching] = useState(true);
   // Owned here, not by the watcher: the watcher unmounts once both marks are scheduled and
-  // those must still land, while leaving the thread cancels any that have not.
-  const [pending] = useState(() => new Set<() => void>());
+  // those must still land, while leaving the thread cancels any that have not. A cancelled
+  // mark no longer counts as set, so StrictMode's replayed mount schedules it again.
+  const [marks] = useState(() => ({
+    pending: new Map<string, () => void>(),
+    landed: new Set<string>(),
+  }));
   useEffect(
     () => () => {
-      for (const cancel of pending) cancel();
-      pending.clear();
+      for (const cancel of marks.pending.values()) cancel();
+      marks.pending.clear();
     },
-    [pending],
+    [marks],
   );
-  const schedule = useCallback((name: string) => markAfterNextFrame(name, pending), [pending]);
+  const progress = useCallback(
+    () => threadMarkProgress([...marks.landed, ...marks.pending.keys()]),
+    [marks],
+  );
+  const schedule = useCallback((name: string) => markAfterNextFrame(name, marks), [marks]);
   const stopWatching = useCallback(() => setWatching(false), []);
   return watching ? (
     <ThreadMarksWatcher
       environmentId={environmentId}
       threadId={threadId}
       hasRows={hasRows}
+      progress={progress}
       schedule={schedule}
       onDone={stopWatching}
     />
@@ -54,12 +63,14 @@ function ThreadMarksWatcher({
   environmentId,
   threadId,
   hasRows,
+  progress,
   schedule,
   onDone,
 }: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly hasRows: boolean;
+  readonly progress: () => ThreadMarkProgress;
   readonly schedule: (name: string) => void;
   readonly onDone: () => void;
 }) {
@@ -68,32 +79,33 @@ function ThreadMarksWatcher({
     [environmentId, threadId],
   );
   const status = useThreadStatus(threadRef);
-  const marked = useRef<ThreadMarkProgress>({ rows: false, live: false });
   useEffect(() => {
-    for (const name of nextThreadMarks({ status, hasRows, marked: marked.current })) {
-      marked.current =
-        parseThreadMark(name)?.kind === "live"
-          ? { ...marked.current, live: true }
-          : { ...marked.current, rows: true };
-      schedule(name);
-    }
-    if (marked.current.rows && marked.current.live) onDone();
-  }, [status, hasRows, schedule, onDone]);
+    for (const name of nextThreadMarks({ status, hasRows, marked: progress() })) schedule(name);
+    const marked = progress();
+    if (marked.rows && marked.live) onDone();
+  }, [status, hasRows, progress, schedule, onDone]);
   return null;
 }
 
-/** Stamps once the frame that shows the change has been produced; cancellable until then. */
-function markAfterNextFrame(name: string, pending: Set<() => void>) {
+/**
+ * Stamps once the frame that shows the change has been produced; cancellable until then. An
+ * earlier visit's mark of the same name is cleared first, so marks do not pile up.
+ */
+function markAfterNextFrame(
+  name: string,
+  marks: { readonly pending: Map<string, () => void>; readonly landed: Set<string> },
+) {
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  const cancel = () => {
-    cancelAnimationFrame(frame);
-    if (timeout !== undefined) clearTimeout(timeout);
-  };
   const frame = requestAnimationFrame(() => {
     timeout = setTimeout(() => {
-      pending.delete(cancel);
+      marks.pending.delete(name);
+      marks.landed.add(name);
+      performance.clearMarks(name);
       performance.mark(name);
     }, 0);
   });
-  pending.add(cancel);
+  marks.pending.set(name, () => {
+    cancelAnimationFrame(frame);
+    if (timeout !== undefined) clearTimeout(timeout);
+  });
 }

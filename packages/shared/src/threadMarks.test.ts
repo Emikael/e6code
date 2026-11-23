@@ -5,6 +5,7 @@ import {
   parseThreadMark,
   THREAD_MARK_PREFIX,
   threadLiveMark,
+  threadMarkProgress,
   threadRowsMark,
 } from "./threadMarks.ts";
 
@@ -75,5 +76,31 @@ describe("nextThreadMarks", () => {
 
   it("never marks a deleted thread", () => {
     expect(nextThreadMarks({ status: "deleted", hasRows: true, marked: NONE })).toEqual([]);
+  });
+});
+
+describe("threadMarkProgress", () => {
+  it("reads which kinds the marks set or still scheduled cover", () => {
+    expect(threadMarkProgress([])).toEqual(NONE);
+    expect(threadMarkProgress(["e6:thread:rows:synchronizing"])).toEqual({
+      rows: true,
+      live: false,
+    });
+    expect(threadMarkProgress(["e6:thread:rows:live", "e6:thread:live"])).toEqual({
+      rows: true,
+      live: true,
+    });
+    expect(threadMarkProgress(["e6:startup:shell-live", "e6:thread:rows:empty"])).toEqual(NONE);
+  });
+
+  it("offers a mark again once it was cancelled before it landed", () => {
+    const scheduled = new Set<string>();
+    const offer = () =>
+      nextThreadMarks({ status: "live", hasRows: true, marked: threadMarkProgress(scheduled) });
+    for (const name of offer()) scheduled.add(name);
+    expect(offer()).toEqual([]);
+    // StrictMode's replayed mount cancels both before the next frame.
+    scheduled.clear();
+    expect(offer()).toEqual(["e6:thread:rows:live", "e6:thread:live"]);
   });
 });

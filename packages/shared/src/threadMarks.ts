@@ -65,3 +65,15 @@ export function parseThreadMark(name: string): ParsedThreadMark | null {
   const status = name.slice(ROWS_MARK.length);
   return ROWS_STATUSES.has(status) ? { kind: "rows", status: status as ThreadRowsStatus } : null;
 }
+
+/** Which kinds `names` cover: the marks a visit has set, plus those still waiting for a frame. */
+export function threadMarkProgress(names: Iterable<string>): ThreadMarkProgress {
+  let rows = false;
+  let live = false;
+  for (const name of names) {
+    const kind = parseThreadMark(name)?.kind;
+    if (kind === "rows") rows = true;
+    if (kind === "live") live = true;
+  }
+  return { rows, live };
+}
