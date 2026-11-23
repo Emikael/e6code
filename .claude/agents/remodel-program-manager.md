@@ -46,9 +46,9 @@ What you do:
   relations, and propose a small set of tasks that can run in parallel without touching
   the same files. Say why these and not others. Each screen task gets one feature planner
   and one screen designer; planning and design for several tasks may run in parallel.
-  Implementers run in parallel only on tasks the ownership map (E04-T05) shows as
-  file-disjoint, and at most three at once. The limit is raised once the CI performance
-  gates (E05-T06) have caught a regression.
+  Implementers run in parallel only on file-disjoint tasks (by the E04-T05 ownership map,
+  or by each plan's file list until it lands), at most three at once; the maintainer
+  raises the limit once the CI performance gates (E05-T06) have caught a regression.
 - Keep one capability per task. If a task turns out to hide two, split it and move the
   inventory citations so every entry still belongs to exactly one open or completed task.
   Nothing from the inventory may end up cited by no task: that is how a feature gets

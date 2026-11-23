@@ -19,8 +19,8 @@ Check, in this order:
 
 1. **Parity.** Go through the checklist item by item. For each, find the code path or
    test that proves it. What only a running client shows comes from the primary agent's
-   real-client pass, made after integration with the maintainer's permission; if that
-   evidence is missing, say so rather than launching a server or browser yourself. Pay
+   real-client pass, made before the PR merges into `remodel` (`AGENTS.md`, "Agent team");
+   if that evidence is missing, say so rather than launching a server or browser yourself. Pay
    attention to the states that get forgotten: empty, error, offline, a remote
    connection, a second environment, each provider, keyboard-only use.
 2. **Design fidelity.** Compare the built screen, in that pass's screenshots, with the

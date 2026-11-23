@@ -137,7 +137,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 - Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
 - Track active maintainer work in the GitHub issue or project item that owns it. External proposals follow `CONTRIBUTING.md` and belong in Ideas discussions.
 - A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
-- `remodel-backlog/` is the one approved exception: remodel tasks that could not be filed in Linear wait there until they are filed or implemented (see its README).
+- `remodel-backlog/` is the one approved exception: remodel tasks that could not be filed in Linear wait there until they are filed or implemented (see its README). Add nothing new there; new tasks go to Linear.
 
 ## How it works
 
@@ -160,7 +160,7 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 The E6 Code Remodel rewrites every screen in phases. Its decisions live in the Linear project "E6 Code Remodel", in the documents "Architecture decisions and performance budgets", "Design direction" and "Agent team and workflow". Tasks not yet filed in Linear are files in `remodel-backlog/`.
 
-- Remodel work integrates on the `remodel` branch. Start each task from the latest `remodel`; one task is one PR into `remodel`. Keep `remodel` current by merging `main` into it, never by rebasing it.
+- Remodel work integrates on the `remodel` branch. Start each task from the latest `remodel`; one task is one PR into `remodel`, opened when the maintainer asks. The maintainer keeps `remodel` current by merging `main` into it. Never rebase `remodel`, and do not merge into it unless asked.
 - A rule below that names a task still to land applies already; that task adds the code or the enforcement. Until it lands, do not build a substitute for a layer another task owns, such as a flag registry or an icon layer: wait for that task or ask the maintainer.
 
 ### v2 layout
@@ -182,7 +182,7 @@ The E6 Code Remodel rewrites every screen in phases. Its decisions live in the L
 ### Motion and icons
 
 - v2 code animates only through the named presets in `next/motion`, which apply MotionPolicy (Full, Reduced, Off). No hand-written keyframes or durations. Entrances are opt-in with `data-enter`; mounting alone never animates.
-- Only `transform` and `opacity` animate. The named exceptions are `checkDraw` (stroke-dashoffset on small checks) and `iconSwap` (scale down to 0.6 on icons of 20 px or less). Never animate width, height, position, margin, padding, border width, box-shadow or blur radius; height changes and reorders go through the `layout` preset.
+- Only `transform` and `opacity` animate. The named exceptions are `checkDraw` (stroke-dashoffset on small checks), `iconSwap`'s scale down to 0.6 on icons of 20 px or less, and the ambient canvas where [Taste](#taste) allows it. Never animate width, height, position, margin, padding, border width, box-shadow or blur radius; height changes and reorders go through the `layout` preset.
 - `motion` is the default engine. `gsap` is only for authored timelines (launch, onboarding, celebrations): it arrives with the launch sequence (E04-T16) through the one runner module the lint allows in `next/motion/cinematic/`, loads lazily, stays off the chat critical path and always runs under MotionPolicy. `apps/marketing` may load it lazily too. Anime.js stays behind the legacy `apps/web/src/lib/motion.ts` until its last caller is deleted. The `e6code/no-animation-library-imports` lint rule enforces where each engine may be imported (ENG-110). ScrollTrigger, SplitText and MorphSVG in the app need their own decision.
 - v2 icons come only from `next/icons` (ENG-87): Phosphor artwork generated into named components (`<IconChevronDown />`) for static use, and `<Icon name>` only for dynamic names such as saved project icons and palette entries; `@phosphor-icons/react` is not used at runtime. Regular weight at rest, fill when selected or active, bold at 12 to 14 px, duotone for empty states. Semantic names live in `packages/design-tokens/src/icons`. `next/**` never imports an icon library directly.
 
@@ -212,9 +212,9 @@ Five roles do the remodel, defined in `.claude/agents/remodel-*.md`: program man
 
 - The program manager is the only agent that edits the Linear project's structure: phases, epics, priorities and dependencies.
 - Each screen task gets one feature planner and one screen designer. Planning and design for several tasks may run in parallel.
-- Implementers run in parallel only on tasks the ownership map (E04-T05) shows as file-disjoint, and at most three at once. The limit is raised once the CI performance gates (E05-T06) have caught a regression.
+- Implementers run in parallel only on tasks the ownership map (E04-T05) shows as file-disjoint, and at most three at once. Until E04-T05 lands, the program manager judges file-disjointness from each plan's file list. The maintainer raises the limit once the CI performance gates (E05-T06) have caught a regression.
 - The validator is always a different agent from the task's implementer.
-- Real-client verification follows [Verifying](#verifying): the primary agent, after integration, with the maintainer's permission.
+- Real-client verification follows [Verifying](#verifying): the primary agent, after it integrates the task's branch locally and before its PR merges into `remodel`, with the maintainer's permission.
 
 ### Taste Skill
 
@@ -242,13 +242,13 @@ The design review checklist (Design direction, section 9) joins this one with E0
 - Inferred types over annotations. `any` is the enemy.
 - Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior.
 - People using E6 Code will notice dropped frames, lying spinners, and stale labels. Nothing moves at idle: every animation ends, or is stepped and tied to a live turn, or is the ambient canvas on an allowed screen. Continuous repaints peg the GPU on high-refresh displays.
-- What that allows: the live-mark breath (opacity stepped from 1 to 0.55 and back over 2.4 s in 6 steps, compositor-only, only while a turn runs in the focused, visible window at Full motion, stopping on turn end, blur or hide); the live ambient canvas, only on welcome and onboarding, pairing and the marketing hero, never behind a work surface, and paused when hidden, blurred, off-screen, after 10 s without input, below Full or while the focused thread streams; and continuous effects in the launch for at most 2.5 s, each with its reason and budget stated in the launch design. The launch's authored choreography stays within its own 900 ms cap.
-- Color goes through the semantic roles in `packages/design-tokens` and `apps/web/src/index.css`, never hard-coded Tailwind palette colors. The `@design-tokens` blocks in `index.css` are generated from the package; change the package, not those blocks. Built-in themes and mobile follow those roles; a raw `blue-500` follows nothing.
+- What that allows: the live-mark breath (opacity stepped from 1 to 0.55 and back over 2.4 s in 6 steps, compositor-only, only while a turn runs in the focused, visible window at Full motion, stopping on turn end, blur or hide); the live ambient canvas, only on the welcome wizard (onboarding), pairing and the marketing hero, never behind a work surface, and paused when hidden, blurred, off-screen, after 10 s without input, below Full or while the focused thread streams; and continuous effects in the launch for at most 2.5 s, each with its reason and budget stated in the launch design. The launch's authored choreography stays within its own 900 ms cap.
+- Color goes through the semantic roles in `packages/design-tokens` and `apps/web/src/index.css`, never hard-coded Tailwind palette colors. The `/* @design-tokens … */` markers in `index.css` expand at build from the package; edit the package, not the output. Built-in themes and mobile follow those roles; a raw `blue-500` follows nothing.
 - `primary` (Iris in the stock palette) means the next action or a live agent. Do not use it for decoration or headings. Text on a `primary` fill uses `primary-foreground`, never a hard-coded white. Text and icons coloured as the accent use `text-primary-text`, and selected outlines use `primary-edge`: those roles stay readable on every ground, while a theme's raw `primary` may not.
 - Never show a status by color alone. Pair every status dot or tint with a word or an icon.
-- One key light per view: the brightest element is the live agent, the pending decision or the primary next action, and a decision outranks a live agent. At most one key-light wash and one attention wash are lit at once.
-- Surfaces sit on five planes (ground, stage, raised, floating, overlay) through the `--plane-*` and `--elev-*` tokens and the `next/ui` primitives. Shadows come only from the `--elev-*` tokens; never animate `box-shadow`, fade the layer that carries the shadow instead; blur is only a static material on floating planes smaller than a quarter of the viewport.
-- Instant where the hands are (Design direction 3.10): typing, caret, selection, IME and the composer resizing as you type; scrolling, with no smooth-scroll hijack and no scroll-linked effect in the app; keyboard navigation; the content of thread, tab and settings switches, where route changes are cuts; terminal output, diff scrolling and the file tree; dragging and resizing follow the pointer 1:1 and only the drop settles; toggles apply at once; remote actions animate from local state without waiting on the server.
+- In v2 code (`next/**`), one key light per view: the brightest element is the live agent, the pending decision or the primary next action, and a decision outranks a live agent. At most one key-light wash and one attention wash are lit at once.
+- In v2 code (`next/**`), surfaces sit on the planes of `PLANE_RECIPES` in `packages/design-tokens/src/keyLight.ts` (ground, stage, well, raised, float), plus the overlay level of `next/ui`'s `Plane`, through the `--plane-*` and `--elev-*` tokens. Shadows come only from the `--elev-*` tokens; never animate `box-shadow`, fade the layer that carries the shadow instead; blur is only a static material on floating planes smaller than a quarter of the viewport.
+- In v2 code (`next/**`), instant where the hands are (Design direction 3.10): typing, caret, selection, IME and the composer resizing as you type; scrolling, with no smooth-scroll hijack and no scroll-linked effect in the app; keyboard navigation; the content of thread, tab and settings switches, where route changes are cuts; terminal output, diff scrolling and the file tree; dragging and resizing follow the pointer 1:1 and only the drop settles; toggles apply at once; remote actions animate from local state without waiting on the server.
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
 
 ## Additional tips

@@ -41,9 +41,9 @@ How to work:
 - Protect running instances while you work: never start a server against the live data
   directory, never stop a process you did not start, and never bake dev origins into a
   build.
-- You do not validate your own task; a different agent does. You do not launch dev
-  servers, browsers, `test-e6-app` or `test-e6-mobile`: the primary agent verifies in a
-  real client after integration, with the maintainer's permission.
+- You do not validate your own task, and you do not launch dev servers, browsers,
+  `test-e6-app` or `test-e6-mobile`: the primary agent verifies in a real client before
+  the PR merges, with the maintainer's permission (`AGENTS.md`, "Agent team").
 
 When you finish, report against the parity checklist item by item: done and verified,
 done but not verified (say why), or not done. Include test output for failures. A

@@ -29,7 +29,8 @@ task has one):
    wire schemas in `packages/contracts`, and capability flags for older clients. State
    what must stay compatible and what needs a migration.
 4. **Plan.** The module boundaries of the new implementation, how it coexists with the
-   old screen behind its screen flag, the order of steps, what can be reused, and the
+   old screen behind its screen flag, the files it will touch (the program manager uses
+   them to keep parallel tasks apart), the order of steps, what can be reused, and the
    tests that prove parity (prefer the existing test suites as the specification).
 5. **Performance.** Which budgets in `AGENTS.md` apply, where the hot paths are, and how
    to measure them.
