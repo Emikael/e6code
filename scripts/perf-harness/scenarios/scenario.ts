@@ -15,7 +15,8 @@ import type { Browser, Cookie, Page } from "playwright-core";
 import { screenshot, type MotionRequest } from "../browser.ts";
 import type { ControlClient } from "../controlClient.ts";
 import type { OtlpSink } from "../otlpSink.ts";
-import type { MetricOutcome } from "../report.ts";
+import type { IdlePoint, MetricOutcome } from "../report.ts";
+import type { FrameSummary } from "../traceFrames.ts";
 
 export interface SeededThreads {
   readonly projectId: string;
@@ -49,7 +50,12 @@ export interface ScenarioContext {
   readonly control: () => Promise<ControlClient>;
   /** The OTLP receiver this server exports metrics to, when the scenario asked for one. */
   readonly otlp: OtlpSink | null;
-  readonly soak: { readonly minutes: number; readonly factor: number };
+  readonly soak: {
+    readonly minutes: number;
+    readonly factor: number;
+    /** How often the page clicks the next seeded thread in the sidebar. */
+    readonly cycleIntervalMs: number;
+  };
   readonly log: (message: string) => void;
 }
 
@@ -71,8 +77,8 @@ export interface AfterStop {
 
 export interface ScenarioResult {
   readonly metrics: ReadonlyArray<MetricOutcome>;
-  /** `null` when the idle trace held no renderer main-thread events. */
-  readonly idlePoints: ReadonlyArray<{ readonly label: string; readonly value: number | null }>;
+  /** `value` is `null` when the idle trace held no renderer main-thread events. */
+  readonly idlePoints: ReadonlyArray<IdlePoint>;
   readonly raw: Record<string, unknown>;
   readonly screenshots: ReadonlyArray<{ readonly point: string; readonly path: string }>;
   readonly validity: ValidityContribution;
@@ -90,8 +96,16 @@ const screenshotName = (point: string, variant: "legacy" | "v2", motion: MotionR
 /** The idle-frames point for `label`: its frame count, or null when the trace held no renderer data. */
 export const idlePoint = (
   label: string,
-  idle: { readonly framesWithUpdate: number; readonly rendererMainEvents: number },
-) => ({ label, value: idle.rendererMainEvents > 0 ? idle.framesWithUpdate : null });
+  idle: {
+    readonly framesWithUpdate: number;
+    readonly rendererMainEvents: number;
+    readonly source: FrameSummary["source"];
+  },
+): IdlePoint => ({
+  label,
+  value: idle.rendererMainEvents > 0 ? idle.framesWithUpdate : null,
+  frameSource: idle.source,
+});
 
 /**
  * Captures `point` when `--screenshots` is on and the idle check just proved

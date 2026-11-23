@@ -17,6 +17,18 @@ export interface ShellThreadView {
 }
 
 const MAX_FAILED_TURNS_IN_A_ROW = 3;
+const MAX_CYCLE_INTERVAL_MS = 10_000;
+
+/**
+ * How often the soak's page clicks the next thread in the sidebar: every
+ * 10 s, or more often when that would not reach every thread. The first
+ * click is at the start, so `threads` clicks fit inside `durationMs`.
+ */
+export function soakCycleIntervalMs(durationMs: number, threads: number): number {
+  return threads > 0
+    ? Math.min(MAX_CYCLE_INTERVAL_MS, durationMs / threads)
+    : MAX_CYCLE_INTERVAL_MS;
+}
 
 interface Driven {
   readonly kind: string;

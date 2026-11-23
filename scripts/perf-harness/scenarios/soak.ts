@@ -5,10 +5,11 @@
  * answered automatically, looping when exhausted). One seeded thread per
  * replayed kind is kept busy by the control client: it follows
  * `subscribeShell` and starts the next turn as soon as a thread's turn ends,
- * so the load is event-driven. Meanwhile the page clicks through every seeded
- * thread in the sidebar every 10 s to churn subscriptions, and every 30 s the
- * harness forces a renderer GC and samples its heap, and the server's RSS by
- * PID. Nothing is traced. The extra shell subscriber is real server work the
+ * so the load is event-driven. Meanwhile the page clicks through the seeded
+ * threads in the sidebar to churn subscriptions, from the start and every
+ * `ctx.soak.cycleIntervalMs` (at most 10 s, short enough to reach every
+ * seeded thread), and every 30 s the harness forces a renderer GC and samples
+ * its heap, and the server's RSS by PID. Nothing is traced. The extra shell subscriber is real server work the
  * report names.
  *
  * Acceleration speeds up the provider stream, not timers, TTLs or clocks, so
@@ -32,7 +33,6 @@ import { sidebarRowKeys, threadIdOf } from "./threadSwitch.ts";
 export const SOAK_MAX_GAP_MS = 2_000;
 const DRIVEN_KINDS = ["cursor", "claudeAgent", "codex", "opencode"] as const;
 const SAMPLE_EVERY_MS = 30_000;
-const CYCLE_EVERY_MS = 10_000;
 const STALL_LIMIT_MS = 120_000;
 const RETRY_AFTER_MS = 2_000;
 const MAX_DISPATCH_FAILURES = 5;
@@ -170,7 +170,8 @@ export async function runSoak(ctx: ScenarioContext): Promise<ScenarioResult> {
     const visited = new Set<string>();
     const cycleErrors: Array<string> = [];
     let clicks = 0;
-    let nextCycleAt = CYCLE_EVERY_MS;
+    const cycleEveryMs = ctx.soak.cycleIntervalMs;
+    let nextCycleAt = 0;
     let nextSampleAt = SAMPLE_EVERY_MS;
     while (true) {
       const elapsed = Date.now() - startedAt;
@@ -193,7 +194,7 @@ export async function runSoak(ctx: ScenarioContext): Promise<ScenarioResult> {
           () => visited.add(threadIdOf(key)),
           (error: unknown) => cycleErrors.push(`${threadIdOf(key)}: ${String(error)}`),
         );
-        nextCycleAt += CYCLE_EVERY_MS;
+        nextCycleAt += cycleEveryMs;
       }
     }
     drivenScheduler.stop();
@@ -237,6 +238,7 @@ export async function runSoak(ctx: ScenarioContext): Promise<ScenarioResult> {
     ];
     notes.push(
       `soak: turns completed per kind ${JSON.stringify(turnsByKind)}; ${dispatchErrors.length} rejected dispatches; ${stalled.length} stalled threads`,
+      `soak: the page visited ${visited.size} of ${keys.length} seeded sidebar threads, clicking every ${Math.round(cycleEveryMs)} ms`,
       "soak: the control client's shell subscription is one extra subscriber's refetch work on the server",
     );
 
@@ -311,7 +313,13 @@ export async function runSoak(ctx: ScenarioContext): Promise<ScenarioResult> {
         dispatchErrors: dispatchErrors.slice(0, 20),
         shellItems,
         shellStreamEnded: streamEnd === null ? "stopped" : String(streamEnd),
-        sidebar: { threads: keys.length, clicks, visited: visited.size, errors: cycleErrors },
+        sidebar: {
+          threads: keys.length,
+          cycleIntervalMs: cycleEveryMs,
+          clicks,
+          visited: visited.size,
+          errors: cycleErrors,
+        },
         samples,
         growth: { rendererHeap: heapGrowth, serverRss: rssGrowth },
         server:

@@ -12,10 +12,10 @@
  * marker, which is catch-up, and is live after it. A stream that shows
  * neither has its first chunk counted as the snapshot. Markers are not events.
  *
- * Round trips: the client pings every 5 s and the server answers with no work
- * of its own, so ping round trips on an idle page are the clean measure of
- * what the throttle proxy adds (`addedRpcRoundTripMs`); unary requests carry
- * server time.
+ * Round trips: the server answers a `Ping` with no work of its own, so pings
+ * from an idle page (the client's every 5 s, or the harness's probe) are the
+ * clean measure of what the throttle proxy adds (`addedRpcRoundTripMs`);
+ * unary requests carry server time.
  *
  * @module perf-harness/wsFrames
  */
@@ -347,6 +347,35 @@ export function pingRoundTrips(frames: ReadonlyArray<WsFrame>): Array<number> {
     }
   }
   return trips;
+}
+
+/** Below this, the remote profile's 60 ms round trip cannot have applied to the pings. */
+export const THROTTLE_VISIBLE_MS = 40;
+
+/**
+ * What the throttle proxy added to an RPC round trip: the median ping through
+ * it minus the median ping direct. `throttleVisible` is false when that is
+ * under 40 ms, too little for the 60 ms profile to have applied.
+ */
+export function pingAddedMs(input: {
+  readonly direct: ReadonlyArray<number>;
+  readonly remote: ReadonlyArray<number>;
+}): {
+  readonly addedMs: number;
+  readonly directMedianMs: number;
+  readonly remoteMedianMs: number;
+  readonly throttleVisible: boolean;
+} | null {
+  const directMedianMs = percentile(input.direct, 0.5);
+  const remoteMedianMs = percentile(input.remote, 0.5);
+  if (directMedianMs === null || remoteMedianMs === null) return null;
+  const addedMs = remoteMedianMs - directMedianMs;
+  return {
+    addedMs,
+    directMedianMs,
+    remoteMedianMs,
+    throttleVisible: addedMs >= THROTTLE_VISIBLE_MS,
+  };
 }
 
 /**

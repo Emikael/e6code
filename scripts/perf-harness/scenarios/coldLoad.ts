@@ -8,12 +8,17 @@
  *
  * @module perf-harness/scenarios/coldLoad
  */
+import {
+  ORCHESTRATION_PROTOCOL_QUERY_PARAM,
+  ORCHESTRATION_PROTOCOL_VERSION,
+} from "@e6tools/contracts";
 import type { BrowserContext, Cookie, Page } from "playwright-core";
 
 import {
   captureWsFrames,
   idleCheck,
   newMeasuredContext,
+  pingProbe,
   readPageTimings,
   sleep,
   traced,
@@ -22,8 +27,16 @@ import {
 } from "../browser.ts";
 import { observedScriptBytes } from "../bundle.ts";
 import type { MetricOutcome } from "../report.ts";
-import { addedRoundTripMs, pingRoundTrips, unaryRoundTrips, type WsFrame } from "../wsFrames.ts";
+import {
+  addedRoundTripMs,
+  pingAddedMs,
+  pingRoundTrips,
+  THROTTLE_VISIBLE_MS,
+  unaryRoundTrips,
+  type WsFrame,
+} from "../wsFrames.ts";
 import { percentile } from "../stats.ts";
+import { harnessStop } from "../stopLatch.ts";
 import { runProxySelfTest, startThrottleProxy } from "../throttleProxy.ts";
 import {
   bootScriptEvaluationMs,
@@ -49,8 +62,9 @@ const AFTER_INTERACTIVE_MS = 2_000;
 // with the link no longer busy, are captured for addedRpcRoundTripMs.
 const REMOTE_HOLD_MS = 2_000;
 const WARM_HOLD_MS = 1_000;
-// The RPC client pings every 5 s; an idle page held this long sends at least one.
-const PING_HOLD_MS = 6_000;
+// RPC pings the harness sends from the idle page, each way, for addedRpcRoundTripMs.
+const PING_SAMPLES = 7;
+const PING_QUERY = { [ORCHESTRATION_PROTOCOL_QUERY_PARAM]: String(ORCHESTRATION_PROTOCOL_VERSION) };
 
 /**
  * Navigates (or reloads) and waits until the shell is interactive. Landing
@@ -133,6 +147,15 @@ async function coldLoad(
 
 const p95 = (values: ReadonlyArray<number>) => percentile(values, 0.95) ?? Number.NaN;
 
+/** The ping probe's round trips, or none (with a note) when it fails: the loads still count. */
+const probePings = (page: Page, where: string, notes: Array<string>) =>
+  pingProbe(page, { count: PING_SAMPLES, query: PING_QUERY }).catch((error: unknown) => {
+    notes.push(
+      `ping probe ${where} failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return [];
+  });
+
 const points = (prefix: string, values: ReadonlyArray<number>) =>
   values.map((value, index) => ({ label: `${prefix}.${index + 1}`, atMs: null, value }));
 
@@ -141,6 +164,8 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
   const local: Array<LoadSample> = [];
   let idle: Awaited<ReturnType<typeof idleCheck>> | null = null;
   let directPings: Array<number> = [];
+  // The client's own 5 s pings seen during the loads, kept in raw beside the probe's.
+  let directClientPings: Array<number> = [];
   const screenshots: Array<{ point: string; path: string }> = [];
 
   for (let load = 1; load <= LOCAL_LOADS; load += 1) {
@@ -157,7 +182,8 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
           name: "coldLoad.shellInteractive.idle",
           keepDir: ctx.traceDir,
         });
-        directPings = pingRoundTrips(liveFrames);
+        directClientPings = pingRoundTrips(liveFrames);
+        directPings = await probePings(page, "direct", notes);
         const shot = await screenshotIfStill(ctx, page, "coldLoad.shellInteractive", idle);
         if ("taken" in shot) screenshots.push(shot.taken);
         else if (shot.skipped !== null) notes.push(shot.skipped);
@@ -168,18 +194,25 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
   }
 
   ctx.log("proxy self-test");
+  harnessStop.check("the proxy self-test");
   const selfTest = await runProxySelfTest({ mode: "shaped", ...REMOTE_PROFILE });
-  const proxy = await startThrottleProxy({
-    targetHost: "127.0.0.1",
-    targetPort: ctx.serverPort,
-    mode: "shaped",
-    ...REMOTE_PROFILE,
-  });
+  const proxy = await harnessStop.start(
+    "the throttle proxy",
+    () =>
+      startThrottleProxy({
+        targetHost: "127.0.0.1",
+        targetPort: ctx.serverPort,
+        mode: "shaped",
+        ...REMOTE_PROFILE,
+      }),
+    (started) => started.close(),
+  );
   const remoteOrigin = `http://127.0.0.1:${proxy.port}`;
   const remoteCold: Array<LoadSample> = [];
   const remoteWarm: Array<{ interactiveMs: number; interactiveMark: string }> = [];
   const warmFrames: Array<WsFrame> = [];
   let remotePings: Array<number> = [];
+  let remoteClientPings: Array<number> = [];
   let remoteCookies: ReadonlyArray<Cookie> = ctx.cookies;
   let pairedThroughProxy = false;
   try {
@@ -222,9 +255,10 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
             interactiveMark: interactive.name,
           });
         }
-        await sleep(PING_HOLD_MS);
+        // Read before the probe, whose own socket the page's frame capture also sees.
         warmFrames.push(...attempt.liveFrames.slice(attempt.sample.frames.length));
-        remotePings = pingRoundTrips(warmFrames);
+        remoteClientPings = pingRoundTrips(warmFrames);
+        remotePings = await probePings(attempt.page, "through the proxy", notes);
       } finally {
         await attempt.context.close();
       }
@@ -258,17 +292,18 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
     ...unaryRoundTrips(warmFrames),
   ];
   const unaryAdded = addedRoundTripMs(directTrips, remoteTrips);
-  const directPing = percentile(directPings, 0.5);
-  const remotePing = percentile(remotePings, 0.5);
-  const addedMs =
-    directPing !== null && remotePing !== null
-      ? remotePing - directPing
-      : (unaryAdded?.addedMs ?? null);
+  const pinged = pingAddedMs({ direct: directPings, remote: remotePings });
+  const addedMs = pinged?.addedMs ?? unaryAdded?.addedMs ?? null;
   notes.push(
-    directPing !== null && remotePing !== null
-      ? `addedRpcRoundTripMs from RPC ping round trips at idle: ${remotePing.toFixed(1)} ms through the proxy, ${directPing.toFixed(1)} ms direct`
-      : "addedRpcRoundTripMs from unary RPC round trips (no idle ping captured); they include server time",
+    pinged !== null
+      ? `addedRpcRoundTripMs from the median of ${remotePings.length} RPC pings through the proxy (${pinged.remoteMedianMs.toFixed(1)} ms) minus the median of ${directPings.length} direct (${pinged.directMedianMs.toFixed(1)} ms), each sent from the idle page`
+      : "addedRpcRoundTripMs from unary RPC round trips (no ping probe answered); they include server time",
   );
+  if (addedMs !== null && addedMs < THROTTLE_VISIBLE_MS) {
+    notes.push(
+      `addedRpcRoundTripMs: ${addedMs.toFixed(1)} ms is under ${THROTTLE_VISIBLE_MS} ms; the ${REMOTE_PROFILE.rttMs} ms throttle did not visibly apply to RPC round trips`,
+    );
+  }
 
   const metrics: Array<MetricOutcome> = [
     {
@@ -378,8 +413,11 @@ export async function runColdLoad(ctx: ScenarioContext): Promise<ScenarioResult>
         directUnary: directTrips.length,
         remoteUnary: remoteTrips.length,
         unaryAdded,
+        pingProbe: { samplesEachWay: PING_SAMPLES, added: pinged },
         directPingsMs: directPings,
         remotePingsMs: remotePings,
+        directClientPingsMs: directClientPings,
+        remoteClientPingsMs: remoteClientPings,
       },
       idle,
     },

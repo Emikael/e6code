@@ -157,10 +157,11 @@ To record a new one:
 `vp run perf:web` measures the web client against the performance budgets and writes one JSON
 report in the `@e6tools/shared/perfReport` shape. It seeds a throwaway home under the system temp
 directory (50 threads, one with 1,000 turns), starts one server per scenario on a copy of it with
-the recordings above replayed in place of every provider, and drives the production build of
-`apps/web` in headless Chromium. It never touches the live E6 home: homes live in the temp
-directory, secrets use the file store rather than the shared OS keychain, ports are probed, and it
-stops only the processes it started.
+the recordings above replayed in place of Cursor, Claude, Codex and OpenCode (Grok and Antigravity
+have no recording and are disabled), and drives the production build of `apps/web` in headless
+Chromium. It never touches the live E6 home: homes live in the temp directory, secrets use the
+file store rather than the shared OS keychain, child processes get only an allowlisted environment
+(no tokens or `NODE_OPTIONS`), ports are probed, and it stops only the processes it started.
 
 It needs a production build (`--build` makes one first; otherwise a stale `dist` is flagged) and
 Playwright's Chromium headless shell, which it never downloads. Install that once with
@@ -169,7 +170,8 @@ Playwright's Chromium headless shell, which it never downloads. Install that onc
 - `--scenario` picks from `coldLoad`, `threadSwitch`, `streamingInput`, `timelineScroll` and
   `soak` (default all).
 - `--out <dir>` sets where the report, logs and screenshots go, by default
-  `$TMPDIR/e6-perf/<runId>/`. It must be outside the repository or ignored by git.
+  `$TMPDIR/e6-perf/<runId>/`. It must be outside the repository or ignored by git, and outside
+  the live E6 home.
 - `--soak-minutes` and `--soak-factor` (default 6 and 32) size the soak, which takes most of a
   full run.
 - `--threads` and `--long-thread-turns` shrink the seed while iterating; `--screenshots`,

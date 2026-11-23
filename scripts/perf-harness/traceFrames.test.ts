@@ -3,9 +3,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   bootScriptEvaluationMs,
   classifyFrames,
+  frameOutcomeFlags,
   idleFrameActivity,
   longTaskDurations,
   rendererProcessIds,
+  scrollCoverage,
   type TraceEvent,
   userTimingTs,
 } from "./traceFrames.ts";
@@ -192,6 +194,50 @@ describe("classifyFrames", () => {
     expect(summary.source).toBe("none");
     expect(summary.withinBudgetFraction).toBeNull();
     expect(summary.presentationIntervalsMs).toBeNull();
+  });
+});
+
+describe("frameOutcomeFlags", () => {
+  it("names how many frames were presented in full, in part and dropped", () => {
+    const summary = classifyFrames([
+      ...metadata,
+      ...frame({ sequence: 1, state: "STATE_PRESENTED_ALL", startMs: 0, endMs: 10 }),
+      ...frame({ sequence: 2, state: "STATE_PRESENTED_PARTIAL", startMs: 16.7, endMs: 27 }),
+      ...frame({ sequence: 3, state: "STATE_PRESENTED_PARTIAL", startMs: 33.4, endMs: 44 }),
+      ...frame({ sequence: 4, state: "STATE_DROPPED", startMs: 50, endMs: 55 }),
+      ...frame({ sequence: 5, state: "STATE_NO_UPDATE_DESIRED", startMs: 66.8, endMs: 67 }),
+    ]);
+    expect(frameOutcomeFlags(summary.counts)).toEqual([
+      "presentedFull:1",
+      "presentedPartial:2",
+      "dropped:1",
+    ]);
+  });
+});
+
+describe("scrollCoverage", () => {
+  const at = (scrollTop: number, scrollHeight = 480_803) => ({
+    scrollTop,
+    scrollHeight,
+    clientHeight: 826,
+  });
+
+  it("is the range the viewport showed between its extreme positions, of the list's height", () => {
+    expect(scrollCoverage([at(0), at(21_600, 479_835), at(0, 479_835)])).toEqual({
+      coveredPx: 22_426,
+      totalPx: 480_803,
+    });
+  });
+
+  it("never covers more than the list and skips missing positions", () => {
+    expect(scrollCoverage([at(0, 1_000), null, at(400, 1_000)])).toEqual({
+      coveredPx: 1_000,
+      totalPx: 1_000,
+    });
+  });
+
+  it("has nothing to say without a position", () => {
+    expect(scrollCoverage([null])).toBeNull();
   });
 });
 

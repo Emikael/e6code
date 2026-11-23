@@ -64,26 +64,50 @@ describe("findUnsafeHome", () => {
 
 describe("checkOutDir", () => {
   const repoRoot = "/work/e6code";
+  const liveHomes = ["/Users/me/.e6", "/srv/e6"];
 
   it("accepts a directory outside the repository", () => {
-    expect(checkOutDir({ outDir: "/tmp/e6-perf/run", repoRoot, ignoredByGit: false })).toEqual({
-      ok: true,
-    });
+    expect(
+      checkOutDir({ outDir: "/tmp/e6-perf/run", repoRoot, ignoredByGit: false, liveHomes }),
+    ).toEqual({ ok: true });
   });
 
   it("accepts a git-ignored directory inside the repository", () => {
-    expect(checkOutDir({ outDir: "/work/e6code/.e6/perf", repoRoot, ignoredByGit: true })).toEqual({
-      ok: true,
-    });
+    expect(
+      checkOutDir({ outDir: "/work/e6code/.e6/perf", repoRoot, ignoredByGit: true, liveHomes }),
+    ).toEqual({ ok: true });
   });
 
   it("refuses a tracked location inside the repository", () => {
-    const result = checkOutDir({ outDir: "/work/e6code/reports", repoRoot, ignoredByGit: false });
+    const result = checkOutDir({
+      outDir: "/work/e6code/reports",
+      repoRoot,
+      ignoredByGit: false,
+      liveHomes,
+    });
     expect(result.ok).toBe(false);
   });
 
   it("refuses the repository root itself", () => {
-    expect(checkOutDir({ outDir: repoRoot, repoRoot, ignoredByGit: true }).ok).toBe(false);
+    expect(checkOutDir({ outDir: repoRoot, repoRoot, ignoredByGit: true, liveHomes }).ok).toBe(
+      false,
+    );
+  });
+
+  it("refuses a live home and anything under it", () => {
+    for (const outDir of ["/Users/me/.e6", "/Users/me/.e6/perf", "/srv/e6/userdata/logs"]) {
+      const result = checkOutDir({ outDir, repoRoot, ignoredByGit: false, liveHomes });
+      expect(result, outDir).toMatchObject({ ok: false });
+      expect(result.ok === false && result.reason, outDir).toContain("live E6 home");
+    }
+  });
+
+  it("accepts a directory beside a live home or containing one, which it never removes", () => {
+    for (const outDir of ["/Users/me/.e6-perf", "/Users/me/perf", "/Users/me"]) {
+      expect(checkOutDir({ outDir, repoRoot, ignoredByGit: false, liveHomes }), outDir).toEqual({
+        ok: true,
+      });
+    }
   });
 });
 
@@ -91,23 +115,83 @@ describe("scrubChildEnv", () => {
   const parent = {
     PATH: "/usr/bin",
     LANG: "en_US.UTF-8",
+    LC_ALL: "en_US.UTF-8",
+    TMPDIR: "/var/folders/x/T/",
+    TZ: "UTC",
+    USER: "me",
+    LOGNAME: "me",
+    TERM: "xterm-256color",
     HOME: "/Users/me",
     E6CODE_HOME: "/Users/me/.e6",
     E6CODE_DEV_AUTH_TOKEN: "secret",
     VITE_HTTP_URL: "http://localhost:3773",
     VITE_WS_URL: "ws://localhost:3773",
     VITE_ANYTHING: "1",
+    GIT_DIR: "/Users/me/repo/.git",
     UNSET: undefined,
   };
+  const credentials = {
+    GH_TOKEN: "gh-secret",
+    GITHUB_TOKEN: "gh-secret",
+    NPM_TOKEN: "npm-secret",
+    DB_PASSWORD: "db-secret",
+    OPENAI_API_KEY: "openai-secret",
+    ANTHROPIC_API_KEY: "anthropic-secret",
+    BITBUCKET_USERNAME: "me",
+    BITBUCKET_APP_PASSWORD: "bb-secret",
+    SSH_AUTH_SOCK: "/private/tmp/ssh-agent.sock",
+    NODE_OPTIONS: "--require /Users/me/hook.js",
+    AWS_SECRET_ACCESS_KEY: "aws-secret",
+  };
 
-  it("drops every E6CODE_ and VITE_ variable and keeps the rest", () => {
-    const env = scrubChildEnv(parent, { fakeHome: "/run/fake-home", shell: "/run/bin/sh" });
-    expect(env.PATH).toBe("/usr/bin");
-    expect(env.LANG).toBe("en_US.UTF-8");
+  it("passes only the allowlisted parent variables", () => {
+    const env = scrubChildEnv(
+      { ...parent, ...credentials },
+      { fakeHome: "/run/fake-home", shell: "/run/bin/sh" },
+    );
+    expect(env).toMatchObject({
+      PATH: "/usr/bin",
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+      TMPDIR: "/var/folders/x/T/",
+      TZ: "UTC",
+      USER: "me",
+      LOGNAME: "me",
+      TERM: "xterm-256color",
+    });
+    for (const key of [...Object.keys(credentials), "E6CODE_HOME", "E6CODE_DEV_AUTH_TOKEN"]) {
+      expect(env[key], key).toBeUndefined();
+    }
     expect(Object.keys(env).filter((key) => key.startsWith("VITE_"))).toEqual([]);
-    expect(env.E6CODE_HOME).toBeUndefined();
-    expect(env.E6CODE_DEV_AUTH_TOKEN).toBeUndefined();
+    expect(env.GIT_DIR).toBeUndefined();
     expect("UNSET" in env).toBe(false);
+    expect(Object.values(env).filter((value) => value.includes("secret"))).toEqual([]);
+  });
+
+  it("keeps the Windows system variables whatever their case", () => {
+    const env = scrubChildEnv(
+      {
+        Path: "C:\\Windows\\system32",
+        SystemRoot: "C:\\Windows",
+        windir: "C:\\Windows",
+        ComSpec: "C:\\Windows\\system32\\cmd.exe",
+        PATHEXT: ".COM;.EXE",
+        TEMP: "C:\\Temp",
+        TMP: "C:\\Temp",
+        USERPROFILE: "C:\\Users\\me",
+      },
+      { fakeHome: "C:\\run\\fake-home", shell: "C:\\run\\bin\\sh" },
+    );
+    expect(env).toMatchObject({
+      Path: "C:\\Windows\\system32",
+      SystemRoot: "C:\\Windows",
+      windir: "C:\\Windows",
+      ComSpec: "C:\\Windows\\system32\\cmd.exe",
+      PATHEXT: ".COM;.EXE",
+      TEMP: "C:\\Temp",
+      TMP: "C:\\Temp",
+    });
+    expect(env.USERPROFILE).toBeUndefined();
   });
 
   it("forces the file secret store, a fake HOME and SHELL, and unsigned git", () => {

@@ -7,13 +7,14 @@
  * the last thread once it is live.
  *
  * The client keeps visited threads live for minutes, so those revisits show
- * `rows:live`. First rows from the cache are measured after a reload in the
- * same context: IndexedDB still holds the visited threads, and the fresh page
- * has subscribed only to the routed one, so switching to any other visited
- * thread shows its cached rows first. One reload gives nine such switches;
- * the page reloads again until there are enough. The client marks those rows
- * `rows:synchronizing` (it is syncing by the time they render), so whether
- * they were cached is read from the wire.
+ * `rows:live` and their live mark proves nothing. Both rows are measured
+ * after a reload in the same context: IndexedDB still holds the visited
+ * threads, and the fresh page has subscribed only to the routed one, so
+ * switching to any other visited thread shows its cached rows first and then
+ * syncs it live. One reload gives nine such switches; the page reloads again
+ * until there are enough. The client marks those rows `rows:synchronizing`
+ * (it is syncing by the time they render), so whether they were cached is
+ * read from the wire. `threadSwitchRows.ts` turns the switches into rows.
  *
  * @module perf-harness/scenarios/threadSwitch
  */
@@ -30,8 +31,7 @@ import {
   waitForMark,
   type PageGlobal,
 } from "../browser.ts";
-import type { MetricOutcome } from "../report.ts";
-import { percentile, summarize } from "../stats.ts";
+import { summarize } from "../stats.ts";
 import { threadSubscriptions } from "../wsFrames.ts";
 import { loadUntilInteractive } from "./coldLoad.ts";
 import {
@@ -40,6 +40,7 @@ import {
   type ScenarioContext,
   type ScenarioResult,
 } from "./scenario.ts";
+import { threadSwitchMetrics, type Switch, type SwitchSource } from "./threadSwitchRows.ts";
 
 const THREADS = 10;
 const REVISITS = 20;
@@ -50,14 +51,6 @@ const ROWS_TIMEOUT_MS = 15_000;
 const LIVE_TIMEOUT_MS = 20_000;
 // Lets the switched-to thread finish its follow-up work before the next click.
 const SETTLE_MS = 300;
-
-interface Switch {
-  readonly threadId: string;
-  readonly visit: "first" | "revisit" | "afterReload";
-  readonly rowsMs: number | null;
-  readonly rowsStatus: string | null;
-  readonly liveMs: number | null;
-}
 
 /** Sidebar row keys (`<environmentId>:<threadId>`) in the order the sidebar renders them. */
 export function sidebarRowKeys(page: Page): Promise<Array<string>> {
@@ -198,12 +191,7 @@ export async function runThreadSwitch(ctx: ScenarioContext): Promise<ScenarioRes
     // Where an after-reload switch's first rows came from, read off the wire: the client
     // resumes a thread it holds in IndexedDB with `afterSequence` and loads no HTTP snapshot,
     // so a resume the server answered without a snapshot means the rows were the cached ones.
-    const sources: Array<{
-      readonly threadId: string;
-      readonly resumedFromCache: boolean;
-      readonly snapshotSent: boolean;
-      readonly httpSnapshot: boolean;
-    }> = [];
+    const sources: Array<SwitchSource> = [];
     // The reload opens a new socket, which this capture sees from its first frame.
     const ws = await captureWsFrames(page);
     const httpSnapshots: Array<string> = [];
@@ -250,89 +238,12 @@ export async function runThreadSwitch(ctx: ScenarioContext): Promise<ScenarioRes
     const revisits = switches.filter((entry) => entry.visit === "revisit");
     const firstVisits = switches.filter((entry) => entry.visit === "first");
     const afterReload = switches.filter((entry) => entry.visit === "afterReload");
-    const revisitRows = present(revisits.map((entry) => entry.rowsMs));
-    const revisitLive = present(revisits.map((entry) => entry.liveMs));
-    // Only rows shown from the client cache answer "first rows from cache"; a revisited thread
-    // that is still live shows rows:live, which is a different path.
-    // The client moves a thread to "synchronizing" as soon as it subscribes, before its cached
-    // rows first render, so rows shown from the cache are marked rows:synchronizing (or
-    // rows:cached, should a client mark them so). The wire says which ones were cached.
-    const fromCache = afterReload.map((entry, index) => {
-      const source = sources[index];
-      return (
-        source !== undefined &&
-        source.resumedFromCache &&
-        !source.snapshotSent &&
-        !source.httpSnapshot &&
-        (entry.rowsStatus === "cached" || entry.rowsStatus === "synchronizing")
-      );
+    const metrics = threadSwitchMetrics({
+      switches,
+      afterReloadSources: sources,
+      reloads: reloads.length,
     });
-    const cachedRows = present(
-      afterReload.filter((_, index) => fromCache[index]).map((entry) => entry.rowsMs),
-    );
-    const cachedMarks = afterReload.filter((entry) => entry.rowsStatus === "cached").length;
-    const statusSummaryOf = (entries: ReadonlyArray<Switch>) => {
-      const counts = new Map<string, number>();
-      for (const entry of entries) {
-        const status = entry.rowsStatus ?? "absent";
-        counts.set(status, (counts.get(status) ?? 0) + 1);
-      }
-      return [...counts.entries()]
-        .toSorted(([left], [right]) => left.localeCompare(right))
-        .map(([status, count]) => `${status}=${count}`)
-        .join(",");
-    };
-    const statusSummary = statusSummaryOf(revisits);
-    const reloadSummary = statusSummaryOf(afterReload);
-    const statusFlags = [`revisitRowsStatus:${statusSummary}`];
-    const cacheFlags = [
-      `afterReloadRowsStatus:${reloadSummary}`,
-      `rowsCachedMarks:${cachedMarks}`,
-      `provenFromCacheByWire:${cachedRows.length}/${afterReload.length}`,
-    ];
-
-    const metrics: Array<MetricOutcome> = [
-      cachedRows.length > 0
-        ? {
-            kind: "measured",
-            id: "web.threadSwitch.firstRows.cache",
-            unit: "ms",
-            statistic: "p95",
-            value: percentile(cachedRows, 0.95) ?? Number.NaN,
-            samples: cachedRows.length,
-            source:
-              "click event.timeStamp to the first e6:thread:rows:* mark, switching to visited threads after a reload; counted only when the thread's subscription resumed from the IndexedDB cache (afterSequence) and no snapshot arrived by WebSocket or HTTP",
-            flags: cacheFlags,
-            points: afterReload.flatMap((entry, index) =>
-              fromCache[index] && entry.rowsMs !== null
-                ? [{ label: `afterReload.${index + 1}`, atMs: null, value: entry.rowsMs }]
-                : [],
-            ),
-          }
-        : {
-            kind: "notMeasured",
-            id: "web.threadSwitch.firstRows.cache",
-            reason: `no switch after a reload showed rows proven to come from the cache (${reloadSummary || "none"} of ${afterReload.length} switches, ${reloads.length} reloads)`,
-            flags: cacheFlags,
-          },
-      revisitLive.length === revisits.length
-        ? {
-            kind: "measured",
-            id: "web.threadSwitch.firstRows.live",
-            unit: "ms",
-            statistic: "p95",
-            value: percentile(revisitLive, 0.95) ?? Number.NaN,
-            samples: revisitLive.length,
-            source: "click event.timeStamp to mark e6:thread:live on revisits",
-            flags: statusFlags,
-          }
-        : {
-            kind: "notMeasured",
-            id: "web.threadSwitch.firstRows.live",
-            reason: `mark absent on ${revisits.length - revisitLive.length} of ${revisits.length} revisits`,
-            flags: statusFlags,
-          },
-    ];
+    const cachedRowsMs = metrics.find((metric) => metric.id === "web.threadSwitch.firstRows.cache");
 
     const fastestClamped = timings.clampProbe.length === 0 ? null : Math.min(...timings.clampProbe);
     notes.push(
@@ -358,14 +269,18 @@ export async function runThreadSwitch(ctx: ScenarioContext): Promise<ScenarioRes
           rowsStatuses: firstVisits.map((entry) => entry.rowsStatus),
         },
         revisit: {
-          rowsMs: summarize(revisitRows),
-          liveMs: summarize(revisitLive),
+          rowsMs: summarize(present(revisits.map((entry) => entry.rowsMs))),
+          liveMs: summarize(present(revisits.map((entry) => entry.liveMs))),
           rowsStatuses: revisits.map((entry) => entry.rowsStatus),
         },
         afterReload: {
           reloads,
           rowsMs: summarize(present(afterReload.map((entry) => entry.rowsMs))),
-          cachedRowsMs: summarize(cachedRows),
+          cachedRowsMs: summarize(
+            cachedRowsMs?.kind === "measured"
+              ? (cachedRowsMs.points ?? []).map((point) => point.value)
+              : [],
+          ),
           sources,
           liveMs: summarize(present(afterReload.map((entry) => entry.liveMs))),
           rowsStatuses: afterReload.map((entry) => entry.rowsStatus),

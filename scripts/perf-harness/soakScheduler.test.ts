@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { SoakTurnScheduler, type ShellThreadView } from "./soakScheduler.ts";
+import { soakCycleIntervalMs, SoakTurnScheduler, type ShellThreadView } from "./soakScheduler.ts";
 
 const view = (
   id: string,
@@ -112,5 +112,29 @@ describe("SoakTurnScheduler", () => {
   it("ignores threads it does not drive", () => {
     const scheduler = started();
     expect(scheduler.observe(view("other", { turnId: "x", state: "completed" }), 1)).toBeNull();
+  });
+});
+
+describe("soakCycleIntervalMs", () => {
+  it("clicks often enough that the page visits every thread once inside the soak", () => {
+    for (const [minutes, threads] of [
+      [6, 50],
+      [1, 50],
+      [1, 12],
+      [0.5, 7],
+    ] as const) {
+      const durationMs = minutes * 60_000;
+      const interval = soakCycleIntervalMs(durationMs, threads);
+      // The first click is at the start, so click n lands at (n - 1) * interval.
+      expect((threads - 1) * interval, `${minutes} min, ${threads} threads`).toBeLessThan(
+        durationMs,
+      );
+    }
+    expect(soakCycleIntervalMs(360_000, 50)).toBe(7_200);
+  });
+
+  it("never waits more than 10 s between clicks", () => {
+    expect(soakCycleIntervalMs(60 * 60_000, 50)).toBe(10_000);
+    expect(soakCycleIntervalMs(360_000, 0)).toBe(10_000);
   });
 });

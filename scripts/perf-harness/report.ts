@@ -15,6 +15,8 @@ import {
 } from "@e6tools/shared/perfReport";
 import * as Schema from "effect/Schema";
 
+import type { FrameSummary } from "./traceFrames.ts";
+
 type MeasuredRow = Extract<PerfMetric, { readonly status: "measured" }>;
 
 export type MetricOutcome =
@@ -48,8 +50,15 @@ export interface ScenarioRecord {
   /**
    * `design.idleAnimationFrames` values, one per capture point; `null` when the
    * idle trace held no renderer main-thread events, so zero frames proves nothing.
+   * `frameSource` is `none` when the trace held no frame reports at all.
    */
-  readonly idlePoints: ReadonlyArray<{ readonly label: string; readonly value: number | null }>;
+  readonly idlePoints: ReadonlyArray<IdlePoint>;
+}
+
+export interface IdlePoint {
+  readonly label: string;
+  readonly value: number | null;
+  readonly frameSource: FrameSummary["source"];
 }
 
 export const SCENARIO_IDS: ReadonlyArray<PerfScenarioId> = [
@@ -84,12 +93,17 @@ const OWNER: Partial<Record<PerfMetricId, PerfScenarioId>> = {
 };
 
 const IDLE_METRIC: PerfMetricId = "design.idleAnimationFrames";
-const IDLE_OWNERS: ReadonlyArray<PerfScenarioId> = [
-  "coldLoad",
-  "threadSwitch",
-  "streamingInput",
-  "timelineScroll",
+/** The idle capture points every full run reports, with the scenario that captures each. */
+const IDLE_CAPTURE_POINTS: ReadonlyArray<{
+  readonly scenario: PerfScenarioId;
+  readonly label: string;
+}> = [
+  { scenario: "coldLoad", label: "coldLoad.shellInteractive" },
+  { scenario: "threadSwitch", label: "threadSwitch.threadLive" },
+  { scenario: "streamingInput", label: "streamingInput.turnSettled" },
+  { scenario: "timelineScroll", label: "timelineScroll.bottom" },
 ];
+const IDLE_OWNERS = [...new Set(IDLE_CAPTURE_POINTS.map((point) => point.scenario))];
 
 const DESKTOP_REASON =
   "desktop-only; source is <home>/userdata/logs/desktop-startup.ndjson (ENG-148); ENG-145 merges it";
@@ -139,9 +153,20 @@ export function assembleMetrics(
         .map((point) => `idleTraceEmpty:${point.label}`);
       const points = reported.flatMap((point) =>
         point.value !== null && Number.isInteger(point.value) && point.value >= 0
-          ? [{ label: point.label, value: point.value }]
+          ? [{ label: point.label, value: point.value, frameSource: point.frameSource }]
           : [],
       );
+      const missing = IDLE_CAPTURE_POINTS.filter(
+        (expected) => !points.some((point) => point.label === expected.label),
+      ).map((expected) => expected.label);
+      const withoutReports = points.filter((point) => point.frameSource === "none");
+      const coverageFlags = [
+        ...emptyTraceFlags,
+        ...(withoutReports.length > 0
+          ? [`noFrameReports:${withoutReports.map((point) => point.label).join(",")}`]
+          : []),
+        ...(missing.length > 0 ? [`pointsMissing:${missing.join(",")}`] : []),
+      ];
       if (points.length === 0) {
         const failed = owners.find((owner) => owner?.status === "failed");
         return {
@@ -153,9 +178,12 @@ export function assembleMetrics(
               ? "the idle traces held no renderer main-thread events"
               : absentReason(failed),
           scenario: null,
-          flags: flagsFor(emptyTraceFlags),
+          flags: flagsFor(coverageFlags),
         };
       }
+      const reporting = [
+        ...new Set(points.map((point) => point.frameSource).filter((source) => source !== "none")),
+      ];
       return {
         id,
         budgetRow,
@@ -164,9 +192,13 @@ export function assembleMetrics(
         statistic: "max",
         value: Math.max(...points.map((point) => point.value)),
         samples: points.length,
-        source: "cdp-trace:PipelineReporter",
+        source: `cdp-trace:${reporting.join("+") || "none"}${
+          withoutReports.length > 0
+            ? `; no frame reports at ${withoutReports.length} of ${points.length} points`
+            : ""
+        }`,
         scenario: null,
-        flags: flagsFor(emptyTraceFlags),
+        flags: flagsFor(coverageFlags),
         points: points.map((point) => ({ label: point.label, atMs: null, value: point.value })),
       };
     }

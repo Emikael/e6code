@@ -23,7 +23,12 @@ import {
   waitForMark,
 } from "../browser.ts";
 import type { MetricOutcome } from "../report.ts";
-import { classifyFrames, type TraceEvent } from "../traceFrames.ts";
+import {
+  classifyFrames,
+  frameOutcomeFlags,
+  scrollCoverage,
+  type TraceEvent,
+} from "../traceFrames.ts";
 import { loadUntilInteractive } from "./coldLoad.ts";
 import {
   idlePoint,
@@ -399,6 +404,7 @@ export async function runTimelineScroll(ctx: ScenarioContext): Promise<ScenarioR
     const loadedFrames = frameWindow(loaded.events);
     const allLongTasks = [...pagingLongTasks, ...loadedLongTasks];
     const counted = loadedFrames.counts.presentedAll + loadedFrames.counts.presentedPartial;
+    const loadedCoverage = scrollCoverage([loadedStart, turnaround, loadedEnd]);
 
     const metrics: Array<MetricOutcome> = [
       loadedFrames.withinBudgetFraction === null
@@ -414,8 +420,10 @@ export async function runTimelineScroll(ctx: ScenarioContext): Promise<ScenarioR
             statistic: "fraction",
             value: loadedFrames.withinBudgetFraction,
             samples: counted + loadedFrames.counts.dropped,
-            source: `cdp-trace:${loadedFrames.source} presented over presented+dropped, loaded-range window (${LOADED_LEG_MS / 1000} s down, ${LOADED_LEG_MS / 1000} s up, ${GESTURE_SPEED_PX_PER_S} px/s mouse gestures)`,
+            source: `cdp-trace:${loadedFrames.source} presented (full or partial) over presented+dropped, loaded-range window (${LOADED_LEG_MS / 1000} s down, ${LOADED_LEG_MS / 1000} s up, ${GESTURE_SPEED_PX_PER_S} px/s mouse gestures)`,
             flags: [
+              ...frameOutcomeFlags(loadedFrames.counts),
+              `coveredPx:${loadedCoverage === null ? "unknown" : `${loadedCoverage.coveredPx}/${loadedCoverage.totalPx}`}`,
               `pagingWindowFraction:${pagingFrames.withinBudgetFraction ?? "none"}`,
               `turnsLoaded:${turnsLoaded}${allLoaded ? "" : "(partial)"}`,
             ],
@@ -476,6 +484,7 @@ export async function runTimelineScroll(ctx: ScenarioContext): Promise<ScenarioR
             start: loadedStart,
             turnaround,
             end: loadedEnd,
+            coverage: loadedCoverage,
           },
         },
         gesture: { px: GESTURE_PX, speedPxPerSecond: GESTURE_SPEED_PX_PER_S, source: "mouse" },

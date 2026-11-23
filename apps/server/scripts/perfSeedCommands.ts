@@ -528,7 +528,10 @@ export function buildPerfSeedPlan(options: PerfSeedOptions): PerfSeedPlan {
       thread.long && thread.turns > 0 && options.longThreadShape === "imported-messages",
     ),
   );
-  const projectAt = Math.min(...timed.map((entry) => entry.at)) - 60_000;
+  // A reduce, not a spread: the command count grows with the seed, and a call takes a bounded
+  // number of arguments.
+  const firstAt = timed.reduce((earliest, entry) => Math.min(earliest, entry.at), options.now);
+  const projectAt = firstAt - 60_000;
   const commands = [
     {
       at: projectAt,

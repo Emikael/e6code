@@ -14,7 +14,7 @@
     },
     "scripts": {
       // Knip loads its preprocessor through a CLI option; native verification runs directly.
-      "entry": ["knip-schemas.ts", "mobile-native-client.ts", "perf-harness/run.ts"],
+      "entry": ["knip-schemas.ts", "mobile-native-client.ts"],
     },
     "apps/server": {
       // Vite+ pack entries and the launcher used by installed background services.

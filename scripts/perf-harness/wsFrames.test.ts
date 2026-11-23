@@ -4,6 +4,7 @@ import {
   addedRoundTripMs,
   classifyWsFrames,
   liveTraffic,
+  pingAddedMs,
   pingRoundTrips,
   threadEvents,
   threadSubscriptions,
@@ -85,6 +86,26 @@ describe("pingRoundTrips", () => {
       { ...received(5_100, { _tag: "Pong" }), socket: "s3" },
     ];
     expect(pingRoundTrips(frames)).toEqual([61, 62]);
+  });
+});
+
+describe("pingAddedMs", () => {
+  it("is the median remote ping minus the median direct one", () => {
+    expect(
+      pingAddedMs({ direct: [1, 9, 2, 3, 2, 50, 2], remote: [63, 62, 61, 200, 64, 62, 63] }),
+    ).toEqual({ addedMs: 61, directMedianMs: 2, remoteMedianMs: 63, throttleVisible: true });
+  });
+
+  it("says when the difference is too small for the 60 ms throttle to have applied", () => {
+    expect(pingAddedMs({ direct: [2, 2, 3], remote: [20, 22, 21] })).toMatchObject({
+      addedMs: 19,
+      throttleVisible: false,
+    });
+  });
+
+  it("has no answer without pings on both sides", () => {
+    expect(pingAddedMs({ direct: [], remote: [60] })).toBeNull();
+    expect(pingAddedMs({ direct: [2], remote: [] })).toBeNull();
   });
 });
 

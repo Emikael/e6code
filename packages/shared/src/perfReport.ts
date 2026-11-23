@@ -205,6 +205,8 @@ export const PerfReport = Schema.Struct({
       replayHoursEquivalent: NonNegative,
       activeThreads: Count,
       threads: Count,
+      /** How often the soak's page clicked the next thread in the sidebar. */
+      cycleIntervalMs: NonNegative,
     }),
     viewport: Schema.Struct({ width: Count, height: Count, dpr: NonNegative }),
   }),

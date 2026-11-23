@@ -51,12 +51,15 @@ import {
   isIgnoredByGit,
   realPathThroughAncestors,
   REPO_ROOT,
+  resolvedLiveHomes,
   scenarioHome,
   type RunRoot,
 } from "./runRoot.ts";
 import { REMOTE_PROFILE, runColdLoad } from "./scenarios/coldLoad.ts";
 import type { AfterStop, ScenarioContext, ScenarioResult } from "./scenarios/scenario.ts";
 import { runSoak, SOAK_MAX_GAP_MS } from "./scenarios/soak.ts";
+import { soakCycleIntervalMs } from "./soakScheduler.ts";
+import { harnessStop } from "./stopLatch.ts";
 import {
   runStreamingInput,
   STREAM_EVENTS_PER_SECOND,
@@ -66,6 +69,7 @@ import { runThreadSwitch } from "./scenarios/threadSwitch.ts";
 import { runTimelineScroll } from "./scenarios/timelineScroll.ts";
 import {
   listenersOn,
+  redactLogLine,
   runNodeScript,
   startServer,
   stopAllChildren,
@@ -272,7 +276,9 @@ function parseOptions(argv: ReadonlyArray<string>): Options {
 }
 
 const log = (message: string) => process.stdout.write(`[perf] ${message}\n`);
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+// Errors reach stdout and report.json; a failed /pair navigation would quote its token.
+const errorMessage = (error: unknown) =>
+  redactLogLine(error instanceof Error ? error.message : String(error));
 
 async function gitInfo(): Promise<PerfReport["git"]> {
   const git = (args: ReadonlyArray<string>) =>
@@ -441,6 +447,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
+  const soakCycleMs = soakCycleIntervalMs(options.soakMinutes * 60_000, options.threads);
   const runStartedAt = new Date();
   const runStartMs = NodePerfHooks.performance.now();
   const runId = `${runStartedAt.toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
@@ -451,6 +458,7 @@ async function main(): Promise<number> {
     outDir,
     repoRoot: realPathThroughAncestors(REPO_ROOT),
     ignoredByGit: await isIgnoredByGit(outDir),
+    liveHomes: resolvedLiveHomes(),
   });
   if (!outCheck.ok) {
     process.stderr.write(`refusing --out: ${outCheck.reason}\n`);
@@ -475,14 +483,17 @@ async function main(): Promise<number> {
   log(`run root ${runRoot.root}`);
   const liveBefore = liveHomeStamp(runRoot.liveHomes);
   let browser: Browser | null = null;
-  let interrupted = false;
+  // The latch is set before anything is awaited, so no child, proxy, sink or browser starts after
+  // it and the one pass of stopAllChildren reaches every child; a server that finishes starting
+  // later is stopped by its own PID where it was started.
   const onSignal = (signal: NodeJS.Signals) => {
-    if (interrupted) return;
-    interrupted = true;
+    if (!harnessStop.request(signal)) return;
     log(`${signal}: stopping the processes this run started`);
     void (async () => {
       await stopAllChildren(options.stopTimeoutMs);
-      await browser?.close().catch(() => undefined);
+      const closing = browser;
+      browser = null;
+      await closing?.close().catch(() => undefined);
       if (!options.keepHome) await NodeFSP.rm(runRoot.root, { recursive: true, force: true });
       process.exit(signal === "SIGINT" ? 130 : 143);
     })();
@@ -509,7 +520,9 @@ async function main(): Promise<number> {
     seed = await seedTemplate(runRoot, options, logDir);
     processes.push({ role: "seed", scenario: null, pid: seed.pid, port: null, stop: null });
     log(`seeded in ${Math.round(seed.summary.durationMs)} ms`);
-    const launched = await launchBrowser();
+    const launched = await harnessStop.start("the browser", launchBrowser, (started) =>
+      started.browser.close().catch(() => undefined),
+    );
     browser = launched.browser;
     browserInfo = launched.info;
     frameCadence = await frameCadenceProbe(browser, traceDir);
@@ -522,6 +535,10 @@ async function main(): Promise<number> {
   for (const id of SCENARIO_IDS) {
     if (!options.scenarios.has(id)) {
       records.push(skipped(id, "not selected"));
+      continue;
+    }
+    if (harnessStop.stopped) {
+      records.push(skipped(id, "stopped by a signal"));
       continue;
     }
     const definition = SCENARIOS[id];
@@ -548,7 +565,9 @@ async function main(): Promise<number> {
     try {
       home = await scenarioHome(runRoot, id);
       const scenarioHomeDir = home;
-      if (definition.otlp === true && options.otlp) otlp = await startOtlpSink();
+      if (definition.otlp === true && options.otlp) {
+        otlp = await harnessStop.start("the OTLP sink", startOtlpSink, (sink) => sink.close());
+      }
       const env = runRoot.childEnv({
         E6CODE_PROVIDER_REPLAY: RECORDINGS.map((recording) =>
           NodePath.join(RECORDINGS_DIR, `${recording}.ndjson`),
@@ -557,12 +576,17 @@ async function main(): Promise<number> {
         E6CODE_PROVIDER_REPLAY_AUTO_RESPOND: "true",
         ...definition.serverEnv?.({ options, otlp }),
       });
-      server = await startServer({
-        home: scenarioHomeDir,
-        env,
-        cwd: runRoot.workspace,
-        logPath: NodePath.join(logDir, `${id}.server.log`),
-      });
+      server = await harnessStop.start(
+        `the ${id} server`,
+        () =>
+          startServer({
+            home: scenarioHomeDir,
+            env,
+            cwd: runRoot.workspace,
+            logPath: NodePath.join(logDir, `${id}.server.log`),
+          }),
+        (started) => started.stop(options.stopTimeoutMs),
+      );
       const started = server;
       log(
         `server pid ${started.pid} on port ${started.port}, ready in ${Math.round(started.readyMs)} ms`,
@@ -646,7 +670,11 @@ async function main(): Promise<number> {
         server: { pid: started.pid, rssKb: started.rssKb },
         control: () => (control ??= issueControl()),
         otlp,
-        soak: { minutes: options.soakMinutes, factor: options.soakFactor },
+        soak: {
+          minutes: options.soakMinutes,
+          factor: options.soakFactor,
+          cycleIntervalMs: soakCycleMs,
+        },
         log: (message) => log(`  ${message}`),
       });
       afterStop = result.afterStop;
@@ -733,7 +761,9 @@ async function main(): Promise<number> {
     }
   }
 
-  await browser?.close().catch(() => undefined);
+  const closing = browser;
+  browser = null;
+  await closing?.close().catch(() => undefined);
   const liveAfter = liveHomeStamp(runRoot.liveHomes);
   const changed = Object.keys(liveBefore).filter((path) => liveBefore[path] !== liveAfter[path]);
   notes.push(
@@ -786,6 +816,7 @@ async function main(): Promise<number> {
         replayHoursEquivalent: (options.soakMinutes * options.soakFactor) / 60,
         activeThreads: 4,
         threads: options.threads,
+        cycleIntervalMs: soakCycleMs,
       },
       viewport: VIEWPORT,
     },

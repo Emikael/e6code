@@ -18,6 +18,7 @@ import * as NodeUtil from "node:util";
 
 import { REPO_ROOT } from "./runRoot.ts";
 import { readTraceRecords, type TraceRecord } from "./serverSignals.ts";
+import { harnessStop } from "./stopLatch.ts";
 
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 const SERVER_BIN = NodePath.join(REPO_ROOT, "apps/server/src/bin.ts");
@@ -75,7 +76,7 @@ async function stopProcess(
   };
 }
 
-/** Stops every child still running, for the SIGINT/SIGTERM trap. */
+/** Stops every child still running, for the SIGINT/SIGTERM trap once `harnessStop` is set. */
 export async function stopAllChildren(timeoutMs: number): Promise<void> {
   await Promise.all([...running].map((child) => stopProcess(child, timeoutMs)));
 }
@@ -97,11 +98,24 @@ function reservePort(): Promise<number> {
   });
 }
 
-// The headless banner prints a pairing token and a QR code of the pairing URL; logs keep neither.
-const redact = (line: string) =>
+const SECRET_JSON_FIELD =
+  /("[^"]*(?:credential|token|secret|password|api_?key)[^"]*"\s*:\s*")(?:[^"\\]|\\.)*"/gi;
+
+/**
+ * One output line as the harness writes it to a log or an error: the headless
+ * banner's pairing token and QR code, `token=` in URLs, bearer headers and the
+ * values of JSON fields named like a credential (`auth pairing create --json`
+ * prints `"credential"`) are replaced. The in-memory lines stay raw, because
+ * the harness parses the credential out of them.
+ */
+export const redactLogLine = (line: string) =>
   /^[\s█▀▄]+$/u.test(line) && line.trim().length > 0
     ? "[qr code redacted]"
-    : line.replace(/(Token:\s*)\S+/g, "$1[redacted]").replace(/(token=)[^&\s"]+/g, "$1[redacted]");
+    : line
+        .replace(SECRET_JSON_FIELD, '$1[redacted]"')
+        .replace(/(Token:\s*)\S+/g, "$1[redacted]")
+        .replace(/(token=)[^&\s"]+/g, "$1[redacted]")
+        .replace(/(\bBearer\s+)[^\s"]+/g, "$1[redacted]");
 
 interface SpawnOptions {
   readonly env: Record<string, string>;
@@ -112,6 +126,8 @@ interface SpawnOptions {
 }
 
 function spawnLogged(args: ReadonlyArray<string>, options: SpawnOptions) {
+  // After a stop signal nothing new is spawned, so the trap's stopAllChildren sees every child.
+  harnessStop.check(`${NodePath.basename(String(args[0]))} ${args.slice(1, 3).join(" ")}`);
   const child = NodeChildProcess.spawn(process.execPath, [...args], {
     cwd: options.cwd,
     env: options.env,
@@ -130,7 +146,7 @@ function spawnLogged(args: ReadonlyArray<string>, options: SpawnOptions) {
       for (const line of parts) {
         lines.push(line);
         log.write(
-          `[${stream}] ${options.secretOutput === true ? "[secret output]" : redact(line)}\n`,
+          `[${stream}] ${options.secretOutput === true ? "[secret output]" : redactLogLine(line)}\n`,
         );
       }
       // Startup lines stay readable; a long run keeps only its recent tail in memory.
@@ -156,7 +172,10 @@ export async function runNodeScript(
     child.once("exit", (exitCode) => resolve(exitCode));
   });
   if (code !== 0) {
-    const tail = options.secretOutput === true ? "[secret output]" : lines.slice(-8).join(" | ");
+    const tail =
+      options.secretOutput === true
+        ? "[secret output]"
+        : lines.slice(-8).map(redactLogLine).join(" | ");
     throw new Error(
       `'${NodePath.basename(String(args[0]))} ${args.slice(1, 3).join(" ")}' exited with ${String(code)}: ${tail}`,
     );
@@ -219,7 +238,7 @@ async function startServerOnce(input: {
     };
     const onExit = (code: number | null) => {
       cleanup();
-      const tail = lines.slice(-12).join(" | ");
+      const tail = lines.slice(-12).map(redactLogLine).join(" | ");
       reject(
         tail.includes("EADDRINUSE")
           ? new PortInUseError(tail)

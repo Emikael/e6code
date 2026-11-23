@@ -23,7 +23,12 @@ import {
 } from "playwright-core";
 
 import type { WsFrame } from "./wsFrames.ts";
-import { classifyFrames, idleFrameActivity, type TraceEvent } from "./traceFrames.ts";
+import {
+  classifyFrames,
+  idleFrameActivity,
+  type FrameSummary,
+  type TraceEvent,
+} from "./traceFrames.ts";
 
 export type MotionRequest = "full" | "reduced" | "off";
 
@@ -500,12 +505,82 @@ export async function idleCheck(
   readonly framesWithUpdate: number;
   readonly mainThreadFrames: number;
   readonly rendererMainEvents: number;
-  readonly source: string;
+  readonly source: FrameSummary["source"];
 }> {
   await settleForIdle(page);
   await sleep(1_000);
   const { events } = await traced(browser, page, input, () => sleep(5_000));
   return idleFrameActivity(events);
+}
+
+/**
+ * Round trips of `count` RPC pings, sent one at a time on a socket the page
+ * opens to its own origin's `/ws` (cookie-authenticated, like the app's), in
+ * ms by the page's clock. The server answers a `Ping` with a `Pong` and no
+ * other work, so on an idle page this measures the link and not the server.
+ */
+export async function pingProbe(
+  page: Page,
+  input: { readonly count: number; readonly query: Record<string, string> },
+): Promise<Array<number>> {
+  return page.evaluate(
+    async ({ count, query, timeoutMs }) => {
+      interface ProbeSocket {
+        send(data: string): void;
+        close(): void;
+        addEventListener(
+          type: string,
+          listener: (event: { readonly data?: unknown }) => void,
+        ): void;
+        removeEventListener(
+          type: string,
+          listener: (event: { readonly data?: unknown }) => void,
+        ): void;
+      }
+      const global = globalThis as unknown as {
+        readonly location: { readonly origin: string };
+        readonly WebSocket: new (url: string) => ProbeSocket;
+        readonly performance: { now(): number };
+        readonly setTimeout: (callback: () => void, ms: number) => unknown;
+      };
+      const url = new URL("/ws", global.location.origin);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+      const socket = new global.WebSocket(url.toString());
+      const next = (type: "open" | "pong") =>
+        new Promise<void>((resolve, reject) => {
+          const onEvent = (event: { readonly data?: unknown }) => {
+            if (type === "open" || String(event.data).includes('"Pong"')) {
+              socket.removeEventListener(type === "open" ? "open" : "message", onEvent);
+              resolve();
+            }
+          };
+          socket.addEventListener(type === "open" ? "open" : "message", onEvent);
+          socket.addEventListener("close", () =>
+            reject(new Error(`the probe socket closed before ${type}`)),
+          );
+          global.setTimeout(
+            () => reject(new Error(`no ${type} within ${timeoutMs} ms`)),
+            timeoutMs,
+          );
+        });
+      const trips: Array<number> = [];
+      try {
+        await next("open");
+        for (let ping = 0; ping < count; ping += 1) {
+          const pong = next("pong");
+          const sentAt = global.performance.now();
+          socket.send(JSON.stringify({ _tag: "Ping" }));
+          await pong;
+          trips.push(global.performance.now() - sentAt);
+        }
+      } finally {
+        socket.close();
+      }
+      return trips;
+    },
+    { count: input.count, query: input.query, timeoutMs: 10_000 },
+  );
 }
 
 /** Writes a screenshot once web fonts have loaded; outside any measurement window. */

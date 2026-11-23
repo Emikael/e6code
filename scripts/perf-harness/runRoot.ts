@@ -63,12 +63,22 @@ export function findUnsafeHome(input: {
   return null;
 }
 
-/** `--out` must be outside the repository, or a git-ignored directory inside it. */
+/**
+ * `--out` must not be a live E6 home or lie inside one, and must be outside
+ * the repository or a git-ignored directory inside it. All paths must already
+ * be resolved. The harness never removes `--out`, so a directory that merely
+ * contains a live home is allowed.
+ */
 export function checkOutDir(input: {
   readonly outDir: string;
   readonly repoRoot: string;
   readonly ignoredByGit: boolean;
+  readonly liveHomes: ReadonlyArray<string>;
 }): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
+  const live = input.liveHomes.find((home) => isSameOrInside(home, input.outDir));
+  if (live !== undefined) {
+    return { ok: false, reason: `'${input.outDir}' is inside the live E6 home '${live}'` };
+  }
   if (!isSameOrInside(input.repoRoot, input.outDir)) return { ok: true };
   if (input.outDir !== input.repoRoot && input.ignoredByGit) return { ok: true };
   return {
@@ -78,12 +88,38 @@ export function checkOutDir(input: {
 }
 
 /**
- * The one environment every child process gets. Starts from the parent's,
- * drops every `E6CODE_`, `VITE_` and `GIT_` variable, then forces the file
- * secret store (the OS keychain is shared machine-wide across E6 homes), a
- * fake `HOME` and `SHELL`, and unsigned git commits. `extra` adds the
- * scenario's own `E6CODE_` switches; it may not add `VITE_` variables or undo
- * the file store.
+ * Parent variables a child may inherit, compared upper-cased because Windows
+ * spells some of them `Path` or `SystemRoot`. Everything else, credentials
+ * (`*_TOKEN`, `*_API_KEY`, `SSH_AUTH_SOCK`), `NODE_OPTIONS` and every
+ * `E6CODE_`, `VITE_` and `GIT_` variable included, stays with the parent.
+ */
+const INHERITED_VARIABLES = new Set([
+  "PATH",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "TZ",
+  "USER",
+  "LOGNAME",
+  "TERM",
+  "SYSTEMROOT",
+  "WINDIR",
+  "COMSPEC",
+  "PATHEXT",
+]);
+
+const isInherited = (key: string) => {
+  const upper = key.toUpperCase();
+  return INHERITED_VARIABLES.has(upper) || upper.startsWith("LC_");
+};
+
+/**
+ * The one environment every child process gets: only the allowlisted parent
+ * variables (`INHERITED_VARIABLES`, `LC_*`), then the file secret store (the
+ * OS keychain is shared machine-wide across E6 homes), a fake `HOME` and
+ * `SHELL`, and unsigned git commits. `extra` adds the scenario's own `E6CODE_`
+ * switches; it may not add `VITE_` variables or undo the file store.
  */
 export function scrubChildEnv(
   parent: Readonly<Record<string, string | undefined>>,
@@ -97,21 +133,22 @@ export function scrubChildEnv(
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(parent)) {
-    if (value === undefined) continue;
-    if (key.startsWith("E6CODE_") || key.startsWith("VITE_") || key.startsWith("GIT_")) continue;
-    env[key] = value;
+    if (value !== undefined && isInherited(key)) env[key] = value;
   }
   for (const key of Object.keys(input.extra ?? {})) {
     if (key.startsWith("VITE_") || key === "E6CODE_SECRET_STORE") {
       throw new Error(`the perf harness never passes ${key} to a child process`);
     }
   }
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
   return {
     ...env,
     ...input.extra,
     ...(input.pathPrefix === undefined
       ? {}
-      : { PATH: [input.pathPrefix, env.PATH].filter(Boolean).join(NodePath.delimiter) }),
+      : {
+          [pathKey]: [input.pathPrefix, env[pathKey]].filter(Boolean).join(NodePath.delimiter),
+        }),
     E6CODE_SECRET_STORE: "file",
     HOME: input.fakeHome,
     XDG_CONFIG_HOME: NodePath.join(input.fakeHome, ".config"),
@@ -163,7 +200,7 @@ export function realPathThroughAncestors(target: string): string {
 }
 
 /** Real paths of the live homes for this account and the parent environment. */
-function resolvedLiveHomes(): Array<string> {
+export function resolvedLiveHomes(): Array<string> {
   return liveHomeCandidates({
     accountHomes: [NodeOS.homedir(), NodeOS.userInfo().homedir],
     env: process.env,

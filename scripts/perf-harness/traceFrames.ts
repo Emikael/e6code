@@ -192,6 +192,41 @@ export function classifyFrames(events: ReadonlyArray<TraceEvent>): FrameSummary 
 }
 
 /**
+ * A frames-within-budget row's outcome counts as flags. A partly presented
+ * frame counts as within budget, so the row names how many there were.
+ */
+export function frameOutcomeFlags(counts: FrameSummary["counts"]): Array<string> {
+  return [
+    `presentedFull:${counts.presentedAll}`,
+    `presentedPartial:${counts.presentedPartial}`,
+    `dropped:${counts.dropped}`,
+  ];
+}
+
+/**
+ * How much of a scrolled list a traced window showed: the range between the
+ * viewport's extreme positions plus one viewport, out of the tallest height
+ * the list reported. `null` without a position.
+ */
+export function scrollCoverage(
+  positions: ReadonlyArray<{
+    readonly scrollTop: number;
+    readonly scrollHeight: number;
+    readonly clientHeight: number;
+  } | null>,
+): { readonly coveredPx: number; readonly totalPx: number } | null {
+  const known = positions.filter((position) => position !== null);
+  if (known.length === 0) return null;
+  const tops = known.map((position) => position.scrollTop);
+  const totalPx = Math.max(...known.map((position) => position.scrollHeight));
+  const viewportPx = Math.max(...known.map((position) => position.clientHeight));
+  return {
+    coveredPx: Math.min(totalPx, Math.max(...tops) - Math.min(...tops) + viewportPx),
+    totalPx,
+  };
+}
+
+/**
  * What a page that should be still did during a trace: frames that produced
  * or attempted an update, and main-thread frames (`BeginMainThreadFrame`).
  * Counted from the trace, so measuring requests no frames of its own. A still

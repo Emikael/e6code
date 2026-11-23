@@ -45,6 +45,7 @@ import {
   type WallWindow,
 } from "../serverSignals.ts";
 import { p95WithUnreported, summarize } from "../stats.ts";
+import { harnessStop } from "../stopLatch.ts";
 import { startThrottleProxy, type ByteCounters } from "../throttleProxy.ts";
 import { classifyWsFrames, liveTraffic, threadEvents, type WsFrame } from "../wsFrames.ts";
 import { loadUntilInteractive } from "./coldLoad.ts";
@@ -95,6 +96,8 @@ interface TurnRecord {
   readonly startedAtMs: number;
   readonly endedAtMs: number;
   readonly keysTyped: number;
+  /** Keys of the last chunk, typed after the last check that saw Stop: the most typed after the turn ended. */
+  readonly keysAfterEndAtMost: number;
   readonly stopAppearedAtFrame: number;
   readonly stopGoneAtFrame: number;
   readonly shellAfterEnd: { readonly latestTurn: string | null; readonly session: string | null };
@@ -113,13 +116,18 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
   if (streamThread === undefined) throw new Error("no seeded short cursor thread to stream on");
   const threadId = streamThread.id;
 
-  const proxy = await startThrottleProxy({
-    targetHost: "127.0.0.1",
-    targetPort: ctx.serverPort,
-    mode: "passthrough",
-    rttMs: 0,
-    mbps: 1_000,
-  });
+  const proxy = await harnessStop.start(
+    "the byte-counting proxy",
+    () =>
+      startThrottleProxy({
+        targetHost: "127.0.0.1",
+        targetPort: ctx.serverPort,
+        mode: "passthrough",
+        rttMs: 0,
+        mbps: 1_000,
+      }),
+    (started) => started.close(),
+  );
   const context = await newMeasuredContext(ctx.browser, {
     cookies: ctx.cookies,
     motion: ctx.motion,
@@ -195,6 +203,7 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
       }
       ctx.log(`turn ${turn}/${TURNS} streaming; typing`);
       let keysTyped = 0;
+      let lastChunkKeys = 0;
       while (await stopVisible(page)) {
         if (Date.now() - startedAtMs > TURN_TIMEOUT_MS) {
           throw new Error(`turn ${turn} still ran after ${TURN_TIMEOUT_MS} ms`);
@@ -218,6 +227,7 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
         }
         await page.keyboard.type(chunk, { delay: KEY_INTERVAL_MS });
         keysTyped += chunk.length;
+        lastChunkKeys = chunk.length;
       }
       typed += keysTyped;
       const endedAtMs = Date.now();
@@ -228,6 +238,7 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
         startedAtMs,
         endedAtMs,
         keysTyped,
+        keysAfterEndAtMost: lastChunkKeys,
         stopAppearedAtFrame,
         stopGoneAtFrame: ws.frames.length,
         shellAfterEnd: {
@@ -336,6 +347,8 @@ export async function runStreamingInput(ctx: ScenarioContext): Promise<ScenarioR
             flags: [
               `eventTimingThreshold:${EVENT_TIMING_THRESHOLD_MS}ms`,
               `keydownsReported:${keydowns.length}`,
+              // Stop is checked every KEYS_PER_CHECK keys, so only a bound is known.
+              `keysAfterTurnEndAtMost:${turns.reduce((sum, turn) => sum + turn.keysAfterEndAtMost, 0)}`,
             ],
           },
       {

@@ -43,7 +43,14 @@ const reportFor = (scenarios: ReadonlyArray<ScenarioRecord>, frameMetricTrusted 
       responseStreamingMode: "paragraph",
       stream: { recordingId: "cursor.streaming-prose", eventsPerSecond: 50 },
       remote: { mechanism: "tcp-proxy", rttMs: 60, mbps: 20 },
-      soak: { minutes: 6, factor: 32, replayHoursEquivalent: 3.2, activeThreads: 4, threads: 50 },
+      soak: {
+        minutes: 6,
+        factor: 32,
+        replayHoursEquivalent: 3.2,
+        activeThreads: 4,
+        threads: 50,
+        cycleIntervalMs: 7_200,
+      },
       viewport: { width: 1440, height: 900, dpr: 1 },
     },
     webBuild: {
@@ -110,7 +117,9 @@ describe("assembleMetrics", () => {
                 source: "paint-timing:first-contentful-paint",
               },
             ],
-            idlePoints: [{ label: "coldLoad.shellInteractive", value: 0 }],
+            idlePoints: [
+              { label: "coldLoad.shellInteractive", value: 0, frameSource: "PipelineReporter" },
+            ],
           },
           { ...notRun("threadSwitch"), status: "failed", error: "browser exited" },
         ],
@@ -174,12 +183,14 @@ describe("assembleMetrics", () => {
           {
             ...notRun("coldLoad"),
             status: "passed",
-            idlePoints: [{ label: "coldLoad.shellInteractive", value: null }],
+            idlePoints: [{ label: "coldLoad.shellInteractive", value: null, frameSource: "none" }],
           },
           {
             ...notRun("threadSwitch"),
             status: "passed",
-            idlePoints: [{ label: "threadSwitch.threadLive", value: 0 }],
+            idlePoints: [
+              { label: "threadSwitch.threadLive", value: 0, frameSource: "PipelineReporter" },
+            ],
           },
         ],
         { frameMetricTrusted: true },
@@ -189,7 +200,10 @@ describe("assembleMetrics", () => {
       status: "measured",
       value: 0,
       samples: 1,
-      flags: ["idleTraceEmpty:coldLoad.shellInteractive"],
+      flags: [
+        "idleTraceEmpty:coldLoad.shellInteractive",
+        "pointsMissing:coldLoad.shellInteractive,streamingInput.turnSettled,timelineScroll.bottom",
+      ],
       points: [{ label: "threadSwitch.threadLive", atMs: null, value: 0 }],
     });
   });
@@ -201,7 +215,7 @@ describe("assembleMetrics", () => {
           {
             ...notRun("coldLoad"),
             status: "passed",
-            idlePoints: [{ label: "coldLoad.shellInteractive", value: null }],
+            idlePoints: [{ label: "coldLoad.shellInteractive", value: null, frameSource: "none" }],
           },
         ],
         { frameMetricTrusted: true },
@@ -210,7 +224,76 @@ describe("assembleMetrics", () => {
     expect(metrics.get("design.idleAnimationFrames")).toMatchObject({
       status: "notMeasured",
       reason: expect.stringContaining("no renderer main-thread events"),
-      flags: ["idleTraceEmpty:coldLoad.shellInteractive"],
+      flags: [
+        "idleTraceEmpty:coldLoad.shellInteractive",
+        "pointsMissing:coldLoad.shellInteractive,threadSwitch.threadLive,streamingInput.turnSettled,timelineScroll.bottom",
+      ],
+    });
+  });
+
+  it("names every capture point that gave no value, whether its scenario failed or was not run", () => {
+    const passed = (id: ScenarioRecord["id"], label: string, value: number): ScenarioRecord => ({
+      ...notRun(id),
+      status: "passed",
+      idlePoints: [{ label, value, frameSource: "PipelineReporter" }],
+    });
+    const metrics = byId(
+      assembleMetrics(
+        [
+          passed("coldLoad", "coldLoad.shellInteractive", 0),
+          { ...notRun("threadSwitch"), status: "failed", error: "browser exited" },
+          passed("timelineScroll", "timelineScroll.bottom", 1),
+        ],
+        { frameMetricTrusted: true },
+      ),
+    );
+    expect(metrics.get("design.idleAnimationFrames")).toMatchObject({
+      status: "measured",
+      value: 1,
+      samples: 2,
+      source: "cdp-trace:PipelineReporter",
+      flags: ["pointsMissing:threadSwitch.threadLive,streamingInput.turnSettled"],
+    });
+  });
+
+  it("says which points counted zero from a trace with no frame reports at all", () => {
+    const metrics = byId(
+      assembleMetrics(
+        [
+          {
+            ...notRun("coldLoad"),
+            status: "passed",
+            idlePoints: [{ label: "coldLoad.shellInteractive", value: 0, frameSource: "none" }],
+          },
+          {
+            ...notRun("threadSwitch"),
+            status: "passed",
+            idlePoints: [
+              { label: "threadSwitch.threadLive", value: 2, frameSource: "PipelineReporter" },
+            ],
+          },
+          {
+            ...notRun("streamingInput"),
+            status: "passed",
+            idlePoints: [
+              { label: "streamingInput.turnSettled", value: 0, frameSource: "PipelineReporter" },
+            ],
+          },
+          {
+            ...notRun("timelineScroll"),
+            status: "passed",
+            idlePoints: [{ label: "timelineScroll.bottom", value: 0, frameSource: "none" }],
+          },
+        ],
+        { frameMetricTrusted: true },
+      ),
+    );
+    expect(metrics.get("design.idleAnimationFrames")).toMatchObject({
+      status: "measured",
+      value: 2,
+      samples: 4,
+      source: "cdp-trace:PipelineReporter; no frame reports at 2 of 4 points",
+      flags: ["noFrameReports:coldLoad.shellInteractive,timelineScroll.bottom"],
     });
   });
 
@@ -221,13 +304,18 @@ describe("assembleMetrics", () => {
           {
             ...notRun("coldLoad"),
             status: "passed",
-            idlePoints: [{ label: "coldLoad.shellInteractive", value: 2 }],
+            idlePoints: [
+              { label: "coldLoad.shellInteractive", value: 2, frameSource: "PipelineReporter" },
+            ],
           },
         ],
         { frameMetricTrusted: false },
       ),
     );
-    expect(metrics.get("design.idleAnimationFrames")?.flags).toEqual(["frameCadenceUntrusted"]);
+    expect(metrics.get("design.idleAnimationFrames")?.flags).toEqual([
+      "pointsMissing:threadSwitch.threadLive,streamingInput.turnSettled,timelineScroll.bottom",
+      "frameCadenceUntrusted",
+    ]);
     expect(metrics.get("web.timeline.scroll.framesWithinBudget")?.flags).toEqual([
       "frameCadenceUntrusted",
     ]);
@@ -249,6 +337,7 @@ describe("encodeReport", () => {
       "timelineScroll",
     ]);
     expect(decoded.metrics).toHaveLength(PERF_METRIC_IDS.length);
+    expect(decoded.options.soak.cycleIntervalMs).toBe(7_200);
   });
 
   it("throws instead of writing a report the schema rejects", () => {
