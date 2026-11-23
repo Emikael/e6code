@@ -8,7 +8,16 @@
  */
 import type { EnvironmentMachineKind, ProjectScriptIcon } from "@e6tools/contracts";
 
-export type IconWeight = "regular" | "bold" | "fill" | "duotone";
+import type { IconWeightTraits } from "./weight.ts";
+
+export {
+  ICON_WEIGHT_RULES,
+  iconWeight,
+  iconWeightsFor,
+  type IconState,
+  type IconWeight,
+  type IconWeightTraits,
+} from "./weight.ts";
 
 export type IconArtwork =
   | { readonly source: "phosphor"; readonly name: string }
@@ -19,17 +28,10 @@ export type IconArtwork =
       readonly derivedFrom: ReadonlyArray<string>;
     };
 
-export interface IconEntry {
+export interface IconEntry extends IconWeightTraits {
   readonly artwork: IconArtwork;
-  /**
-   * Fills when selected or active. False where Phosphor's fill is not the same silhouette
-   * filled (a knock-out tile for close, add, check, code, terminal) and for carets and arrows.
-   */
-  readonly fillWhenActive: boolean;
   /** `exempt` icons may stand alone; every other icon needs visible text or a tooltip. */
   readonly pairing: "required" | "exempt";
-  /** May render duotone as an empty-state illustration. */
-  readonly illustration?: true;
   /** The SF Symbol iOS draws instead, for concepts mobile uses. Aliases resolve to this entry. */
   readonly sf?: {
     readonly regular: string;
@@ -38,34 +40,6 @@ export interface IconEntry {
   };
   /** What the icon stands for, in one line. */
   readonly meaning: string;
-}
-
-/**
- * Weights carry state: regular at rest, fill for the selected or active thing, bold where a
- * regular stroke breaks up (12 to 14 px), duotone for empty-state illustrations.
- */
-export const ICON_WEIGHT_RULES = { boldAtOrBelowPx: 14 } as const;
-
-/** `active`: the selected sidebar destination, the active panel tab, a pinned thread. */
-export type IconState = "rest" | "active";
-
-/** The weight to draw an entry in. Fill beats small-size bold: a silhouette needs no stroke help. */
-export function iconWeight(
-  entry: IconEntry,
-  options: { readonly sizePx: number; readonly state?: IconState; readonly illustration?: boolean },
-): IconWeight {
-  if (options.illustration && entry.illustration) return "duotone";
-  if (options.state === "active" && entry.fillWhenActive) return "fill";
-  if (options.sizePx <= ICON_WEIGHT_RULES.boldAtOrBelowPx) return "bold";
-  return "regular";
-}
-
-/** Every weight an entry can resolve to, so the generator emits only those. */
-export function iconWeightsFor(entry: IconEntry): ReadonlyArray<IconWeight> {
-  const weights: Array<IconWeight> = ["regular", "bold"];
-  if (entry.fillWhenActive) weights.push("fill");
-  if (entry.illustration) weights.push("duotone");
-  return weights;
 }
 
 const phosphor = (name: string) => ({ source: "phosphor", name }) as const;

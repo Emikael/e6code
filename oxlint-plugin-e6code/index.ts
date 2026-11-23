@@ -4,6 +4,7 @@ import namespaceNodeImports from "./rules/namespace-node-imports.ts";
 import noAnimationLibraryImports from "./rules/no-animation-library-imports.ts";
 import noGlobalProcessRuntime from "./rules/no-global-process-runtime.ts";
 import noHermesUnsupportedApis from "./rules/no-hermes-unsupported-apis.ts";
+import noIconLibraryImports from "./rules/no-icon-library-imports.ts";
 import noInlineSchemaCompile from "./rules/no-inline-schema-compile.ts";
 import noManualEffectRuntimeInTests from "./rules/no-manual-effect-runtime-in-tests.ts";
 import noMobileUniwindThemeEscapeHatches from "./rules/no-mobile-uniwind-theme-escape-hatches.ts";
@@ -19,6 +20,7 @@ export default definePlugin({
     "no-animation-library-imports": noAnimationLibraryImports,
     "no-global-process-runtime": noGlobalProcessRuntime,
     "no-hermes-unsupported-apis": noHermesUnsupportedApis,
+    "no-icon-library-imports": noIconLibraryImports,
     "no-inline-schema-compile": noInlineSchemaCompile,
     "no-manual-effect-runtime-in-tests": noManualEffectRuntimeInTests,
     "no-mobile-uniwind-theme-escape-hatches": noMobileUniwindThemeEscapeHatches,

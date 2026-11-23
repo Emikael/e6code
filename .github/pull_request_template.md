@@ -31,3 +31,4 @@ we may close it without merging it, or never review it.
 - [ ] I explained what changed and why
 - [ ] I included before/after screenshots for any UI changes
 - [ ] I included a video for animation/interaction changes
+- [ ] For a redesigned (v2) screen: I answered the "v2 screen PR checklist" in `AGENTS.md`

@@ -108,8 +108,11 @@ import IconUserCircle from "@tabler/icons-react-native/IconUserCircle";
 import IconWifiOff from "@tabler/icons-react-native/IconWifiOff";
 import IconWorld from "@tabler/icons-react-native/IconWorld";
 import IconX from "@tabler/icons-react-native/IconX";
+import type { IconState } from "@e6tools/design-tokens/icons";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { withUniwind } from "uniwind";
+
+import { androidSymbolCandidates, type SfIconName, type SfSymbolsOf } from "./appSymbolIcon";
 
 const ANDROID_ICON_BY_SF_SYMBOL = {
   "arrow.branch": IconGitBranch,
@@ -263,15 +266,47 @@ export type AppSymbolName =
       android: keyof typeof ANDROID_ICON_BY_MATERIAL_NAME;
     };
 
-export type AppSymbolViewProps = Omit<SymbolViewProps, "name"> & { name: AppSymbolName };
+/**
+ * Registry names both platforms can draw: 99 of the 115 with an SF Symbol. Adding a Tabler key
+ * for one of an entry's SF names widens it.
+ */
+export type MobileIconName = {
+  [K in SfIconName]: [Extract<SfSymbolsOf<K>, keyof typeof ANDROID_ICON_BY_SF_SYMBOL>] extends [
+    never,
+  ]
+    ? never
+    : K;
+}[SfIconName];
+
+/**
+ * `icon` takes a semantic registry name and `state` its rest or active drawing; `name` takes an
+ * SF Symbol (or `{ ios, android }`) as before. Pass one: when both are given, `icon` wins.
+ */
+export type AppSymbolViewProps = Omit<SymbolViewProps, "name"> & {
+  readonly name?: AppSymbolName;
+  readonly icon?: MobileIconName;
+  readonly state?: IconState;
+};
 
 export function isAppSymbolName(name: string): name is Extract<AppSymbolName, string> {
   return Object.prototype.hasOwnProperty.call(ANDROID_ICON_BY_SF_SYMBOL, name);
 }
 
+/**
+ * The names Android looks up for these props. `icon` wins over `name` and resolves to the first
+ * of its SF names the Tabler map has; a Material name wins over the SF name it comes with.
+ */
+function androidSymbolNames(props: AppSymbolViewProps) {
+  if (props.icon !== undefined) {
+    return { sfSymbol: androidSymbolCandidates(props.icon, props.state).find(isAppSymbolName) };
+  }
+  if (props.name === undefined) return {};
+  if (typeof props.name === "string") return { sfSymbol: props.name };
+  return { materialName: props.name.android, sfSymbol: props.name.ios };
+}
+
 function AppSymbolView(props: AppSymbolViewProps) {
-  const materialName = typeof props.name === "string" ? undefined : props.name.android;
-  const sfSymbol = typeof props.name === "string" ? props.name : props.name.ios;
+  const { materialName, sfSymbol } = androidSymbolNames(props);
   const AndroidIcon =
     (materialName ? ANDROID_ICON_BY_MATERIAL_NAME[materialName] : undefined) ??
     (sfSymbol ? SF_ICON_LOOKUP[sfSymbol] : undefined);
