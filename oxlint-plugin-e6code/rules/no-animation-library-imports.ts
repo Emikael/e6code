@@ -1,5 +1,7 @@
 import { defineRule } from "@oxlint/plugins";
 
+import { literalStringValue, readAllow } from "../utils.ts";
+
 /**
  * Animation engines reach feature code only through `apps/web/src/next/motion`, which applies
  * MotionPolicy. Files that may name an engine get it through the `allow` option in an
@@ -18,30 +20,6 @@ const ENGINE_PACKAGES = [
 /** The engine package a specifier names: exactly, or as `package/subpath`. */
 const enginePackageOf = (specifier: string) =>
   ENGINE_PACKAGES.find((name) => specifier === name || specifier.startsWith(`${name}/`));
-
-/** A string literal, or a template literal with no expressions (`import(\`gsap\`)`). */
-const literalStringValue = (node: unknown): string | undefined => {
-  if (typeof node !== "object" || node === null || !("type" in node)) return undefined;
-  if (node.type === "Literal") {
-    return "value" in node && typeof node.value === "string" ? node.value : undefined;
-  }
-  if (node.type !== "TemplateLiteral") return undefined;
-  if (!("expressions" in node) || !Array.isArray(node.expressions)) return undefined;
-  if (node.expressions.length > 0 || !("quasis" in node) || !Array.isArray(node.quasis)) {
-    return undefined;
-  }
-  const cooked: unknown = node.quasis[0]?.value?.cooked;
-  return typeof cooked === "string" ? cooked : undefined;
-};
-
-const readAllow = (options: ReadonlyArray<unknown>): ReadonlySet<string> => {
-  const first = options[0];
-  if (typeof first !== "object" || first === null || !("allow" in first)) return new Set();
-  const allow = first.allow;
-  return new Set(
-    Array.isArray(allow) ? allow.filter((name): name is string => typeof name === "string") : [],
-  );
-};
 
 export default defineRule({
   meta: {
