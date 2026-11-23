@@ -14,11 +14,12 @@ Read first: the Linear task (it embeds a screenshot of the current screen and li
 the screen must keep doing), the feature planner's parity checklist if present, and the
 project documents "Design direction" and "Architecture decisions and performance
 budgets". The design direction defines the design language, tokens, the motion system
-and its named presets and tokens, the icon system that replaces Lucide, and which effects
-are allowed where. Which animation libraries the app uses is recorded as a decision in
-milestone M0 of the project; follow what is decided there rather than assuming one.
-Work inside it; if a screen needs something it does not cover, propose the addition
-explicitly so it can be adopted for every screen.
+and its named presets and tokens, the icon system, and which effects are allowed where.
+`AGENTS.md` ("The remodel" and "Taste") states the decisions in force: motion only
+through `next/motion` presets (`motion` by default, `gsap` only for authored timelines),
+Phosphor icons through `next/icons`, and nothing moving at idle. Work inside them; if a
+screen needs something they do not cover, propose the addition explicitly so it can be
+adopted for every screen.
 
 Deliver, attached to the task:
 
@@ -30,10 +31,11 @@ Deliver, attached to the task:
    for retirement (say why).
 3. **States.** Empty, loading, streaming, error, offline, permission needed, and long
    content. Status is never shown by colour alone.
-4. **Motion.** For each transition: trigger, what moves, duration, easing or spring,
-   and which library drives it. Use transform and opacity; anything that animates layout,
-   filters, or a canvas needs a stated reason and a budget. Define the reduced-motion
-   version. Nothing repaints continuously while the app is idle.
+4. **Motion.** For each transition: trigger, what moves, and which named preset or
+   set-piece plays it. If none fits, propose a new preset that every screen could use.
+   Use transform and opacity; height changes and reorders use the `layout` preset;
+   propose anything else (a filter, a canvas) as an exception with its reason and
+   budget. Define the Reduced and Off forms. Nothing moves at idle.
 5. **Tokens and components.** Which tokens and primitives it uses, which new ones it
    needs, and any component sourced from an external catalogue with its licence and
    dependencies.
@@ -43,4 +45,5 @@ Deliver, attached to the task:
 7. **What you are unsure about**, and the alternatives you rejected.
 
 Check your own design against the keyboard: every action reachable without a mouse, focus
-visible, and the command palette able to reach it. You do not edit production code.
+visible, and the command palette able to reach it. You do not edit production code, and
+you never use the Taste Skill to generate an app screen (`AGENTS.md`, "Taste Skill").
