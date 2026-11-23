@@ -1,3 +1,8 @@
+// @effect-diagnostics nodeBuiltinImport:off - probes whether the temp filesystem ignores letter case.
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -5,7 +10,7 @@ import {
   ProviderDriverKind,
   ThreadId,
 } from "@e6tools/contracts";
-import { describe, expect, it } from "@effect/vitest";
+import { afterAll, describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -16,7 +21,12 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { OrchestrationEngineService } from "../src/orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
-import { assertSeedableBaseDir, perfSeedRuntimeLayer, seedPerfHome } from "./perf-seed.ts";
+import {
+  assertSeedableBaseDir,
+  liveHomes,
+  perfSeedRuntimeLayer,
+  seedPerfHome,
+} from "./perf-seed.ts";
 
 const cursor = ProviderDriverKind.make("cursor");
 
@@ -129,4 +139,58 @@ describe("perf-seed", () => {
       expect(ok.paths.dbPath).toBe(path.join(ok.baseDir, "userdata", "state.sqlite"));
     }).pipe(Effect.provide(NodeServices.layer)),
   );
+
+  describe("live-home guard", () => {
+    const base = NodeFS.realpathSync.native(
+      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "e6-perf-seed-guard-")),
+    );
+    const live = NodePath.join(base, "Live-Home");
+    NodeFS.mkdirSync(live);
+    const caseInsensitive = NodeFS.existsSync(NodePath.join(base, "lIVE-hOME"));
+    afterAll(() => NodeFS.rmSync(base, { recursive: true, force: true }));
+
+    it.effect.skipIf(!caseInsensitive)(
+      "refuses a differently-capitalised base dir inside a live home",
+      () =>
+        Effect.gen(function* () {
+          for (const baseDir of [
+            NodePath.join(base, "lIVE-hOME"),
+            NodePath.join(base, "lIVE-hOME", "perf"),
+          ]) {
+            const error = yield* Effect.flip(assertSeedableBaseDir({ baseDir, liveHomes: [live] }));
+            expect(error._tag, baseDir).toBe("PerfSeedUnsafeHomeError");
+          }
+          expect(NodeFS.readdirSync(live)).toEqual([]);
+        }).pipe(Effect.provide(NodeServices.layer)),
+    );
+
+    it("expands a ~ in E6CODE_HOME against the account home, as the server does", () => {
+      for (const configured of ["~/e6-alt", " ~/e6-alt ", "~\\e6-alt"]) {
+        expect(
+          liveHomes({ env: { E6CODE_HOME: configured }, accountHomes: [NodeOS.homedir()] }),
+          configured,
+        ).toContain(NodePath.join(NodeOS.homedir(), "e6-alt"));
+      }
+      expect(liveHomes({ env: { E6CODE_HOME: "~" }, accountHomes: ["/Users/me"] })).toEqual([
+        "/Users/me/.e6",
+        "/Users/me",
+      ]);
+      expect(liveHomes({ env: { E6CODE_HOME: " " }, accountHomes: ["/Users/me"] })).toEqual([
+        "/Users/me/.e6",
+      ]);
+    });
+
+    it.effect("refuses a base dir inside a ~-relative E6CODE_HOME", () =>
+      Effect.gen(function* () {
+        const homes = liveHomes({ env: { E6CODE_HOME: "~/e6-alt" }, accountHomes: [base] });
+        const error = yield* Effect.flip(
+          assertSeedableBaseDir({
+            baseDir: NodePath.join(base, "e6-alt", "perf"),
+            liveHomes: homes,
+          }),
+        );
+        expect(error._tag).toBe("PerfSeedUnsafeHomeError");
+      }).pipe(Effect.provide(NodeServices.layer)),
+    );
+  });
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @effect-diagnostics nodeBuiltinImport:off - reads the account's home directory to refuse the live E6 home.
+// @effect-diagnostics nodeBuiltinImport:off - reads the account's home directory and the native real path to refuse the live E6 home.
 /**
  * Seeds a throwaway E6 home for the web performance harness:
  *
@@ -13,12 +13,15 @@
  * any home that already has a database or a server descriptor. It prints one
  * JSON line with the seed's duration, counts and highest event sequence.
  */
+import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderDriverKind } from "@e6tools/contracts";
 import { DATA_DIR_NAME, readBrandEnv } from "@e6tools/shared/brand";
+import { expandHomePath } from "@e6tools/shared/path";
 import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -61,7 +64,10 @@ export const perfSeedRuntimeLayer = (input: { readonly baseDir: string; readonly
     Layer.provideMerge(ServerConfig.layerTest(input.cwd, input.baseDir)),
   );
 
-/** The real path of `target`, resolved through its nearest existing ancestor. */
+/**
+ * The real path of `target`, resolved through its nearest existing ancestor. The native realpath
+ * also spells letter case the way a case-insensitive disk stores it, so `~/.E6` meets `~/.e6`.
+ */
 const realPathThroughAncestors = Effect.fnUntraced(function* (target: string) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -73,18 +79,27 @@ const realPathThroughAncestors = Effect.fnUntraced(function* (target: string) {
     missing.unshift(path.basename(existing));
     existing = parent;
   }
-  const real = yield* fileSystem.realPath(existing).pipe(Effect.orElseSucceed(() => existing));
+  const real = yield* Effect.try(() => NodeFS.realpathSync.native(existing)).pipe(
+    Effect.orElseSucceed(() => existing),
+  );
   return path.join(real, ...missing);
 });
 
-/** Live E6 homes the seed must never write into: `~/.e6` for this account and `E6CODE_HOME`. */
-export const liveHomes = (): ReadonlyArray<string> => {
-  const homes = new Set<string>();
-  for (const home of [NodeOS.homedir(), NodeOS.userInfo().homedir]) {
-    if (home) homes.add(`${home}/${DATA_DIR_NAME}`);
+/**
+ * Live E6 homes the seed must never write into: `~/.e6` per account home, and `E6CODE_HOME` read
+ * the way the server reads it, a leading `~` expanded against each account home and then resolved.
+ */
+export const liveHomes = (input: {
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly accountHomes: ReadonlyArray<string>;
+}): ReadonlyArray<string> => {
+  const homes = new Set(input.accountHomes.map((home) => NodePath.join(home, DATA_DIR_NAME)));
+  const configured = readBrandEnv(input.env, "HOME");
+  if (configured !== undefined) {
+    for (const homeDir of input.accountHomes) {
+      homes.add(NodePath.resolve(expandHomePath(configured, { homeDir, join: NodePath.join })));
+    }
   }
-  const configured = readBrandEnv(process.env, "HOME");
-  if (configured !== undefined) homes.add(configured);
   return [...homes];
 };
 
@@ -196,7 +211,16 @@ const perfSeedCommand = Command.make(
         .map((entry) => entry.trim())
         .filter((entry) => entry.length > 0)
         .map((entry) => ProviderDriverKind.make(entry));
-      const summary = yield* seedPerfHome({ ...flags, providers, liveHomes: liveHomes() });
+      const summary = yield* seedPerfHome({
+        ...flags,
+        providers,
+        liveHomes: liveHomes({
+          env: process.env,
+          accountHomes: [NodeOS.homedir(), NodeOS.userInfo().homedir].filter(
+            (home) => home.length > 0,
+          ),
+        }),
+      });
       yield* Console.log(yield* encodeSummary(summary));
     }).pipe(Effect.provideService(References.MinimumLogLevel, "Warn")),
 ).pipe(Command.withDescription("Seed a throwaway E6 home for the web performance harness."));
